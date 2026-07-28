@@ -1,0 +1,219 @@
+function ctl = spt_experiment_panel(parent, opts)
+%SPT_EXPERIMENT_PANEL  Shared experiment/condition manager, embeddable in every tool.
+%
+%   ctl = spt_experiment_panel(parent, opts)
+%
+% Builds inside PARENT a cell table spanning any number of day/batch folders, with each cell's
+% CONDITION, day/replicate, per-stage STATUS (tracked·curated·built·picked·mapped·dwelled, derived
+% from the filesystem), QC EXCLUDE flag and NOTES. One manifest is the single source of truth —
+% every tool embeds this same panel so conditions are defined once and shared.
+%
+% opts (all optional):
+%   .seedFolders  cellstr of folders to scan on open (no dialog needed — for headless/host wiring).
+%   .manifestPath auto-load this experiment_manifest.mat on open.
+%   .tool         'track'|'curate'|'analyze' (labels only).
+%   .actionLabel  text for a host "process selected" button (e.g. 'Build selected'); '' hides it.
+%   .actionFcn    @(cells) ... called with the SELECTED cell records when the action button is hit.
+%   .onChange     @(manifest) ... called whenever the manifest changes (assign/exclude/scan/load).
+%
+% ctl (struct of handles): .getCells() .getManifest() .getSelected() .refresh() .load(path)
+%   .save(path) .addFolder(path) .panel
+%
+% The rich cell records + status come from cs_experiment_scan / cs_experiment_status; Compare reads
+% getManifest() and calls cs_experiment_aggregate to pool across folders by condition.
+
+if nargin<2 || ~isstruct(opts), opts = struct(); end
+actionLabel = getf(opts,'actionLabel','');
+actionFcn   = getf(opts,'actionFcn',[]);
+onChange    = getf(opts,'onChange',[]);
+
+here = fileparts(mfilename('fullpath'));                 % make cs_experiment_* reachable
+d1 = fullfile(fileparts(here),'drivers'); if isfolder(d1), addpath(d1); end
+
+folders = {}; sf = getf(opts,'seedFolders',{}); if ~isempty(sf), folders = cellstr(sf); end
+cells = []; rowMap = [];
+tbl=[]; eCond=[]; eDay=[]; eFilter=[]; lbl=[];
+
+buildUI();
+if ~isempty(folders), doScan(); end
+mp = getf(opts,'manifestPath',''); if ~isempty(mp) && isfile(mp), doLoad(mp); end
+
+% NB: getCells must be a NESTED function (reads the LIVE cells) — an anonymous @() cells would capture
+% the empty value at build time (the by-value-capture gotcha), so the host would always see 0 cells.
+ctl = struct('getCells',@getCellsLive, 'getManifest',@getManifest, 'getSelected',@getSelected, ...
+             'refresh',@doScan, 'load',@doLoad, 'save',@doSave, 'addFolder',@addFolder, 'panel',parent);
+
+% ======================= nested =======================
+    function buildUI()
+        delete(allchild(parent));
+        g = uigridlayout(parent,[3 1],'RowHeight',{34,30,'1x'},'Padding',[8 8 8 8],'RowSpacing',5);
+        r1 = uigridlayout(g,[1 7],'ColumnWidth',{120,84,72,72,150,'1x',0},'Padding',[0 0 0 0],'ColumnSpacing',6);
+        uibutton(r1,'Text','➕ Add folder…','FontWeight','bold','BackgroundColor',[0.18 0.45 0.70],'FontColor','w', ...
+            'Tooltip','Add a day/batch folder (project root or its analysis/). Its cells appear below.','ButtonPushedFcn',@(s,e) onAdd());
+        uibutton(r1,'Text','↻ Rescan','ButtonPushedFcn',@(s,e) doScan(),'Tooltip','Re-scan folders (refresh status), keeping condition/day/exclude/notes.');
+        uibutton(r1,'Text','💾 Save','ButtonPushedFcn',@(s,e) onSaveBtn(),'Tooltip','Save the experiment manifest.');
+        uibutton(r1,'Text','📂 Load','ButtonPushedFcn',@(s,e) onLoadBtn(),'Tooltip','Load a saved experiment manifest.');
+        if ~isempty(actionLabel) && ~isempty(actionFcn)
+            uibutton(r1,'Text',actionLabel,'FontWeight','bold','BackgroundColor',[0.40 0.30 0.55],'FontColor','w', ...
+                'ButtonPushedFcn',@(s,e) onAction(),'Tooltip','Run this tool''s step on the rows selected in the table.');
+        else, uilabel(r1,'Text',''); end
+        lbl = uilabel(r1,'Text','Add each day''s folder, then assign conditions. Status is read from the files.','FontColor',[0.2 0.4 0.5]);
+        uilabel(r1,'Text','');
+        % row 2: assign + filter
+        r2 = uigridlayout(g,[1 9],'ColumnWidth',{58,140,64, 52,110,64, 96, 46,'1x'},'Padding',[0 0 0 0],'ColumnSpacing',6);
+        uilabel(r2,'Text','condition','HorizontalAlignment','right');
+        eCond = uieditfield(r2,'text','Placeholder','e.g. WT');
+        uibutton(r2,'Text','Assign','ButtonPushedFcn',@(s,e) onAssign('condition',eCond.Value),'Tooltip','Set the selected rows'' condition.');
+        uilabel(r2,'Text','day/rep','HorizontalAlignment','right');
+        eDay = uieditfield(r2,'text','Placeholder','e.g. 250408');
+        uibutton(r2,'Text','Assign','ButtonPushedFcn',@(s,e) onAssign('day',eDay.Value),'Tooltip','Set the selected rows'' day/replicate label (used as the stats replicate unit).');
+        uibutton(r2,'Text','✖ Exclude','ButtonPushedFcn',@(s,e) onToggleExcl(),'Tooltip','Toggle QC-exclude for the selected rows (they drop from analysis but stay recorded).');
+        uilabel(r2,'Text','filter','HorizontalAlignment','right');
+        eFilter = uieditfield(r2,'text','Placeholder','condition / day / cell / ''unassigned'' / ''unmapped''','ValueChangedFcn',@(s,e) fillTable());
+        % row 3: the cell table (the dashboard)
+        tbl = uitable(g,'ColumnName',{'day','cell','condition','tracked','curated','built','picked','mapped','dwelled','excl','notes'}, ...
+            'ColumnWidth',{110,'auto',110,58,58,44,50,50,56,44,'1x'}, ...
+            'ColumnEditable',[true false true false false false false false false true true], ...
+            'ColumnFormat',{'char','char','char','char','char','char','char','char','char','logical','char'}, ...
+            'SelectionType','row','Multiselect','on','CellEditCallback',@(s,e) onEdit(e));
+    end
+
+    function onAdd()
+        d = uigetdir(pwd,'Pick a day/batch folder (project root or its analysis/)');
+        if isequal(d,0), return; end
+        addFolder(d);
+    end
+    function addFolder(d)
+        d = char(d);
+        if ~isfolder(d), return; end
+        if ~(isfile(fullfile(d,'TrackStruct.mat')) || isfolder(fullfile(d,'analysis')) || isfolder(fullfile(d,'spt')) || isfolder(fullfile(d,'tracks')))
+            setStatus('That folder is not a project/analysis folder (no TrackStruct/analysis/spt/tracks).'); return;
+        end
+        if ~any(strcmp(folders,d)), folders{end+1} = d; end %#ok<AGROW>
+        doScan();
+    end
+
+    function doScan()
+        if isempty(folders), setStatus('Add a folder first (➕ Add folder…).'); fillTable(); return; end
+        prev = cells;
+        try, fresh = cs_experiment_scan(folders); catch ME, setStatus(['Scan error: ' ME.message]); return; end
+        for k = 1:numel(fresh)                                     % carry over manual assignments
+            for q = 1:numel(prev)
+                if strcmp(prev(q).folder,fresh(k).folder) && strcmp(prev(q).file,fresh(k).file)
+                    fresh(k).condition = prev(q).condition; fresh(k).day = prev(q).day;
+                    fresh(k).exclude = prev(q).exclude; fresh(k).notes = prev(q).notes; break;
+                end
+            end
+        end
+        cells = fresh; fillTable(); notifyChange();
+        nMap = 0; nCond = 0; if ~isempty(cells), nMap = nnz([cells.hasCSW]); nCond = numel(setdiff(unique({cells.condition}),{''})); end
+        setStatus(sprintf('%d cell(s) · %d folder(s) · %d mapped · %d condition(s).', numel(cells), numel(folders), nMap, nCond));
+    end
+
+    function fillTable()
+        if isempty(cells), tbl.Data = {}; rowMap = []; return; end
+        keep = filterRows();
+        rowMap = keep;
+        D = cell(numel(keep),11);
+        for i = 1:numel(keep)
+            c = cells(keep(i)); s = c.status;
+            D(i,:) = {c.day, c.file, c.condition, y(s.tracked), y(s.curated), y(s.built), y(s.picked), y(s.mapped), y(s.dwelled), logical(c.exclude), c.notes};
+        end
+        tbl.Data = D;
+    end
+
+    function keep = filterRows()
+        keep = 1:numel(cells);
+        q = ''; if ~isempty(eFilter) && isgraphics(eFilter), q = lower(strtrim(eFilter.Value)); end
+        if isempty(q), return; end
+        hit = false(1,numel(cells));
+        for i = 1:numel(cells)
+            c = cells(i); s = c.status;
+            kw = strjoin({c.day, c.file, c.condition, ...
+                stagesTrue(s), tern(c.exclude,'excluded',''), tern(isempty(c.condition),'unassigned',''), ...
+                tern(~s.mapped,'unmapped',''), tern(~s.dwelled,'undwelled','')}, ' ');
+            hit(i) = contains(lower(kw), q);
+        end
+        keep = find(hit);
+    end
+
+    function onEdit(e)
+        try, r = e.Indices(1); c = e.Indices(2); catch, return; end
+        if isempty(rowMap) || r<1 || r>numel(rowMap), return; end
+        idx = rowMap(r);
+        switch c
+            case 1,  cells(idx).day = strtrim(char(string(e.NewData)));
+            case 3,  cells(idx).condition = strtrim(char(string(e.NewData)));
+            case 10, cells(idx).exclude = logical(e.NewData);
+            case 11, cells(idx).notes = char(string(e.NewData));
+        end
+        notifyChange();
+    end
+
+    function onAssign(field, val)
+        val = strtrim(char(val)); sel = selRows();
+        if isempty(sel), setStatus('Select one or more rows first.'); return; end
+        if isempty(val), setStatus(['Type a ' field ' on the left, then Assign.']); return; end
+        for r = sel, cells(r).(field) = val; end
+        fillTable(); notifyChange();
+        setStatus(sprintf('Assigned %s "%s" to %d cell(s).', field, val, numel(sel)));
+    end
+
+    function onToggleExcl()
+        sel = selRows(); if isempty(sel), setStatus('Select rows to exclude/restore.'); return; end
+        for r = sel, cells(r).exclude = ~logical(cells(r).exclude); end
+        fillTable(); notifyChange();
+        setStatus(sprintf('Toggled exclude on %d cell(s).', numel(sel)));
+    end
+
+    function onAction()
+        if isempty(actionFcn), return; end
+        s = getSelected(); if isempty(s), setStatus('Select rows to process.'); return; end
+        try, actionFcn(s); catch ME, setStatus(['Action failed: ' ME.message]); end
+        doScan();                                                  % refresh status after the tool ran
+    end
+
+    function s = selRows()
+        s = []; if isempty(tbl)||~isgraphics(tbl)||isempty(tbl.Selection)||isempty(rowMap), return; end
+        rr = tbl.Selection(:)'; rr = rr(rr>=1 & rr<=numel(rowMap)); s = rowMap(rr);
+    end
+    function c = getCellsLive(), c = cells; end
+    function s = getSelected(), r = selRows(); if isempty(r), s = cells([]); else, s = cells(r); end, end
+    function m = getManifest(), m = struct('folders',{folders},'cells',cells); end
+
+    function onSaveBtn()
+        if isempty(cells), setStatus('Nothing to save.'); return; end
+        [fn,fp] = uiputfile({'*.mat','Experiment manifest'},'Save experiment manifest','experiment_manifest.mat');
+        if isequal(fn,0), return; end
+        doSave(fullfile(fp,fn));
+    end
+    function doSave(p)
+        manifest = getManifest(); %#ok<NASGU>
+        try, save(p,'manifest','-v7.3'); setStatus(['Saved ' p]); catch ME, setStatus(['Save failed: ' ME.message]); end
+    end
+    function onLoadBtn()
+        [fn,fp] = uigetfile({'*.mat','Experiment manifest'},'Load experiment manifest');
+        if isequal(fn,0), return; end
+        doLoad(fullfile(fp,fn));
+    end
+    function doLoad(p)
+        try, L = load(p); catch ME, setStatus(['Load failed: ' ME.message]); return; end
+        if ~isfield(L,'manifest') || ~isfield(L.manifest,'cells'), setStatus('Not an experiment manifest.'); return; end
+        folders = L.manifest.folders; if ischar(folders), folders = cellstr(folders); end
+        cells = L.manifest.cells;
+        doScan();                                                 % refresh status, keep loaded conditions
+        setStatus(['Loaded ' p]);
+    end
+
+    function notifyChange(), if ~isempty(onChange), try, onChange(getManifest()); catch, end, end, end
+    function setStatus(t), if ~isempty(lbl)&&isgraphics(lbl), lbl.Text = t; end, end
+end
+
+% ---- file-scope helpers ----
+function s = y(b), if b, s='✓'; else, s='–'; end, end
+function s = stagesTrue(st)
+nm = {}; f = {'tracked','curated','built','picked','mapped','dwelled'};
+for i=1:numel(f), if st.(f{i}), nm{end+1}=f{i}; end, end %#ok<AGROW>
+s = strjoin(nm,' ');
+end
+function v = getf(s,f,d), if isstruct(s)&&isfield(s,f)&&~isempty(s.(f)), v=s.(f); else, v=d; end, end

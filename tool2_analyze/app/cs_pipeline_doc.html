@@ -1,0 +1,210 @@
+<!-- In-app documentation for Tab 5 (Run ContactSites), loaded into a uihtml panel by
+     spt_pipeline_app.m. Plain, self-contained HTML/CSS (no external assets). Edit freely. -->
+<style>
+  :root{
+    --ink:#39404a; --muted:#6b7280; --accent:#2a72b3; --accent-soft:#eaf2fb;
+    --line:#e3e8ef; --panel:#f6f8fb; --good:#2e7d5b; --good-soft:#e7f4ee;
+    --warn:#b5651d; --warn-soft:#fbf0e4; --you:#7a3ea8; --you-soft:#f1e9f8;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;}
+  .doc{
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
+    color:var(--ink); font-size:13px; line-height:1.5; padding:4px 14px 24px 2px;
+    -webkit-font-smoothing:antialiased;
+  }
+  .doc h1{font-size:16px; margin:2px 0 2px; color:#20262e;}
+  .doc h2{font-size:13.5px; text-transform:uppercase; letter-spacing:.04em;
+    color:var(--accent); margin:20px 0 8px; padding-bottom:4px; border-bottom:1px solid var(--line);}
+  .doc p{margin:6px 0;}
+  .doc .lead{color:var(--muted); margin:2px 0 4px;}
+  .doc code{font-family:"SF Mono",Menlo,Consolas,monospace; font-size:12px;
+    background:var(--panel); border:1px solid var(--line); border-radius:4px; padding:0 4px; color:#334;}
+  .doc .flow{display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin:8px 0 4px;}
+  .doc .chip{background:var(--panel); border:1px solid var(--line); border-radius:999px;
+    padding:2px 10px; font-size:12px; white-space:nowrap;}
+  .doc .chip.you{background:var(--you-soft); border-color:#e0ccf0; color:var(--you); font-weight:600;}
+  .doc .arrow{color:var(--muted);}
+  table{border-collapse:collapse; width:100%; margin:6px 0 4px; font-size:12.5px;}
+  th,td{text-align:left; vertical-align:top; padding:7px 9px; border-bottom:1px solid var(--line);}
+  th{color:var(--muted); font-weight:600; font-size:11.5px; text-transform:uppercase; letter-spacing:.03em;
+    background:var(--panel); position:sticky; top:0;}
+  td.stage{white-space:nowrap; font-weight:600; color:#2b323b;}
+  .grp td{background:var(--accent-soft); color:var(--accent); font-weight:700; font-size:11px;
+    text-transform:uppercase; letter-spacing:.05em; padding:5px 9px;}
+  .badge{display:inline-block; font-size:10px; font-weight:700; border-radius:4px; padding:1px 6px;
+    margin-left:6px; vertical-align:middle;}
+  .badge.you{background:var(--you-soft); color:var(--you);}
+  .badge.slow{background:var(--warn-soft); color:var(--warn);}
+  .badge.opt{background:var(--panel); color:var(--muted); border:1px solid var(--line);}
+  .out{font-family:"SF Mono",Menlo,Consolas,monospace; font-size:11.5px; color:#4a5563;}
+  .callout{border:1px solid var(--line); border-left:4px solid var(--accent); background:var(--panel);
+    border-radius:6px; padding:10px 12px; margin:10px 0;}
+  .callout.good{border-left-color:var(--good); background:var(--good-soft);}
+  .callout.speed{border-left-color:var(--warn); background:var(--warn-soft);}
+  .callout h3{margin:0 0 4px; font-size:13px; color:#2b323b;}
+  .two{display:flex; gap:10px; flex-wrap:wrap;}
+  .two > div{flex:1 1 260px; border:1px solid var(--line); border-radius:6px; padding:9px 11px; background:#fff;}
+  .two .t{font-weight:700; font-size:12.5px; margin-bottom:3px;}
+  .two .builder .t{color:var(--good);} .two .accum .t{color:var(--warn);}
+  ul{margin:5px 0 5px; padding-left:18px;} li{margin:3px 0;}
+  .keys{color:var(--muted); font-size:11.5px;}
+</style>
+
+<div class="doc">
+  <h1>The ContactSites pipeline &mdash; what happens when you press Run</h1>
+  <p class="lead">Single-particle tracking &rarr; localization-density maps &rarr; you pick contact sites &rarr;
+    tracks are mapped to each site &rarr; you refine boundaries &rarr; the result is built. VAPB ER&ndash;mitochondria
+    contact sites (Obara et&nbsp;al., <i>Nature</i> 626:169, 2024).</p>
+  <p>To run the whole thing, leave <b>start stage</b> on <code>density</code> and press <b>Run / Resume</b>.
+    The pipeline runs on its own and pauses only at the two steps that need your mouse &mdash; <b>picking</b>
+    and <b>refining</b> &mdash; which open inside the <b>6&nbsp;&middot;&nbsp;Contact&nbsp;Sites</b> tab.
+    When it finishes, <b>7&nbsp;&middot;&nbsp;CS&nbsp;Results</b> opens automatically.</p>
+
+  <div class="flow">
+    <span class="chip">density</span><span class="arrow">&rarr;</span>
+    <span class="chip">locdens</span><span class="arrow">&rarr;</span>
+    <span class="chip">quickplot</span><span class="arrow">&rarr;</span>
+    <span class="chip you">PICK &middot; csid</span><span class="arrow">&rarr;</span>
+    <span class="chip">mapper</span><span class="arrow">&rarr;</span>
+    <span class="chip">part2</span><span class="arrow">&rarr;</span>
+    <span class="chip">snaprename</span><span class="arrow">&rarr;</span>
+    <span class="chip you">REFINE &middot; refiner</span><span class="arrow">&rarr;</span>
+    <span class="chip">ensemble</span><span class="arrow">&rarr;</span>
+    <span class="chip">builder</span><span class="arrow">&rarr;</span>
+    <span class="chip">accum</span>
+  </div>
+
+  <h2>The stages, one by one</h2>
+  <table>
+    <thead><tr><th>Stage</th><th>What it does</th><th>Produces</th></tr></thead>
+    <tbody>
+      <tr class="grp"><td colspan="3">Automatic &middot; build the density maps</td></tr>
+      <tr>
+        <td class="stage">density</td>
+        <td>Bins <b>every localization</b> of each cell into a whole-cell density map at <b>30&nbsp;nm</b> pixels,
+          lightly Gaussian-smoothed (&sigma;&nbsp;=&nbsp;2&nbsp;px) and turbo-coloured. This is the base image every
+          later stage measures on. (Per-cell contrast &mdash; not the cross-cell density PMF used for the metrics CSV.)</td>
+        <td><span class="out">Densities/&lt;file&gt;_rho.tif</span></td>
+      </tr>
+      <tr>
+        <td class="stage">locdens</td>
+        <td>Same 30&nbsp;nm binning per cell, saved as the <b>density background</b> the picker and refiner draw on.</td>
+        <td><span class="out">Density_&lt;file&gt;.tif / .mat</span></td>
+      </tr>
+      <tr>
+        <td class="stage">quickplot <span class="badge opt">optional</span></td>
+        <td>Overlays each cell&rsquo;s trajectories on its max-intensity structure image &mdash; visual QC only.
+          Skipped when there is no <code>MaxInt/</code> folder (this pipeline&rsquo;s Import-QC tab does this better).</td>
+        <td><span class="out">figures only (nothing saved)</span></td>
+      </tr>
+
+      <tr class="grp"><td colspan="3">You pick the sites</td></tr>
+      <tr>
+        <td class="stage">csid <span class="badge you">YOU</span></td>
+        <td>The <b>density picker</b> opens in the Contact&nbsp;Sites tab. It auto-detects density peaks that a
+          statistical <b>null model</b> rules out as chance (Monte-Carlo CSR, Poisson, ER-weighted, or local-background),
+          and you add/remove points by hand. Each point is auto-classified <b>mito vs non-mito</b> by sampling the
+          mitochondria image underneath it. <i>Needs your input.</i></td>
+        <td><span class="out">csIDs/&lt;base&gt;_CSsites.txt</span></td>
+      </tr>
+
+      <tr class="grp"><td colspan="3">Automatic &middot; map tracks to sites</td></tr>
+      <tr>
+        <td class="stage">mapper</td>
+        <td>Crops a fixed window around each picked point and records <b>which tracks and localizations fall inside it</b>
+          &mdash; this defines every site&rsquo;s candidate track pool.</td>
+        <td><span class="out">TrackData/&lt;base&gt;_CSdata.mat<br>+ per-site density snapshots</span></td>
+      </tr>
+      <tr>
+        <td class="stage">part2</td>
+        <td>Tabulates each cell&rsquo;s mito vs non-mito site counts and reassembles the per-cell track structures into
+          one array, tagging every cell with its mito-CS index.</td>
+        <td><span class="out">CSindexing.mat<br>Tracks_final.mat</span></td>
+      </tr>
+      <tr>
+        <td class="stage">snaprename</td>
+        <td>Files the mapper&rsquo;s per-site snapshots into the canonical layout (moves <code>CSdata/</code> to
+          <code>CSsnaps/</code>, makes a fresh <code>CSdata/</code> for the refiner). Idempotent.</td>
+        <td><span class="out">CSsnaps/ + fresh CSdata/</span></td>
+      </tr>
+
+      <tr class="grp"><td colspan="3">You refine the boundaries</td></tr>
+      <tr>
+        <td class="stage">refiner <span class="badge you">YOU</span></td>
+        <td>The <b>freehand refiner</b> opens in the Contact&nbsp;Sites tab. For each site you click the refined
+          <b>centre</b> and freehand-trace the <b>boundary</b> on a site-local 30&nbsp;nm density map
+          (a &plusmn;2.4&nbsp;&micro;m window). It writes back the refined geometry, an ellipse fit, and which
+          localizations fall inside. A site you pass without drawing is dropped; use &ldquo;Use full box&rdquo; to keep
+          it un-refined. <i>Needs your input.</i></td>
+        <td><span class="out">CSdata/&lt;base&gt;_CSdata.mat (refined)</span></td>
+      </tr>
+
+      <tr class="grp"><td colspan="3">Automatic &middot; finish &amp; export</td></tr>
+      <tr>
+        <td class="stage">ensemble <span class="badge opt">JBM only</span></td>
+        <td>Aggregates per-localization effective diffusion (D<sub>eff</sub>) inside vs outside contact sites into
+          Excel/MAT tables. Runs only on the JBM/Deff branch (needs tessellation Maps); <b>skipped on this pipeline</b>.</td>
+        <td><span class="out">CSoutput.xlsx / .mat</span></td>
+      </tr>
+      <tr>
+        <td class="stage">builder</td>
+        <td>Assembles <b>CS_final.mat</b> &mdash; the one data structure holding every contact site (member tracks,
+          refined boundary + centre, centred track matrix, mito flag, ellipse fit&hellip;). <b>This is what Tabs&nbsp;7 &amp;
+          8 read. It is the main result.</b></td>
+        <td><span class="out">CS_final.mat</span></td>
+      </tr>
+      <tr>
+        <td class="stage">accum <span class="badge slow">slow</span> <span class="badge opt">optional</span></td>
+        <td>Writes the Excel summary table plus <b>~9 QC images per site</b> (turbo/jet density, tracks, vectors,
+          boundary, ellipse&hellip;). These are export/figure artifacts &mdash; <b>the app never reads them</b>. Untick
+          <b>&ldquo;Excel + reference images&rdquo;</b> to skip it.</td>
+        <td><span class="out">CS_details.xlsx + CS_turbo/ CS_jet/<br>VectorGraphics/ DeffVisual/ TracksVisual/</span></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>builder vs accum &mdash; the important distinction</h2>
+  <div class="two">
+    <div class="builder">
+      <div class="t">builder = the result (data)</div>
+      <p>Produces <code>CS_final.mat</code>: the numbers and geometry for every site. <b>Required.</b> Tabs 7 &amp; 8
+        read it directly. Cheap &mdash; just assembles a struct.</p>
+    </div>
+    <div class="accum">
+      <div class="t">accum = the export (pictures)</div>
+      <p>Produces the Excel table + hundreds of per-site PNG/SVG images for your figures and records. <b>Optional</b>,
+        and nothing in the app consumes it. Slow &mdash; 9 renders &times; every site.</p>
+    </div>
+  </div>
+
+  <div class="callout">
+    <h3>Refining vs. exporting</h3>
+    <p>Adjusting a site&rsquo;s boundary re-runs only <code>builder</code>, so Tabs&nbsp;7&nbsp;&amp;&nbsp;8 update
+      right away; a re-refine intentionally skips the <code>accum</code> image/Excel export. When you have finished
+      refining, run a full pipeline with <b>&ldquo;Excel + reference images&rdquo;</b> ticked once to generate the QC
+      images and Excel for your final figures.</p>
+  </div>
+
+  <h2>What you get out</h2>
+  <ul>
+    <li><code>CS_final.mat</code> &mdash; every contact site (from <b>builder</b>); read by Tabs 7 &amp; 8.</li>
+    <li><code>cs_density_metrics.csv</code> &mdash; per-site density PMF metrics (prob-mass, peak, enrichment), written
+      by the app itself, not the accum.</li>
+    <li><code>csIDs/*_CSsites.txt</code> &mdash; your picks; <code>CSdata/*_CSdata.mat</code> &mdash; refined per-cell
+      site data.</li>
+    <li><i>If you run accum:</i> <code>CS_details.xlsx</code> + the per-site image folders above.</li>
+  </ul>
+
+  <h2>Tips</h2>
+  <ul>
+    <li><b>Full run:</b> leave start stage on <code>density</code> and press Run.</li>
+    <li><b>Resume:</b> set <b>start stage</b> to any stage (e.g. <code>refiner</code>) to continue without redoing the
+      earlier work. <b>Stop after</b> ends the run early.</li>
+    <li><b>While refining a lot:</b> keep <b>&ldquo;Excel + reference images&rdquo;</b> <u>unticked</u> so Results opens
+      immediately after <code>builder</code>; tick it for one final export run.</li>
+    <li><b>Mito vs non-mito</b> is set during picking (auto from the mito image) and can be toggled in the refiner &mdash;
+      it decides which sites count as ER&ndash;mitochondria contacts.</li>
+    <li>The line above updates to describe whichever <b>start stage</b> you select.</li>
+  </ul>
+</div>

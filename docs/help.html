@@ -1,0 +1,274 @@
+<!doctype html>
+<!-- SPTinMatlab — user help guide. Self-contained (no external assets). Opened from the app's ❓ Help
+     button (web()) and also viewable directly in a browser. Edit freely. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SPTinMatlab — Help &amp; Pipeline Guide</title>
+<style>
+  :root{
+    --ink:#2b313a; --muted:#6b7280; --accent:#2a72b3; --accent-soft:#eaf2fb;
+    --line:#e3e8ef; --panel:#f6f8fb; --good:#2e7d5b; --good-soft:#e7f4ee;
+    --warn:#b5651d; --warn-soft:#fbf0e4; --you:#7a3ea8; --you-soft:#f1e9f8; --code:#eef1f6;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --ink:#d7dce3; --muted:#9aa3af; --accent:#6bb0ee; --accent-soft:#16283a;
+      --line:#2b323c; --panel:#161a20; --good:#7fd0a8; --good-soft:#14241c; --warn:#e0a86a;
+      --warn-soft:#2a2013; --you:#c79ae8; --you-soft:#241a2e; --code:#12161c; }
+    body{ background:#0e1116; }
+  }
+  *{box-sizing:border-box;}
+  body{ margin:0; color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
+    font-size:14.5px; line-height:1.62; -webkit-font-smoothing:antialiased; }
+  .wrap{ display:grid; grid-template-columns:230px 1fr; max-width:1180px; margin:0 auto; }
+  nav{ position:sticky; top:0; align-self:start; height:100vh; overflow:auto; padding:22px 14px 40px;
+    border-right:1px solid var(--line); font-size:13px; }
+  nav h4{ text-transform:uppercase; letter-spacing:.05em; font-size:11px; color:var(--muted); margin:16px 0 6px; }
+  nav a{ display:block; color:var(--ink); text-decoration:none; padding:3px 8px; border-radius:6px; }
+  nav a:hover{ background:var(--accent-soft); color:var(--accent); }
+  main{ padding:26px 34px 90px; min-width:0; }
+  h1{ font-size:25px; margin:2px 0 2px; letter-spacing:-.01em; }
+  h2{ font-size:19px; margin:34px 0 8px; padding-top:10px; border-top:2px solid var(--line); }
+  h3{ font-size:15.5px; margin:20px 0 4px; color:var(--accent); }
+  p,li{ margin:7px 0; }
+  code{ font-family:"SF Mono",Menlo,Consolas,monospace; font-size:12.5px; background:var(--code);
+    border:1px solid var(--line); border-radius:4px; padding:.5px 5px; }
+  pre{ background:var(--code); border:1px solid var(--line); border-radius:8px; padding:12px 14px;
+    overflow:auto; font-size:12.5px; line-height:1.5; }
+  pre code{ background:none; border:none; padding:0; }
+  .lead{ color:var(--muted); font-size:15px; }
+  .card{ background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:12px 16px; margin:12px 0; }
+  .note{ border-left:4px solid var(--accent); background:var(--accent-soft); border-radius:0 8px 8px 0; padding:8px 14px; margin:12px 0; }
+  .good{ border-left:4px solid var(--good); background:var(--good-soft); border-radius:0 8px 8px 0; padding:8px 14px; margin:12px 0; }
+  .warn{ border-left:4px solid var(--warn); background:var(--warn-soft); border-radius:0 8px 8px 0; padding:8px 14px; margin:12px 0; }
+  .flow{ display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin:10px 0; }
+  .chip{ background:var(--panel); border:1px solid var(--line); border-radius:999px; padding:3px 12px; white-space:nowrap; font-size:13px; }
+  .chip.b{ background:var(--accent-soft); border-color:#bcd; color:var(--accent); font-weight:600; }
+  .arw{ color:var(--muted); }
+  table{ border-collapse:collapse; width:100%; margin:10px 0; font-size:13.5px; }
+  th,td{ text-align:left; vertical-align:top; padding:7px 10px; border-bottom:1px solid var(--line); }
+  th{ color:var(--muted); font-weight:600; font-size:11.5px; text-transform:uppercase; letter-spacing:.03em; }
+  kbd{ font:inherit; background:var(--panel); border:1px solid var(--line); border-bottom-width:2px; border-radius:5px; padding:0 6px; font-size:12.5px; }
+  .tag{ font-size:11px; font-weight:600; padding:1px 7px; border-radius:999px; }
+  .tag.you{ background:var(--you-soft); color:var(--you); }
+  hr{ border:none; border-top:1px solid var(--line); margin:22px 0; }
+  @media (max-width:820px){ .wrap{ grid-template-columns:1fr; } nav{ position:static; height:auto; border-right:none; border-bottom:1px solid var(--line); } }
+</style>
+</head>
+<body>
+<div class="wrap">
+<nav>
+  <h4>Start</h4>
+  <a href="#overview">Overview &amp; data flow</a>
+  <a href="#quickstart">Quick start</a>
+  <h4>The three tools</h4>
+  <a href="#track">1 · Track</a>
+  <a href="#curate">2 · Curate &amp; Build</a>
+  <a href="#analyze">3 · Analyze</a>
+  <h4>How it works</h4>
+  <a href="#detection">Spot detection</a>
+  <a href="#density">Density &amp; counts</a>
+  <a href="#windowing">Windowing</a>
+  <a href="#mcnull">The Monte-Carlo null</a>
+  <a href="#peaks">Robust peak detection</a>
+  <a href="#radial">The radial (ER) null</a>
+  <a href="#dwell">Dwell &amp; escape rate</a>
+  <h4>Trust the numbers</h4>
+  <a href="#transparency">Transparency &amp; provenance</a>
+  <a href="#outputs">File outputs</a>
+  <a href="#recipes">Recipes &amp; FAQ</a>
+</nav>
+<main>
+
+<h1>SPTinMatlab — Help &amp; Pipeline Guide</h1>
+<p class="lead">Single-particle tracking of an ER membrane protein at ER–mitochondria contact sites, from raw movies to per-site residence times. This guide explains every stage, the maths behind detection, and where to read the numbers.</p>
+
+<div class="note">New here? Read <a href="#overview">Overview</a> → <a href="#quickstart">Quick start</a>, then dip into the deep-dive sections when a control puzzles you. Every deep dive has a concrete worked example with real numbers from the <code>WithER</code> test cell.</div>
+
+<h2 id="overview">Overview &amp; data flow</h2>
+<p>The workflow is split into three focused apps. They couple <em>through files only</em> — each writes what the next reads, so you can stop, inspect, and resume at any stage.</p>
+<div class="flow">
+  <span class="chip">SPT movie + ER seg + mito seg</span><span class="arw">→</span>
+  <span class="chip b">Tool 1 · Track</span><span class="arw">→</span>
+  <span class="chip">_tracks_filtered.xml + _spots.csv</span><span class="arw">→</span>
+  <span class="chip b">Tool 2 · Curate &amp; Build</span><span class="arw">→</span>
+  <span class="chip">TrackStruct.mat</span><span class="arw">→</span>
+  <span class="chip b">Tool 3 · Analyze</span><span class="arw">→</span>
+  <span class="chip">contact sites · dwell · diffusion</span>
+</div>
+<table>
+  <tr><th>Tool</th><th>Launcher</th><th>Does</th></tr>
+  <tr><td><b>1 · Track</b></td><td><code>spt_app</code></td><td>Match the 3 input folders → detect spots → link tracks (ER-aware) → curate → export curated tracks.</td></tr>
+  <tr><td><b>2 · Curate &amp; Build</b></td><td><code>spt_curate_app</code></td><td>Import curated tracks → build the <code>TrackStruct</code> (MSD, diffusion, precision) → QC each track.</td></tr>
+  <tr><td><b>3 · Analyze</b></td><td><code>spt_analyze_app</code> (<code>run_analyze</code>)</td><td>Density → contact-site picking → boundary refine → membership mapping → residence times → diffusion changes.</td></tr>
+</table>
+<div class="warn"><b>Never edit or run</b> <code>ContactSites_original/</code> — it is the pristine reference implementation from the Nature-2024 paper, kept only for comparison.</div>
+
+<h2 id="quickstart">Quick start</h2>
+<ol>
+  <li><b>Track</b> (<code>spt_app</code>): point the three folder pickers at <code>spt/</code>, <code>er_seg/</code>, <code>mito_seg/</code> → <kbd>Scan</kbd>. On the Detect tab set the top-percentile (default 6 %); on the Track tab set link/gap distances and pick a <b>Linking mode</b> from the dropdown (Euclidean · ER-penalty · ER-geodesic); run, curate (min length 50), export.</li>
+  <li><b>Curate &amp; Build</b>: import the curated tracks, then <kbd>Build</kbd> the TrackStruct (this is the slow MSD step — done once). QC individual tracks.</li>
+  <li><b>Analyze</b>: set the project folder; on <b>Contact sites</b> pick a cell → <kbd>Detect all</kbd> → <kbd>Save</kbd>; on <b>Refine</b> tidy the boundaries; on <b>Sites</b> run the mapper; on <b>Dwell</b> compute residence times.</li>
+</ol>
+
+<h2 id="track">1 · Track</h2>
+<p><code>spt_app</code> re-implements the paper's ERAware tracking in MATLAB. Tabs, in order:</p>
+<ul>
+  <li><b>Match files</b> — three folders → regex key matching → a found/not-found table. SPT alone suffices; ER enables ER-aware linking; mito enables per-spot mito distance.</li>
+  <li><b>Detect</b> — per-cell spot detection with a live preview. Two threshold modes: <em>top&nbsp;%</em> (keep the brightest N % of DoG responses, default 6) or <em>Quality ≥</em> (an absolute cut). The percentile actually used is recorded per cell.</li>
+  <li><b>Track</b> — TrackMate-style LAP linking: link distance, max-gap distance, max-gap frames, and a <b>Linking mode</b> dropdown with three choices, softest to strictest:
+    <ul>
+      <li><b>Euclidean</b> — distance only; the ER masks are ignored.</li>
+      <li><b>ER-penalty</b> (default) — <em>soft</em>. The cost becomes <code>dist·(1+λ·off-ER-frac)</code> (λ=3, editable): an off-ER link costs more, but nothing is refused, so every detection can still end up in a track.</li>
+      <li><b>ER-geodesic</b> — <em>strict</em>. A detection that does not sit on its <em>own</em> frame's ER is excluded from tracking entirely; the surviving links are costed by the shortest path <em>through</em> the ER, so a partner that cannot be reached without leaving the ER is forbidden. λ is unused in this mode.</li>
+    </ul>
+    Both ER modes dilate the ER mask by 1 px to tolerate registration slack, and a frame whose ER mask is missing is treated as <em>forbid</em>, never as "no constraint". Detections that geodesic excludes are not thrown away — they stay in <code>_spots.csv</code> with a blank <code>TRACK_ID</code>. A methods comparison (<kbd>⚖ Compare methods</kbd>) shows Euclidean vs ER-penalty vs geodesic.</li>
+  <li><b>Curate</b> — filter tracks by length / displacement before export.</li>
+</ul>
+<div class="card">
+<b>Which linking mode? The trade-off.</b> Strictness costs you data. Measured on the <code>WithER</code> test cell (frames 1–300, 11,535 detections, link 0.8 µm, max-gap 1.4 µm, max gap 1 frame, λ=3, top 6 %):
+<table>
+  <tr><th>Mode</th><th>Tracks</th><th>Linked detections</th><th>Median len</th><th>Longest</th><th>Tracks ≥ 50 frames</th></tr>
+  <tr><td>Euclidean</td><td>560</td><td>11,111 (96.3 %)</td><td>8.5</td><td>300</td><td>56</td></tr>
+  <tr><td>ER-penalty</td><td>617</td><td>11,108 (96.3 %)</td><td>7</td><td>300</td><td>49</td></tr>
+  <tr><td>ER-geodesic</td><td>644</td><td>10,361 (89.8 %)</td><td>7</td><td>246</td><td>37</td></tr>
+</table>
+<p>The strict pre-filter excluded <b>653 of 11,535 detections (5.7 %)</b> as off their own frame's ER (here no frame was missing an ER mask), and that propagates: tracks surviving the export default of <b>min track length 50</b> drop from <b>56</b> (Euclidean) to <b>37</b> (ER-geodesic). ER-penalty excludes no detections at all. Choose geodesic when you need the guarantee that every tracked localization sits on the ER; choose ER-penalty when you want ER-awareness without losing detections.</p>
+</div>
+<div class="note">The whole movie is processed — for the test cell that is <b>5981 frames</b> (256×256). A player showing "543–5555" is the span of a few random tracks, not the movie length.</div>
+
+<h2 id="curate">2 · Curate &amp; Build</h2>
+<p>Build turns curated tracks into a <code>TrackStruct</code> whose <code>matrix</code> holds every tracked localization, plus per-track MSD fits. The <b>D fit</b> dropdown chooses how many MSD lags to fit:</p>
+<ul>
+  <li><b>Fixed %</b> — always fit the first N % of lags.</li>
+  <li><b>Adaptive R²</b> — per track, use the largest lag-window with R²≥0.95 (linear tracks get more lags, confined/directed ones fewer). Clicking a track adds a sweep of D and R² vs fit-window %.</li>
+</ul>
+<p>MSD model: <code>MSD(τ) = 4·D·τ + b</code>. The slope gives the diffusion coefficient <code>D = slope/4</code>; the intercept gives an upper bound on localization precision <code>σ_loc = sqrt(b)/2</code>.</p>
+
+<h2 id="analyze">3 · Analyze</h2>
+<p>The analysis tool has five working tabs. The heart of it — <b>Contact sites</b> — is where density peaks become candidate sites, so most of this guide's deep dives live there.</p>
+<table>
+  <tr><th>Tab</th><th>Purpose</th></tr>
+  <tr><td><b>Contact sites</b></td><td>Build the localization density per time window, detect significant peaks against a Monte-Carlo null, classify mito vs non-mito, save the picks. See <a href="#detection">Detection</a>, <a href="#windowing">Windowing</a>, <a href="#peaks">Robust peaks</a>.</td></tr>
+  <tr><td><b>Refine</b></td><td>Hand-edit / smooth each site boundary; a radial plot judges concentration against a <a href="#radial">cell-wide ER null</a>.</td></tr>
+  <tr><td><b>Sites</b></td><td>Run the mapper (which tracks dwell there), inspect member tracks, filter by % localizations inside, play tracks over the raw movie (auto-zoomed to the site).</td></tr>
+  <tr><td><b>Dwell</b></td><td>Residence-time distribution + per-window escape rate <code>k_out</code>; animate a track on the site density with filled ER/mito overlays.</td></tr>
+  <tr><td><b>Experiment / Compare</b></td><td>Aggregate many cells by condition and compare.</td></tr>
+</table>
+
+<h2 id="detection">Spot detection (Tool 1)</h2>
+<p>Detection is a band-pass blob finder, not a Gaussian fit:</p>
+<ol>
+  <li><b>DoG band-pass</b> (<code>spt_dog</code>) — difference of Gaussians tuned to the spot diameter, which suppresses both shot noise (small scale) and uneven background (large scale).</li>
+  <li><b>Threshold</b> — keep pixels above the top-percentile (or absolute quality) cut.</li>
+  <li><b>5×5 non-max suppression</b> — one peak per local maximum.</li>
+  <li><b>Intensity-weighted centroid</b> — sub-pixel position (no fitted σ, so no CRLB precision — use the MSD-intercept σ_loc instead).</li>
+</ol>
+<p>Each spot also carries an <b>elongation</b> (2nd-moment ratio): round spots ≈ 1.0, motion-blurred streaks ≳ 1.5. In the Detect preview, red rings flag <code>elong ≥ 1.5</code> — a quick motion-blur check.</p>
+
+<h2 id="density">Density &amp; counts (tracked-only)</h2>
+<p>A contact site is a place where the protein <em>concentrates</em>, so everything downstream is built on a localization-density map. Two rules matter:</p>
+<div class="good"><b>The density is always built from TRACKED localizations</b> — spots that belong to a track. Single-frame detections (noise, blinks) are excluded. For <code>WithER</code>: <b>101,948 tracked</b> localizations out of <b>220,401 total detections</b> — so <b>54 % of the raw cloud was noise</b> that never enters the density.</div>
+<p>The picker always shows all three counts so you know what you're looking at:</p>
+<pre><code>detections 220401 · tracked 101948 (46%, density source) · 4 windows · THIS window 27172 tracked locs</code></pre>
+<p>and every window thumbnail shows its own count, turning <b style="color:#c33">red ⚠</b> if it falls below the <b>min locs/win</b> floor.</p>
+<h3>The density map, in code</h3>
+<pre><code>% bin tracked localizations (µm) whose frame is in [t0,t1] onto the grid, then Gaussian-smooth
+Lx = round(X/SF);  Ly = round(Y/SF);            % µm → density pixel  (SF = FOV/grid)
+counts = accumarray([Ly Lx], 1, [H W]);          % row = y, col = x
+dens   = imgaussfilt(counts, 8);                 % σ = 8 px detection scale</code></pre>
+
+<h2 id="windowing">Windowing — and "how many localizations is enough"</h2>
+<p>Contact sites move and turn over, so the density is built per <b>time window</b>, not over the whole movie. Controls on the Contact-sites tab:</p>
+<table>
+  <tr><th>Control</th><th>What it does</th></tr>
+  <tr><td><b>frames/win</b></td><td>Window length. <code>ceil(nFrames/this)</code> non-overlapping windows.</td></tr>
+  <tr><td><b>step frames</b></td><td>Start stride. <code>0</code> (or ≥ frames/win) = back-to-back. Smaller = <em>overlapping</em> windows that track a moving site more smoothly (more panels; not statistically independent).</td></tr>
+  <tr><td><b>min locs/win</b></td><td>A warning floor only — flags under-powered windows red. Changes nothing else.</td></tr>
+  <tr><td><b>⇢ Sweep window length</b></td><td>Re-runs detection at several window lengths and plots # sites + median significance vs window length, so you can pick the knee.</td></tr>
+</table>
+<div class="card">
+<b>The trade-off.</b> Shorter windows = better temporal detail but fewer localizations each (noisier density). Longer = more localizations (robust) but a moving site smears.
+<p><b>Rough floors per window:</b> &lt;300 too noisy · 1–2k minimum · 5k+ confident · whole-movie best (static sites only).</p>
+<p><b>Find your minimum with the sweep:</b> read it right-to-left (dense → sparse); your minimum is the loc/win at the last point before # sites drops or significance falls below ~0.9. For <code>WithER</code> the sweep is flat (16–23 sites, significance ≈ 1.0 down to ~6,800 loc/win) — that cell is not localization-limited, so window length is chosen by how fast the sites move, not by count.</p>
+</div>
+
+<h2 id="mcnull">The Monte-Carlo null &amp; significance</h2>
+<p>How do we know a bright patch is a real site and not a random clump? We compare it to a null: <em>if the same number of localizations were scattered at random over the ER, how bright would the brightest chance-peak be?</em></p>
+<pre><code>% cs_mc_threshold: M random realizations, keep only each run's PEAK smoothed density
+for m = 1:M
+    sel = randOnMask(N);                     % scatter N points over the ER mask
+    Dm  = imgaussfilt(accumarray(sel,1), 8); % smooth the SAME way as the data
+    nullMax(m) = max(Dm(mask));              % the brightest chance-peak this run
+end
+Dthr = quantile(nullMax, 1-alpha);           % detection cutoff (family-wise error ≈ alpha)</code></pre>
+<div class="note"><b>Why it's fast.</b> The whole null is just <code>M</code> numbers (the peak maxima). A site's significance is then a <em>lookup</em>, not a new simulation:
+<pre><code>p = mean(nullMax >= siteDensity);   % fraction of chance-peaks at least as bright</code></pre>
+Keeping only the <em>max</em> of each run builds the multiple-comparison (family-wise) correction in for free — one null covers every pixel at once. With <code>M</code> runs the finest resolvable p is <code>1/M</code> (so 80 runs can't distinguish anything stronger than p ≈ 0.012).</div>
+<p>The colorbar shows this null band + the cutoff; the "significance (p)" display recolours the map by per-pixel p.</p>
+
+<h2 id="peaks">Robust peak detection <span class="tag you">upgraded</span></h2>
+<p>The base detector thresholds the smoothed density, drops specks, and takes one centroid per blob. Several upgrades make it more trustworthy. All are on the Contact-sites tab; re-run <kbd>Detect</kbd> to apply.</p>
+
+<h3>Split merged peaks</h3>
+<p>Two real peaks that touch above the threshold used to collapse into a single centroid at the saddle. <b>split peaks</b> (on by default) runs a marker-controlled watershed so each prominent maximum becomes its own site.</p>
+<pre><code>mk = imregionalmax(imhmax(dens, h)) & bw;    % markers = peaks standing ≥ h above surroundings
+I  = imimposemin(-dens, mk);                 % basins only at the markers
+L  = watershed(I);                           % → one label per genuine peak</code></pre>
+
+<h3>Effect-size gate — <code>min enrich ×</code></h3>
+<p>A peak can be statistically significant yet trivially small. Require its peak density to be at least this multiple of the ER-median background. <code>1×</code> = off. Concretely, on <code>WithER</code> a gate of <code>7×</code> keeps 6 of 28 sites (enrichment 7–11×).</p>
+
+<h3>Distinct-molecule gate — <code>min tracks</code> <span class="tag you">SPT-specific</span></h3>
+<div class="warn"><b>The subtle one.</b> Density counts <em>localizations</em>, but one molecule parked at a spot for 500 frames dumps ~500 near-identical points and looks exactly like a busy site. This gate keeps a site only if at least this many <b>distinct track IDs</b> contribute — a real contact site is visited by <em>many</em> molecules. On <code>WithER</code>, requiring ≥16 distinct tracks cut 28 candidate sites to 13 (several had only 2–6 tracks).</div>
+
+<h3>Stability score</h3>
+<p>Each detected site gets a <b>stab</b> value (0–1): the fraction of random split-halves of the data in which the site's peak stays enriched in <em>both</em> halves. A real site scores 1.0; a one-off blip scores low. It's shown in the per-site table (no gating — you decide).</p>
+
+<h2 id="radial">The radial (cell-wide ER) null</h2>
+<p>On the <b>Refine</b> tab, the radial plot asks whether a site's localizations concentrate toward its centre more than expected. The dashed "uniform" line is <b>not</b> a disk of local density — it is what you'd see if these localizations were spread uniformly over <em>all the cell's ER</em> at the average density:</p>
+<pre><code>ρ    = (localizations over ER, whole cell) / (total cell ER area);
+ref(r) = ρ · A_ER(r);        % A_ER(r) = ER area within radius r of the site centre</code></pre>
+<p>So the observed curve sitting far above the dashed line means genuine enrichment above the cell's ER background — not just "there's ER here." On the busiest <code>WithER</code> site the null is ≈9 localizations within 1.2 µm versus 670 observed (≈75× enrichment).</p>
+
+<h2 id="dwell">Dwell &amp; escape rate</h2>
+<p>Once sites are mapped, the <b>Dwell</b> tab measures how long each member track resides inside a site's footprint (clipped to that site's own window). A dwell event is a maximal run of consecutive inside-footprint localizations; duration = span·dt. Per window it reports the escape rate <code>k_out = nEvents / Σdwell</code>. The per-track table is keyed by <b>cell · site · window · track</b> so every row is traceable back to a specific molecule at a specific site.</p>
+
+<h2 id="transparency">Transparency &amp; provenance <span class="tag you">new</span></h2>
+<p>Every number the detector uses is visible, and every saved result records how it was made.</p>
+<ul>
+  <li><b>Per-site stats table</b> (right of the Contact-sites map): each site's <code>p</code>, enrichment <code>×</code>, distinct <code>trk</code>, enclosed <code>loc</code>, and <code>stab</code>. Click a row to highlight it on the map.</li>
+  <li><b>🔍 explain spot</b>: turn it on and click <em>anywhere</em> on the density — even a place with no detected site — to read that point's density, null percentile, enrichment, #tracks and p. Use it to understand near-misses ("why wasn't this called a site?").</li>
+  <li><b>Provenance stamp</b>: <kbd>Save</kbd> writes, next to the sites, a <code>_CSsites_provenance.json</code> with the exact parameters (method, α, M, σ, gates, source, window ranges, date) and a <code>_CSsites_stats.csv</code> with every site's stats — so a result is fully reproducible.</li>
+</ul>
+
+<h2 id="outputs">File outputs</h2>
+<table>
+  <tr><th>File</th><th>Written by</th><th>Contents</th></tr>
+  <tr><td><code>tracks/*_tracks_filtered.xml</code>, <code>*_spots.csv</code></td><td>Tool 1</td><td>Curated tracks + per-spot ER/mito distance (Tool 2's input). Detections that never joined a track — including the ones ER-geodesic excludes for being off their frame's ER — appear in the CSV with a blank <code>TRACK_ID</code>.</td></tr>
+  <tr><td><code>analysis/TrackStruct.mat</code></td><td>Tool 2</td><td>All tracked localizations + MSD/D per track.</td></tr>
+  <tr><td><code>analysis/csIDs/*_CSsites.txt</code></td><td>Tool 3 · Contact sites</td><td>Picked sites (X,Y density px; Slice = window; mito flag).</td></tr>
+  <tr><td><code>analysis/csIDs/*_CSsites_stats.csv</code></td><td>Tool 3 · Contact sites</td><td>Per-site p, enrichment, #tracks, #locs, stability, area.</td></tr>
+  <tr><td><code>analysis/csIDs/*_CSsites_provenance.json</code></td><td>Tool 3 · Contact sites</td><td>Exact detection parameters + date (reproducibility).</td></tr>
+  <tr><td><code>analysis/CSW_final.mat</code></td><td>Tool 3 · Sites (mapper)</td><td>Per site×window membership, boundaries, enrichment.</td></tr>
+  <tr><td><code>analysis/cs_window_dwell.csv</code>, <code>cs_window_track_labels.csv</code></td><td>Tool 3 · Dwell</td><td>Dwell events + per-track residence (keyed by cell·site·win·track).</td></tr>
+</table>
+
+<h2 id="recipes">Recipes &amp; FAQ</h2>
+<h3>"How do I choose the window length?"</h3>
+<p>Run <b>⇢ Sweep window length</b>. Pick the shortest window where # sites has plateaued and significance is still high. If your sites are static, longer windows give the most power; if they move, go shorter and accept a few fewer.</p>
+<h3>"A bright spot wasn't detected — why?"</h3>
+<p>Turn on <b>🔍 explain spot</b> and click it. You'll see its p (maybe it didn't clear the null), its enrichment (maybe below <code>min enrich</code>), or its #tracks (maybe one parked molecule below <code>min tracks</code>).</p>
+<h3>"My density looks different after an update."</h3>
+<p>The density is now tracked-only (single-frame noise excluded) and defaults changed — re-pick sites; the density source is locked per pick, so old picks keep their old source until you re-pick.</p>
+<h3>"MATLAB says a callback errored after I edited an app file."</h3>
+<p>Close and relaunch the app — MATLAB apps don't hot-reload, so a stale figure can throw phantom callback errors.</p>
+
+<hr>
+<p class="lead">Living document — see <code>docs/PIPELINE.md</code> for the developer-level algorithm notes.</p>
+</main>
+</div>
+</body>
+</html>

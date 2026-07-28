@@ -1,0 +1,15 @@
+# macOS
+.DS_Store
+._*
+
+# MATLAB generated / transient
+slprj/
+codegen/
+*.mex*
+*.slxc
+
+# Analysis outputs — these are produced per dataset, not part of the toolkit.
+# Tool 1 writes tracks/, Tool 2/3 write analysis/ inside the PROJECT folder the user picks,
+# so they normally live outside this repo; these entries only matter if a project is opened here.
+tracks/
+analysis/

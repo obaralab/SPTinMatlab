@@ -1,0 +1,619 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VAPB sptPALM Contact-Site Pipeline — Overview</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --panel:#ffffff; --panel-2:#eef1f4; --panel-3:#e6eaef;
+    --ink:#161b22; --ink-soft:#3f4855; --muted:#6b7480; --line:#dce1e8; --line-soft:#e8ecf1;
+    --accent:#c62a45; --accent-2:#8f1d31; --accent-soft:#f6dde2;
+    --er:#12897a; --er-soft:#d3ece8;
+    --mito:#c07018; --mito-soft:#f3e2cc;
+    --deff-lo:#2b5fd0; --deff-mid:#e9c93a; --deff-hi:#c62a45;
+    --matlab:#2f6fd0; --fiji:#2f9e57; --ext:#8b95a3;
+    --shadow:0 1px 2px rgba(20,27,38,.06),0 8px 24px rgba(20,27,38,.06);
+    --mono:"SF Mono",ui-monospace,"JetBrains Mono",Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --maxw:1120px; --spine:72ch;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --bg:#0b0e14; --panel:#12161e; --panel-2:#171c26; --panel-3:#1e2530;
+      --ink:#e8ecf2; --ink-soft:#b3bcc9; --muted:#7d8797; --line:#242b36; --line-soft:#1c222c;
+      --accent:#ff5a72; --accent-2:#ff8496; --accent-soft:#33161d;
+      --er:#2cbaa6; --er-soft:#123029;
+      --mito:#e0a24a; --mito-soft:#33260f;
+      --deff-lo:#5a86e6; --deff-mid:#e9c93a; --deff-hi:#ff5a72;
+      --matlab:#5a89e0; --fiji:#4bb46e; --ext:#7d8797;
+      --shadow:0 1px 2px rgba(0,0,0,.4),0 10px 30px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="light"]{
+    --bg:#f6f7f9; --panel:#ffffff; --panel-2:#eef1f4; --panel-3:#e6eaef;
+    --ink:#161b22; --ink-soft:#3f4855; --muted:#6b7480; --line:#dce1e8; --line-soft:#e8ecf1;
+    --accent:#c62a45; --accent-2:#8f1d31; --accent-soft:#f6dde2;
+    --er:#12897a; --er-soft:#d3ece8; --mito:#c07018; --mito-soft:#f3e2cc;
+    --deff-lo:#2b5fd0; --deff-hi:#c62a45; --matlab:#2f6fd0; --fiji:#2f9e57; --ext:#8b95a3;
+    --shadow:0 1px 2px rgba(20,27,38,.06),0 8px 24px rgba(20,27,38,.06);
+  }
+  :root[data-theme="dark"]{
+    --bg:#0b0e14; --panel:#12161e; --panel-2:#171c26; --panel-3:#1e2530;
+    --ink:#e8ecf2; --ink-soft:#b3bcc9; --muted:#7d8797; --line:#242b36; --line-soft:#1c222c;
+    --accent:#ff5a72; --accent-2:#ff8496; --accent-soft:#33161d;
+    --er:#2cbaa6; --er-soft:#123029; --mito:#e0a24a; --mito-soft:#33260f;
+    --deff-lo:#5a86e6; --deff-hi:#ff5a72; --matlab:#5a89e0; --fiji:#4bb46e; --ext:#7d8797;
+    --shadow:0 1px 2px rgba(0,0,0,.4),0 10px 30px rgba(0,0,0,.35);
+  }
+
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0;background:var(--bg);color:var(--ink);
+    font-family:var(--sans);font-size:16px;line-height:1.6;
+    -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;
+  }
+  ::selection{background:var(--accent-soft);color:var(--ink)}
+  a{color:var(--accent);text-decoration:none}
+  a:hover{text-decoration:underline}
+  h1,h2,h3{text-wrap:balance;line-height:1.12;margin:0;font-weight:680;letter-spacing:-.02em}
+  code,.mono{font-family:var(--mono);font-size:.86em;font-weight:600}
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:0 28px}
+  .spine{max-width:var(--spine);margin-left:0}
+
+  /* ---- top bar ---- */
+  .topbar{
+    position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--bg) 82%,transparent);
+    backdrop-filter:saturate(1.4) blur(10px);border-bottom:1px solid var(--line);
+  }
+  .topbar .wrap{display:flex;align-items:center;gap:16px;height:52px}
+  .brand{display:flex;align-items:center;gap:10px;font-weight:700;letter-spacing:-.01em;font-size:.92rem}
+  .brand .dot{width:11px;height:11px;border-radius:50%;background:var(--accent);
+    box-shadow:0 0 0 3px var(--accent-soft);flex:none}
+  .cite{color:var(--muted);font-size:.8rem;margin-left:auto;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .toggle{flex:none;border:1px solid var(--line);background:var(--panel);color:var(--ink-soft);
+    width:34px;height:34px;border-radius:9px;cursor:pointer;font-size:15px;display:grid;place-items:center}
+  .toggle:hover{border-color:var(--accent);color:var(--accent)}
+  .toggle:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+  /* ---- hero ---- */
+  .hero{position:relative;overflow:hidden;border-bottom:1px solid var(--line)}
+  .hero .wrap{padding-top:64px;padding-bottom:56px;position:relative;z-index:2}
+  .eyebrow{font-family:var(--mono);font-size:.72rem;font-weight:700;letter-spacing:.16em;
+    text-transform:uppercase;color:var(--accent)}
+  .hero h1{font-size:clamp(2rem,4.6vw,3.35rem);margin:18px 0 0;max-width:20ch}
+  .hero .lede{font-size:clamp(1.05rem,1.8vw,1.32rem);color:var(--ink-soft);margin:22px 0 0;max-width:60ch;line-height:1.5}
+  .hero .lede b{color:var(--ink);font-weight:680}
+  .authors{margin-top:26px;color:var(--muted);font-size:.9rem;max-width:64ch}
+  .authors .j{color:var(--ink-soft);font-weight:600}
+  .glow{position:absolute;inset:0;z-index:1;pointer-events:none;
+    background:
+      radial-gradient(38% 60% at 84% 12%,color-mix(in srgb,var(--accent) 22%,transparent),transparent 70%),
+      radial-gradient(30% 50% at 96% 80%,color-mix(in srgb,var(--er) 16%,transparent),transparent 70%);}
+  /* molecule track motif */
+  .motif{position:absolute;right:-40px;top:0;bottom:0;width:min(46%,560px);z-index:1;opacity:.9}
+  @media (max-width:820px){.motif{display:none}}
+
+  /* ---- stat strip ---- */
+  .stats{border-bottom:1px solid var(--line);background:var(--panel)}
+  .stats .grid{display:grid;grid-template-columns:repeat(6,1fr);gap:0}
+  .stat{padding:22px 18px;border-left:1px solid var(--line-soft)}
+  .stat:first-child{border-left:0}
+  .stat .v{font-size:1.5rem;font-weight:720;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+  .stat .v small{font-size:.62em;font-weight:600;color:var(--muted);letter-spacing:0}
+  .stat .k{font-size:.74rem;color:var(--muted);margin-top:4px;line-height:1.3}
+  @media (max-width:860px){.stats .grid{grid-template-columns:repeat(3,1fr)}
+    .stat:nth-child(4){border-left:0}.stat{border-top:1px solid var(--line-soft)}
+    .stat:nth-child(-n+3){border-top:0}}
+  @media (max-width:480px){.stats .grid{grid-template-columns:repeat(2,1fr)}
+    .stat{border-left:1px solid var(--line-soft)}.stat:nth-child(odd){border-left:0}}
+
+  /* ---- section scaffolding ---- */
+  section{padding:60px 0;border-bottom:1px solid var(--line)}
+  .sec-head{display:flex;align-items:baseline;gap:14px;margin-bottom:8px}
+  .sec-num{font-family:var(--mono);font-size:.8rem;font-weight:700;color:var(--accent);
+    border:1px solid var(--accent);border-radius:6px;padding:2px 7px;flex:none}
+  h2{font-size:clamp(1.4rem,2.4vw,1.9rem)}
+  .sec-sub{color:var(--muted);margin:10px 0 30px;max-width:66ch}
+  p{margin:0 0 16px;color:var(--ink-soft);max-width:70ch}
+  p b{color:var(--ink);font-weight:660}
+  .kw{color:var(--accent);font-weight:660}
+
+  /* ---- pipeline rail ---- */
+  .legend{display:flex;flex-wrap:wrap;gap:8px 16px;margin:0 0 26px;font-size:.8rem;color:var(--ink-soft)}
+  .legend span{display:inline-flex;align-items:center;gap:7px}
+  .lg{width:11px;height:11px;border-radius:3px;flex:none}
+  .lg.matlab{background:var(--matlab)} .lg.fiji{background:var(--fiji)}
+  .lg.manual{background:var(--accent)} .lg.ext{background:transparent;border:1.5px dashed var(--ext)}
+  .rail{position:relative;margin-left:6px}
+  .rail::before{content:"";position:absolute;left:15px;top:8px;bottom:8px;width:2px;
+    background:linear-gradient(var(--accent),var(--er));opacity:.5}
+  .stage{position:relative;padding:0 0 26px 52px}
+  .stage:last-child{padding-bottom:0}
+  .stage .mk{position:absolute;left:0;top:0;width:32px;height:32px;border-radius:9px;
+    background:var(--panel);border:1.5px solid var(--accent);color:var(--accent);
+    display:grid;place-items:center;font-weight:750;font-size:1rem;box-shadow:var(--shadow)}
+  .stage h3{font-size:1.05rem;margin-bottom:3px}
+  .stage .st-sub{color:var(--muted);font-size:.85rem;margin-bottom:12px}
+  .steps{display:flex;flex-direction:column;gap:7px}
+  .step{display:flex;gap:10px;align-items:flex-start;font-size:.9rem;color:var(--ink-soft);
+    background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:9px 12px}
+  .step .tag{flex:none;font-family:var(--mono);font-size:.66rem;font-weight:700;letter-spacing:.03em;
+    text-transform:uppercase;padding:3px 6px;border-radius:5px;margin-top:1px;color:#fff}
+  .tag.matlab{background:var(--matlab)} .tag.fiji{background:var(--fiji)}
+  .tag.manual{background:var(--accent)} .tag.ext{background:transparent;color:var(--ext);border:1px dashed var(--ext)}
+  .step .fn{color:var(--ink);font-family:var(--mono);font-size:.82em;font-weight:600}
+  .arrow-io{color:var(--muted)}
+
+  /* ---- struct cards ---- */
+  .cards{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+  @media (max-width:760px){.cards{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden;box-shadow:var(--shadow)}
+  .card .ch{padding:16px 18px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px}
+  .card .ch .nm{font-family:var(--mono);font-weight:700;font-size:1rem;color:var(--ink)}
+  .card .ch .by{color:var(--muted);font-size:.78rem;margin-left:auto;text-align:right}
+  .card .ch .by code{color:var(--ink-soft)}
+  .fields{padding:6px 0}
+  .field{display:grid;grid-template-columns:minmax(96px,auto) 1fr;gap:12px;padding:8px 18px;align-items:baseline}
+  .field:nth-child(even){background:var(--panel-2)}
+  .field .f{font-family:var(--mono);font-size:.8rem;font-weight:650;color:var(--accent)}
+  .field .d{font-size:.85rem;color:var(--ink-soft)}
+  .field .d em{color:var(--muted);font-style:normal;font-size:.92em}
+  .badge{display:inline-block;font-size:.68rem;font-weight:700;font-family:var(--mono);
+    padding:1px 6px;border-radius:5px;background:var(--panel-3);color:var(--muted);margin-left:6px}
+  .badge.ext{color:var(--ext);border:1px dashed var(--ext);background:transparent}
+
+  /* ---- deff flow diagram ---- */
+  .diagram{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+    padding:10px;box-shadow:var(--shadow);overflow-x:auto}
+  .diagram svg{display:block;min-width:720px;width:100%;height:auto}
+  .dnode{fill:var(--panel-2);stroke:var(--line);stroke-width:1.5}
+  .dnode.ext{stroke:var(--ext);stroke-dasharray:5 4}
+  .dnode.hot{fill:var(--accent-soft);stroke:var(--accent)}
+  .dttl{fill:var(--ink);font-family:var(--sans);font-weight:700;font-size:13px}
+  .dtxt{fill:var(--ink-soft);font-family:var(--mono);font-size:10.5px;font-weight:600}
+  .dsub{fill:var(--muted);font-family:var(--sans);font-size:10.5px}
+  .dedge{stroke:var(--muted);stroke-width:1.6;fill:none;marker-end:url(#ah)}
+  .dcap{fill:var(--muted);font-family:var(--mono);font-size:9.5px;font-weight:600;letter-spacing:.04em}
+
+  /* ---- mapping matrix ---- */
+  .tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow)}
+  table{border-collapse:collapse;width:100%;min-width:640px;background:var(--panel)}
+  th,td{text-align:left;padding:13px 16px;vertical-align:top;border-bottom:1px solid var(--line-soft)}
+  thead th{background:var(--panel-2);font-size:.72rem;letter-spacing:.08em;text-transform:uppercase;
+    color:var(--muted);font-weight:700;position:sticky;top:0}
+  tbody tr:last-child td{border-bottom:0}
+  td .claim{color:var(--ink);font-weight:640;font-size:.92rem}
+  td.files code{display:inline-block;background:var(--panel-2);border:1px solid var(--line);
+    border-radius:6px;padding:2px 6px;margin:2px 4px 2px 0;font-size:.76rem;color:var(--ink-soft)}
+  td .fig{font-family:var(--mono);font-size:.72rem;color:var(--accent);font-weight:700}
+
+  /* ---- eng notes ---- */
+  .notegrid{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  @media (max-width:760px){.notegrid{grid-template-columns:1fr}}
+  .note{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px 20px}
+  .note h3{font-size:.96rem;margin-bottom:10px;display:flex;align-items:center;gap:9px}
+  .note h3 .ic{width:9px;height:9px;border-radius:50%;flex:none}
+  .note ul{margin:0;padding-left:18px}
+  .note li{margin:6px 0;font-size:.87rem;color:var(--ink-soft)}
+  .note li code{color:var(--ink);background:var(--panel-2);border-radius:4px;padding:1px 4px}
+  .warn code{color:var(--accent)}
+
+  /* ---- footer ---- */
+  footer{padding:40px 0 60px;color:var(--muted);font-size:.82rem}
+  footer .wrap{display:flex;flex-wrap:wrap;gap:8px 20px;align-items:center}
+  footer .sep{opacity:.4}
+
+  /* SVG colour bindings — var() is unreliable inside SVG presentation attributes, so bind via CSS */
+  #ah path{fill:var(--muted)}
+  #turbo .lo{stop-color:var(--deff-lo)} #turbo .mid{stop-color:var(--deff-mid)} #turbo .hi{stop-color:var(--deff-hi)}
+  .cbar{stroke:var(--line)}
+  .motif .acc{stroke:var(--accent);fill:none} .motif .er{stroke:var(--er);fill:none}
+  .motif .dots{fill:var(--accent)} .motif .ring{stroke:var(--accent);fill:none} .motif text{fill:var(--accent)}
+
+  @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="wrap">
+    <span class="brand"><span class="dot"></span>VAPB sptPALM · Contact-Site Pipeline</span>
+    <span class="cite">Obara &amp; Nixon-Abell et&nbsp;al., <i>Nature</i> 626:169 (2024)</span>
+    <button class="toggle" id="themeBtn" title="Toggle theme" aria-label="Toggle light/dark theme">◐</button>
+  </div>
+</div>
+
+<header class="hero">
+  <div class="glow"></div>
+  <svg class="motif" viewBox="0 0 560 460" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+    <!-- diffusion-track motif: a random-walk polyline with localization dots -->
+    <polyline class="acc" stroke-width="2" opacity=".55"
+      points="60,300 92,250 84,205 130,190 150,150 120,120 165,96 210,120 235,90 210,55 255,60 300,92 288,140 330,150 372,120 360,80 405,96"/>
+    <polyline class="er" stroke-width="2" opacity=".4"
+      points="120,380 170,360 200,320 250,330 300,300 340,320 390,300 430,260 470,280"/>
+    <g class="dots" opacity=".9">
+      <circle cx="60" cy="300" r="4"/><circle cx="84" cy="205" r="4"/><circle cx="150" cy="150" r="4"/>
+      <circle cx="210" cy="120" r="4"/><circle cx="255" cy="60" r="4"/><circle cx="300" cy="92" r="4"/>
+      <circle cx="330" cy="150" r="4"/><circle cx="405" cy="96" r="4"/>
+    </g>
+    <ellipse class="ring" cx="250" cy="120" rx="120" ry="86" stroke-width="1.4" stroke-dasharray="4 5" opacity=".5"/>
+    <text x="250" y="122" font-size="11" font-weight="700" text-anchor="middle" opacity=".7">contact site</text>
+  </svg>
+  <div class="wrap">
+    <div class="eyebrow">MATLAB + Fiji analysis codebase · single-molecule tracking</div>
+    <h1>Mapping the diffusion landscape of VAPB at ER–mitochondria contact sites</h1>
+    <p class="lede">This repository is the complete image-analysis pipeline behind the paper. It takes raw
+      <b>sptPALM</b> movies of single HaloTag-VAPB molecules and turns them into contact-site maps,
+      <b>effective diffusion (D<sub>eff</sub>)</b> subdomains, and second-scale binding kinetics — the evidence that
+      VAPB tethers <b>exchange within seconds</b> while the contact site itself stays stable for far longer.</p>
+    <div class="authors"><span class="j">Lippincott-Schwartz lab, Janelia Research Campus</span> ·
+      Obara, Nixon-Abell, Moore, Riccio … Masson, Calderon, Blackstone, Lippincott-Schwartz.
+      Repo: <code>cjobara/Obara-Nixon-Abell-2023-Nature</code> · doi:10.1038/s41586-023-06956-y</div>
+  </div>
+</header>
+
+<div class="stats">
+  <div class="wrap">
+    <div class="grid">
+      <div class="stat"><div class="v">~95<small> Hz</small></div><div class="k">Frame rate (5 ms exposure)</div></div>
+      <div class="stat"><div class="v">20–30<small> nm</small></div><div class="k">Localization precision (MLE)</div></div>
+      <div class="stat"><div class="v">30<small> nm</small></div><div class="k">Density-map bin size</div></div>
+      <div class="stat"><div class="v">20.48<small> µm</small></div><div class="k">FOV (128×128 px, TIRF)</div></div>
+      <div class="stat"><div class="v">PA-JF646</div><div class="k">Photoactivatable Halo dye</div></div>
+      <div class="stat"><div class="v">~70</div><div class="k">MATLAB + Fiji scripts</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- 1. THE SCIENCE -->
+<section id="science">
+  <div class="wrap spine">
+    <div class="sec-head"><span class="sec-num">01</span><h2>What the project measures</h2></div>
+    <p class="sec-sub">One tether protein, tracked one molecule at a time, to read the structure of an
+      organelle interface that is too fragile to fix and image conventionally.</p>
+    <p><b>VAPB</b> (VAMP-associated protein B) is a model ER-membrane tether that helps hold the endoplasmic
+      reticulum against mitochondria at <span class="kw">ER–mitochondria contact sites (ERMCSs)</span> — hubs for
+      lipid, calcium, and metabolite exchange. The team labels VAPB with a HaloTag/<span class="kw">PA-JF646</span>
+      dye and images single molecules by <span class="kw">sptPALM</span> on a custom three-camera TIRF microscope,
+      simultaneously recording the ER and mitochondria structure in two other channels.</p>
+    <p>Tracking individual molecules — rather than bulk fluorescence — lets the pipeline ask three questions the
+      paper answers: <b>where</b> VAPB concentrates (contact-site boundaries from a localization-density map),
+      <b>how fast</b> it moves at each point (an effective diffusion coefficient, D<sub>eff</sub>), and
+      <b>how long</b> individual molecules stay (dwell-time / entry–exit kinetics). The headline result is that
+      contact sites contain <b>diffusion subdomains</b> of reduced mobility that track ER membrane curvature, and
+      that VAPB molecules <b>enter and leave in seconds</b> even though the site persists — a metastability that an
+      <b>ALS-associated VAPB mutation</b> disrupts.</p>
+  </div>
+</section>
+
+<!-- 2. PIPELINE -->
+<section id="pipeline">
+  <div class="wrap">
+    <div class="sec-head"><span class="sec-num">02</span><h2>End-to-end pipeline</h2></div>
+    <p class="sec-sub">Seven stages from raw <code>.nd2</code> movies to figures. The two heavy inference engines
+      (diffusion mapping and Bayesian state modelling) run outside this repo — only their outputs are read back in.
+      The pipeline is deliberately human-in-the-loop at every step that <i>defines</i> a contact site.</p>
+    <div class="legend">
+      <span><span class="lg matlab"></span>MATLAB</span>
+      <span><span class="lg fiji"></span>Fiji / ImageJ macro</span>
+      <span><span class="lg manual"></span>Manual · operator-in-the-loop</span>
+      <span><span class="lg ext"></span>External engine (not in repo)</span>
+    </div>
+
+    <div class="rail">
+      <div class="stage">
+        <div class="mk">A</div>
+        <h3>Image conditioning &amp; tracking</h3>
+        <div class="st-sub">Raw multi-channel movie → curated trajectories</div>
+        <div class="steps">
+          <div class="step"><span class="tag fiji">Fiji</span><div><span class="fn">2-color-prep.ijm</span> — split channels, temporal-median denoise, bleach-correct; emit the single-molecule stack + ER channel</div></div>
+          <div class="step"><span class="tag ext">Ext</span><div><b>TrackMate</b> links the single-molecule stack into trajectories</div></div>
+          <div class="step"><span class="tag manual">Manual</span><div>Blinded operator curates linkages onto the ER structure (removes 2D-close / 3D-far joins)</div></div>
+          <div class="step"><span class="tag matlab">MATLAB</span><div><span class="fn">TrackImporterCJO_2020v1.m</span> — parse TrackMate <code>.xlsx</code> <span class="arrow-io">→</span> build the <code>Tracks</code> struct</div></div>
+        </div>
+      </div>
+
+      <div class="stage">
+        <div class="mk">B</div>
+        <h3>Density map &amp; contact-site definition</h3>
+        <div class="st-sub">Where do molecules concentrate?</div>
+        <div class="steps">
+          <div class="step"><span class="tag matlab">MATLAB</span><div><span class="fn">DensityVisualization.m</span> / <span class="fn">LocDensityFigIntUse.m</span> — 30 nm-bin localization probability-density map (the paper's spatial PMF)</div></div>
+          <div class="step"><span class="tag fiji">Fiji</span><div><span class="fn">CSidentifier → CSchecker → CSrepairer</span> — auto CS regions + <b>manual CS-center picking</b> + QC</div></div>
+          <div class="step"><span class="tag matlab">MATLAB</span><div><span class="fn">ContactSiteMapper.m</span> — fold in D<sub>eff</sub>, box each CS, assign member tracks, tag <code>MitoFlag</code></div></div>
+        </div>
+      </div>
+
+      <div class="stage">
+        <div class="mk">C</div>
+        <h3>Manual boundary refinement</h3>
+        <div class="st-sub">Pen-tablet tracing of each site</div>
+        <div class="steps">
+          <div class="step"><span class="tag manual">Manual</span><div><span class="fn">CS_refiner_v2_wacom.m</span> — operator <code>drawpoint</code>s the refined centre and <code>drawfreehand</code>-traces the CS outline on the density heat-map</div></div>
+          <div class="step"><span class="tag matlab">MATLAB</span><div>Writes <code>refCenter</code>, <code>refboundary</code> (nm), <code>refLocIDs</code>, <code>EllipseFit</code> per site</div></div>
+        </div>
+      </div>
+
+      <div class="stage">
+        <div class="mk">D</div>
+        <h3>Ensemble diffusion &amp; geometry</h3>
+        <div class="st-sub">Inside-vs-outside D<sub>eff</sub>, ellipse fits</div>
+        <div class="steps">
+          <div class="step"><span class="tag matlab">MATLAB</span><div><span class="fn">CSensemble1.m</span> / <span class="fn">CSensemble2.m</span> — interior D<sub>in</sub> vs surrounding D<sub>out</sub> per cell <span class="arrow-io">→</span> Excel</div></div>
+          <div class="step"><span class="tag matlab">MATLAB</span><div><span class="fn">CSellipseAnalysis.m</span>, <span class="fn">CSaverager.m</span> — shape stats + centre-registered averaging</div></div>
+        </div>
+      </div>
+
+      <div class="stage">
+        <div class="mk">E</div>
+        <h3>Latent-state modelling</h3>
+        <div class="st-sub">Blinded Bayesian analysis of long tracks</div>
+        <div class="steps">
+          <div class="step"><span class="tag ext">Ext</span><div><b>Calderon HDP-SLDS</b> (Python) — non-parametric Bayesian state changes for trajectories &gt; 500 steps (~5.5 s)</div></div>
+          <div class="step"><span class="tag matlab">MATLAB</span><div><span class="fn">ChrisSegAssign.m</span> / <span class="fn">ChrisCunblinder.m</span> — un-blind &amp; write <code>segID</code>/<code>cp</code> back into <code>Tracks</code></div></div>
+        </div>
+      </div>
+
+      <div class="stage">
+        <div class="mk">F</div>
+        <h3>Final CS assembly &amp; averaging</h3>
+        <div class="st-sub">One flat structure for everything downstream</div>
+        <div class="steps">
+          <div class="step"><span class="tag matlab">MATLAB</span><div><span class="fn">Final/CS_builder.m</span> — pool all sites into the condition-wide <code>CS</code> struct <span class="arrow-io">→</span> <code>CS_final.mat</code></div></div>
+          <div class="step"><span class="tag manual">Manual</span><div><span class="fn">CS_reorienter_v3.m</span> — operator marks “North” + exit count; sites rotated to a common frame</div></div>
+          <div class="step"><span class="tag matlab">MATLAB</span><div><span class="fn">AvgCSAccumulator.m</span> — population-average CS with normalized D<sub>eff</sub> (<code>normD</code>)</div></div>
+        </div>
+      </div>
+
+      <div class="stage">
+        <div class="mk">G</div>
+        <h3>Kinetics, enrichment &amp; figures</h3>
+        <div class="st-sub">Revision-era analyses</div>
+        <div class="steps">
+          <div class="step"><span class="tag manual">Manual</span><div><span class="fn">DwellTimeManual → EntryExitManualClassifierv2</span> — hand-marked entry/exit events → dwell-time statistics</div></div>
+          <div class="step"><span class="tag matlab">MATLAB</span><div><span class="fn">GenerateEnrichmentStruct.m</span>, <span class="fn">EMtracer_2Dv1.m</span> (curvature), <span class="fn">Fig4D_Deffsynchronizer.m</span></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 3. DATA STRUCTURES -->
+<section id="structs">
+  <div class="wrap">
+    <div class="sec-head"><span class="sec-num">03</span><h2>The two core data structures</h2></div>
+    <p class="sec-sub">Everything hangs off two MATLAB struct arrays. <code>Tracks</code> is indexed <b>per cell</b>;
+      <code>CS</code> is indexed <b>per contact site</b>, pooled across cells. All localization references are
+      linear indices into the same <code>[frames × tracks]</code> “MN space”.</p>
+    <div class="cards">
+      <div class="card">
+        <div class="ch"><span class="nm">Tracks(i)</span><span class="by">one per cell / FOV<br><code>TrackImporterCJO_2020v1.m</code></span></div>
+        <div class="fields">
+          <div class="field"><span class="f">.file</span><span class="d">Base filename of the cell</span></div>
+          <div class="field"><span class="f">.matrix</span><span class="d"><code>[maxLen × nTracks × 3]</code> cube — dim 3 = <em>(t, X, Y)</em> in µm. The master coordinate space.</span></div>
+          <div class="field"><span class="f">.lengths</span><span class="d">Steps per track</span></div>
+          <div class="field"><span class="f">.steps / .vector</span><span class="d">Per-step speed and displacement vectors</span></div>
+          <div class="field"><span class="f">.Deff</span><span class="d">Per-localization effective 2D diffusion (µm²/s) <span class="badge ext">from JBM</span></span></div>
+          <div class="field"><span class="f">.TessIndex</span><span class="d">Voronoi tessellation cell ID <span class="badge ext">from JBM</span></span></div>
+          <div class="field"><span class="f">.cp / .segID</span><span class="d">Change-points &amp; latent-state IDs <span class="badge ext">from HDP-SLDS</span></span></div>
+          <div class="field"><span class="f">.MitoCSindex</span><span class="d">Indices of mito-associated CS in this cell</span></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="ch"><span class="nm">CS(k)</span><span class="by">one per contact site<br><code>Final/CS_builder.m</code></span></div>
+        <div class="fields">
+          <div class="field"><span class="f">.file / .cellIndex</span><span class="d">Provenance back to a cell</span></div>
+          <div class="field"><span class="f">.MitoFlag</span><span class="d">ER–mito contact site vs other kind</span></div>
+          <div class="field"><span class="f">.refCenter</span><span class="d">Hand-refined centre (µm)</span></div>
+          <div class="field"><span class="f">.refboundary</span><span class="d">Traced outline polygon <em>(in nm — note unit switch)</em></span></div>
+          <div class="field"><span class="f">.refLocIDs</span><span class="d"><b>Interior</b> localizations (inside the boundary)</span></div>
+          <div class="field"><span class="f">.refDeff</span><span class="d">D<sub>eff</sub> of interior locs — <span class="kw">the subdomain signal</span></span></div>
+          <div class="field"><span class="f">.neighborDeff</span><span class="d">D<sub>eff</sub> of surrounding “proximal” locs</span></div>
+          <div class="field"><span class="f">.EllipseFit</span><span class="d">Major/minor axis, orientation</span></div>
+          <div class="field"><span class="f">.DwellTimes</span><span class="d">Per-track entry/exit points &amp; residence <span class="badge">Revision</span></span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 4. DEFF FLOW -->
+<section id="deff">
+  <div class="wrap">
+    <div class="sec-head"><span class="sec-num">04</span><h2>How D<sub>eff</sub> becomes the “subdomain” result</h2></div>
+    <p class="sec-sub">The diffusion coefficient is inferred <b>outside</b> this repo and threaded through by linear
+      index. The whole subdomain claim reduces to one contrast: interior mobility is lower than the surrounding ER.</p>
+    <div class="diagram">
+      <svg viewBox="0 0 980 300" role="img" aria-label="Data-flow from the external diffusion engine to the normalized average diffusion map">
+        <defs>
+          <marker id="ah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z"/>
+          </marker>
+          <linearGradient id="turbo" x1="0" y1="0" x2="1" y2="0">
+            <stop class="lo" offset="0"/>
+            <stop class="mid" offset="0.5"/>
+            <stop class="hi" offset="1"/>
+          </linearGradient>
+        </defs>
+
+        <!-- node 1: external engine -->
+        <g>
+          <rect class="dnode ext" x="14" y="70" width="176" height="120" rx="12"/>
+          <text class="dsub" x="102" y="94" text-anchor="middle">external engine</text>
+          <text class="dttl" x="102" y="116" text-anchor="middle">JBM / Masson</text>
+          <text class="dsub" x="102" y="135" text-anchor="middle">Voronoi + Bayesian</text>
+          <text class="dsub" x="102" y="150" text-anchor="middle">overdamped Langevin</text>
+          <text class="dtxt" x="102" y="176" text-anchor="middle">Maps/*.mat</text>
+        </g>
+        <path class="dedge" d="M192,130 L232,130"/>
+        <text class="dcap" x="212" y="120" text-anchor="middle">assimilate</text>
+
+        <!-- node 2: Tracks.Deff -->
+        <g>
+          <rect class="dnode" x="234" y="70" width="176" height="120" rx="12"/>
+          <text class="dsub" x="322" y="94" text-anchor="middle">attach per-localization</text>
+          <text class="dttl" x="322" y="116" text-anchor="middle">Tracks.Deff</text>
+          <text class="dsub" x="322" y="135" text-anchor="middle">µm²/s, in MN space</text>
+          <text class="dtxt" x="322" y="176" text-anchor="middle">AssimilateTessIndex3</text>
+        </g>
+        <path class="dedge" d="M412,130 L452,130"/>
+        <text class="dcap" x="432" y="120" text-anchor="middle">mask</text>
+
+        <!-- node 3: refLocIDs -->
+        <g>
+          <rect class="dnode" x="454" y="70" width="176" height="120" rx="12"/>
+          <text class="dsub" x="542" y="94" text-anchor="middle">hand-drawn boundary</text>
+          <text class="dttl" x="542" y="116" text-anchor="middle">refLocIDs</text>
+          <text class="dsub" x="542" y="135" text-anchor="middle">interior localizations</text>
+          <text class="dtxt" x="542" y="176" text-anchor="middle">CS_refiner_v2_wacom</text>
+        </g>
+        <path class="dedge" d="M632,130 L672,130"/>
+
+        <!-- node 4: contrast -->
+        <g>
+          <rect class="dnode hot" x="674" y="44" width="176" height="80" rx="12"/>
+          <text class="dttl" x="762" y="72" text-anchor="middle">interior D_in</text>
+          <text class="dsub" x="762" y="92" text-anchor="middle">refDeff · mean over</text>
+          <text class="dsub" x="762" y="107" text-anchor="middle">boundary locs</text>
+
+          <rect class="dnode" x="674" y="136" width="176" height="80" rx="12"/>
+          <text class="dttl" x="762" y="164" text-anchor="middle">exterior D_out</text>
+          <text class="dsub" x="762" y="184" text-anchor="middle">free-ER control</text>
+          <text class="dtxt" x="762" y="205" text-anchor="middle">CSensemble1/2.m</text>
+        </g>
+        <path class="dedge" d="M852,84 C892,84 892,130 916,130"/>
+        <path class="dedge" d="M852,176 C892,176 892,130 916,130"/>
+
+        <!-- node 5: normD map (colormap chip) -->
+        <g>
+          <text class="dsub" x="936" y="60" text-anchor="middle">avg map</text>
+          <rect class="cbar" x="906" y="92" width="60" height="76" rx="8" fill="url(#turbo)"/>
+          <text class="dtxt" x="936" y="186" text-anchor="middle">normD</text>
+        </g>
+        <text class="dcap" x="936" y="210" text-anchor="middle">D / mean(refDeff)</text>
+
+        <!-- colorbar legend -->
+        <g>
+          <text class="dcap" x="14" y="250">D_eff colour scale</text>
+          <rect class="cbar" x="14" y="258" width="220" height="12" rx="3" fill="url(#turbo)"/>
+          <text class="dcap" x="14" y="286">low (confined)</text>
+          <text class="dcap" x="234" y="286" text-anchor="end">high (free)</text>
+        </g>
+        <text class="dsub" x="470" y="270">Interior D_in &lt; D_out ⇒ a reduced-mobility subdomain. Fig 4D compares D_in across Control vs starvation.</text>
+      </svg>
+    </div>
+  </div>
+</section>
+
+<!-- 5. CLAIM → CODE -->
+<section id="mapping">
+  <div class="wrap">
+    <div class="sec-head"><span class="sec-num">05</span><h2>Paper claim → code</h2></div>
+    <p class="sec-sub">Which scripts produce each of the paper's four load-bearing claims.</p>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th style="width:32%">Claim</th><th>Responsible code</th><th style="width:14%">Figure</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><span class="claim">Contact sites contain reduced-diffusion subdomains</span></td>
+            <td class="files"><code>DensityVisualization.m</code><code>CS_refiner_v2_wacom.m</code><code>CSensemble1/2.m</code><code>AvgCSAccumulator.m</code></td>
+            <td><span class="fig">Fig 2–3</span></td>
+          </tr>
+          <tr>
+            <td><span class="claim">Subdomains remodel with metabolic state (starvation)</span></td>
+            <td class="files"><code>Fig4D_Deffsynchronizer.m</code><code>ConditionAccumulatorFinal.m</code></td>
+            <td><span class="fig">Fig 4D</span></td>
+          </tr>
+          <tr>
+            <td><span class="claim">VAPB dwells for seconds while the site is stable (metastability)</span></td>
+            <td class="files"><code>DwellTimeManual.m</code><code>EntryExitManualClassifierv2.m</code><code>ParseCompleteInteractions.m</code></td>
+            <td><span class="fig">Fig 3–4</span></td>
+          </tr>
+          <tr>
+            <td><span class="claim">Subdomains correlate with ER membrane curvature</span></td>
+            <td class="files"><code>EMtracer_2Dv1.m</code><code>CS_reorienter_v3.m</code><code>CoordShiftCS.m</code></td>
+            <td><span class="fig">Fig 1–2</span></td>
+          </tr>
+          <tr>
+            <td><span class="claim">ALS mutation perturbs the subdomains</span></td>
+            <td class="files"><code>MitoFlag</code> routing<code>GenerateEnrichmentStruct.m</code><code>OutputEnrichmentCoeffDatav2.m</code></td>
+            <td><span class="fig">Fig 4</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- 6. ENGINEERING -->
+<section id="engineering" style="border-bottom:0">
+  <div class="wrap">
+    <div class="sec-head"><span class="sec-num">06</span><h2>Reading it as an engineer</h2></div>
+    <p class="sec-sub">A research codebase with the reproducibility profile that implies — worth knowing before you re-run it.</p>
+    <div class="notegrid">
+      <div class="note">
+        <h3><span class="ic" style="background:var(--ext)"></span>Lives outside this repo</h3>
+        <ul>
+          <li>The <b>JBM / Masson</b> D<sub>eff</sub> engine — only <code>Maps/*.mat</code> outputs are read (via external <code>AssimilateTessIndex3</code>)</li>
+          <li>The <b>Calderon</b> non-parametric-Bayesian HDP-SLDS Python code + model fitting</li>
+          <li><b>TrackMate</b>, <code>MaskParticles.ijm</code>, and the <code>ChrisPrograms</code> TIFF-I/O class</li>
+        </ul>
+      </div>
+      <div class="note">
+        <h3><span class="ic" style="background:var(--accent)"></span>Human-in-the-loop by design</h3>
+        <ul>
+          <li>Interactive thresholding &amp; <b>multipoint CS-center picking</b> (Fiji)</li>
+          <li><b>Wacom freehand</b> boundary tracing of every site</li>
+          <li>Manual “North” + exit count for averaging; hand-marked binding events</li>
+          <li>Blinding is applied only to the external Bayesian step</li>
+        </ul>
+      </div>
+      <div class="note">
+        <h3><span class="ic" style="background:var(--matlab)"></span>Structure &amp; versioning</h3>
+        <ul>
+          <li>Mostly bare <b>scripts</b> run from a specific working directory, not parameterized functions</li>
+          <li>Near-duplicate variants dominate: <code>*NoDeff</code>, <code>*NoJBM</code>, <code>*_wacom</code>, <code>v2/v3</code>, plus a whole <code>Final/Revision/</code> branch</li>
+          <li>Units to watch: X/Y in <b>µm</b> but <code>refboundary</code> in <b>nm</b>; frame period hardcoded 0.011 s</li>
+        </ul>
+      </div>
+      <div class="note warn">
+        <h3><span class="ic" style="background:var(--accent)"></span>Confirmed defects (see BUGS_AND_FIXES.md)</h3>
+        <ul>
+          <li><code>Revision/CS_builder.m</code> — two collapsed loops build only <b>one</b> CS; use the top-level <code>Final/CS_builder.m</code></li>
+          <li><code>EntryExitManualClassifier.m</code> highlights the wrong track — use <code>v2</code></li>
+          <li><code>CSaveragerNoDeff.m</code> — stray token = syntax error</li>
+          <li><code>AssignCSindexByCellv2.m</code> — references an undefined variable</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <span>Overview generated from a full read of the codebase + paper Methods.</span>
+    <span class="sep">·</span>
+    <span>Companion docs: <code>PIPELINE_REPRODUCTION_CHECKLIST.md</code>, <code>BUGS_AND_FIXES.md</code></span>
+    <span class="sep">·</span>
+    <span>Obara &amp; Nixon-Abell et al., <i>Nature</i> 626, 169–176 (2024)</span>
+  </div>
+</footer>
+
+<script>
+  (function(){
+    var root=document.documentElement, btn=document.getElementById('themeBtn');
+    function current(){
+      var t=root.getAttribute('data-theme');
+      if(t) return t;
+      return window.matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light';
+    }
+    btn.addEventListener('click',function(){
+      var next=current()==='dark'?'light':'dark';
+      root.setAttribute('data-theme',next);
+    });
+  })();
+</script>
+</body>
+</html>
