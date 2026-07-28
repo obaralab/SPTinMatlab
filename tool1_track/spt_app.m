@@ -501,7 +501,9 @@ buildExperimentTab(tExpt);
         uilabel(r1,'Text','λ','HorizontalAlignment','right');
         spnLam = uispinner(r1,'Limits',[0 20],'Value',3,'Step',0.5,'Tooltip','ER penalty weight (ER modes)');
         uibutton(r1,'Text','⚖ Compare methods','ButtonPushedFcn',@(s,e) onCompareModes(), ...
-            'Tooltip','Open a window comparing all 3 linking methods (Euclidean · ER-penalty · ER-geodesic) on the current Detect cell: track counts per method + example regions where they link differently.');
+            'Tooltip',['Open a window comparing all 3 linking methods (Euclidean · ER-penalty · ER-geodesic) on the ' ...
+            'current Detect cell: track counts per method, plus a list of the places they link a spot differently — ' ...
+            'pick one and it plays as three side-by-side videos, one per method, over the real frames. Saves an MP4.']);
         uilabel(r1,'Text','');   % spacer
 
         % row 2 — project + run + detection readout

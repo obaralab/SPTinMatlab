@@ -228,8 +228,9 @@ end
 end
 
 function fg = segFg_(segPath)
-a = imread(segPath, 1); v = unique(a(:)); nz = v(v > 0);
-fg = 1; if ~isempty(nz), fg = min(nz); end
+% Stack-wide foreground label — reading it from page 1 alone inverts the whole overlay whenever
+% that page happens to contain no segmented organelle (it is then entirely the background label).
+fg = spt_seg_fg_label(segPath);
 end
 
 function s = onoff_(tf), if tf, s = 'on'; else, s = 'off'; end, end

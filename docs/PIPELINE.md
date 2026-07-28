@@ -290,17 +290,40 @@ playing the track (marker vs current-frame ER), not by the static path.
 **Method-comparison app** (`spt_compare_app.m` + engine `spt_method_compare.m`; Track-tab "⚖ Compare
 methods" opens it in a **new window**). Over a frame window it (1) runs **full tracking** (LAP + gap-close)
 under all three modes → a **bar chart of track counts per method** (+ medians, and Δ vs Euclidean), and (2)
-re-solves each frame→frame assignment under all three modes and shows a grid of **example regions where the
-methods link a spot to a different partner** — the concrete places a track changes: **source = ○ ·
-Euclidean = red ✕ · ER-penalty = orange ▢ · ER-geodesic = green ✚**, ranked best-first by on-ER improvement.
-A **Backdrop** dropdown draws these on the **actual raw SPT frame** (default, with the ER outline in cyan),
-the raw frame alone, or the ER mask — with a contrast slider; toggling redraws from stored data (no
-re-tracking). A **Min len** spinner (defaults to the Curate min-length) re-counts the bars from the stored
-tracks at any threshold, since the raw counts are unfiltered and the method with more tracks *flips* with the
-threshold. The summary panel also reports **how many detections ER-geodesic excludes** (ER-penalty excludes
-none — it links every detection Euclidean does and differs only in *how* it groups them).
-`.counts`/`.tracks`/`.summary`/`.instances` returned; example count + frame window adjustable;
-"Save figure…" exports a PNG.
+lists every place the methods link a spot to a **different partner**, and plays the selected one as **three
+synchronized videos, side by side — one per method**.
+
+The three players share a cropped region, a frame, and a `± frames` window (default 10 → 22 frames), and
+each draws **only its own method's tracks** over the **real frames** (not a max projection). The methods are
+therefore *compared*, not overlaid — the overlay was the thing that made the old static grid unreadable.
+Within a panel the **focus track** (the chain containing the disagreeing spot) is bright in the method
+colour, every other track in the box is thin grey context, and a **dotted** focus segment is a gap-closed
+jump. Under each panel a **divergence strip** fills on the frames where that method's chain exists (so a
+method that has *no* track there reads instantly as an empty strip) with ticks where the three chains
+disagree; click it to seek.
+
+Two panel badges carry the usual outcome, which would otherwise read as a broken app: **"ER-penalty —
+identical to Euclidean here"** and **"ER-geodesic — spot excluded (off ER)"**. On the test cell these fire in
+roughly three quarters and just over half of examples respectively: the difference strict linking makes is
+most often an **absence**, which is exactly what a single overlaid picture cannot show.
+
+The example list is ranked by how much the three chains actually differ over the playback window (not by the
+engine's single-link off-ER heuristic), and names what differs. Selecting one opens it **paused at the first
+frame where the methods diverge** — opening on the disagreement frame itself usually shows three identical
+panels. A **Backdrop** dropdown draws on the raw frame with the ER outline (default), a light ER tint, the
+raw frame alone, or the ER mask, with a contrast slider; both redraw from preloaded frames (no re-tracking).
+A **Min len** spinner (defaults to the Curate min-length) re-counts the bars from the stored tracks at any
+threshold, since the raw counts are unfiltered and the method with more tracks *flips* with the threshold.
+The summary panel reports **how many detections ER-geodesic excludes** (ER-penalty excludes none — it links
+every detection Euclidean does and differs only in *how* it groups them).
+`.counts`/`.tracks`/`.summary`/`.instances` returned; frame window and list length adjustable.
+**"Save video…"** writes the selected example's window as an MPEG-4 of all three players
+(`exportgraphics` on the players panel); "Save figure…" exports the whole window as a PNG.
+Regression: `spt_compare_smoke.m` (asserts the panels differ per method and that the video is readable).
+
+> Index conventions inside `spt_compare_app.m`: `cmp.tracks.<mode>{j}(:,1)` is a **window index** `k`
+> (1…nF into `cmp.dets`/`cmp.ERs`), while `cmp.instances.frame` is an **absolute** movie frame `t`, with
+> `t = cmp.fr(1) + k − 1`. Mixing them is the easiest bug to introduce here.
 
 **Benchmark** — measured on `250408_WT_012_spt1` (WithER), **frames 1–300**, 11 535 detections, pxUm
 0.10785, link 0.8 µm · gap 1.4 µm · maxGap 1 · λ = 3 · Top 6%; **after** the strict-geodesic change (any
