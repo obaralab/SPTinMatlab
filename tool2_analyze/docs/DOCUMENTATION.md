@@ -144,9 +144,9 @@ analysis/
 | `steps` | `(M-1)×N` | µm/frame | `rawSteps(:,:,2)./rawSteps(:,:,1)` = instantaneous speed. |
 | `MSDdata` | `[]` | — | Legacy scratch, deliberately empty. |
 | `MSD` | `(M-1)×N` | µm² | **Rows here index frame lag Δ** (not step): mean squared displacement per (lag, track). NaN where no pair. |
-| `MSDerror` | `(M-1)×N` | µm² | `MSDstdev/sqrt(#tracks with a finite MSD at that lag)` — SEM-like. |
+| `MSDerror` | `(M-1)×N` | µm² | `MSDstdev./sqrt(cntSD)` = standard error of **that track's** MSD at **that lag**, where `cntSD` is the number of displacement pairs that went into the bin. NaN where no pair. |
 | `MSDstdev` | `(M-1)×N` | µm² | Std. dev. of the squared displacements in each (lag, track) bin. |
-| `CSD` | `(M-1)×N` | µm | Cumulative path length: `cumsum(steps)` down rows. |
+| `CSD` | `(M-1)×N` | µm | Cumulative path length in µm: `cumsum(rawSteps(:,:,2))` down rows — the sum of the **actual** step distances, so a gap-closed step contributes the whole distance covered, not a per-frame average. |
 | `CSDnorm` | `(M-1)×N` | 0–1 | `CSD` normalized so each track ramps to 1.0 at its last step. |
 | `rawVector` | `(M-1)×N×2` | µm | Signed per-step displacement `(dX, dY)`. |
 | `vector` | `(M-1)×N×2` | µm/frame | `rawVector ./ dT` = velocity components `(dX/dT, dY/dT)`. |

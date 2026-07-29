@@ -1,50 +1,67 @@
-# SPT in MATLAB — two-tool VAPB contact-site pipeline
+# SPT in MATLAB — three-tool VAPB contact-site pipeline
 
 Everything for the single-particle-tracking → ER–mitochondria contact-site workflow, in MATLAB,
-in one place. Two focused tools that hand off through files only.
+in one place. Three focused tools that hand off through files only.
 
 ```
-Tool 1: TRACK & FILTER            handoff (files)              Tool 2: ANALYZE
-raw SPT + ER-seg + mito-seg  ──▶  <base>_tracks_filtered.xml  ──▶  contact sites, dwell,
-match·detect·track·filter         <base>_spots_filtered.csv        density, cross-condition
+Tool 1: TRACK & FILTER        handoff (files)      Tool 2: CURATE & BUILD    handoff (file)   Tool 3: ANALYZE
+raw SPT + ER-seg + mito-seg ─▶ tracks/             import · curate · build ─▶ analysis/     ─▶ contact sites, refine,
+match·detect·track·filter      <base>_tracks_filtered.xml   (the slow MSD step)  <name>.mat      sites, dwell, compare
+                               <base>_spots_filtered.csv
 ```
 
 ## Launch
 
 ```matlab
 addpath('/Users/safal-mac/Desktop/IntegratedPipeline/SPTinMatlab')
-run_track      % Tool 1 — SPT Track & filter  (produces the curated tracks)
-run_analyze    % Tool 2 — ContactSites analysis (consumes them)
+run_track      % Tool 1  spt_app         — Match files · Detect · Track & filter · Experiment
+run_curate     % Tool 2  spt_curate_app  — Import & Curate · Build & QC · Experiment
+run_analyze    % Tool 3  spt_analyze_app — Contact sites · Refine · Sites · Dwell · Experiment · Compare
 ```
+
+Tools 2 and 3 are **one implementation** — `spt_analyze_app.m` behind a `mode` argument.
+`spt_curate_app` just calls `spt_analyze_app('curate')`; `run_analyze` calls `spt_analyze_app('analyze')`;
+`spt_analyze_app('full')` shows every tab in one window. The **Experiment** tab (`spt_experiment_panel`)
+is shared by all three tools — the multi-folder / condition manifest that ties them together.
 
 ## Folder layout
 
 ```
 SPTinMatlab/
-├── run_track.m                 ← launcher for Tool 1
-├── run_analyze.m               ← launcher for Tool 2
+├── run_track.m  run_curate.m  run_analyze.m   ← the three launchers
 ├── README.md                   ← this file
 │
-├── tool1_track/                ← TOOL 1 (new, built here) — self-contained
-│   ├── spt_app.m               ← the app: Match · Detect · Track & filter
+├── tool1_track/                ← TOOL 1 (built here) — self-contained
+│   ├── spt_app.m               ← the app: Match · Detect · Track & filter · Experiment
 │   ├── spt_match.m             ← 3-folder file matcher (SPT ↔ ER-seg ↔ mito-seg)
 │   ├── spt_dog.m spt_detect.m spt_pool_quality.m spt_count_per_frame.m   ← detection
-│   ├── spt_track.m spt_measure.m spt_load_seg.m spt_process_cell.m       ← tracking + per-spot mito/ER distance
-│   ├── spt_write_outputs.m spt_curate_read.m spt_curate_write.m          ← output + filter (only tracks filtered)
+│   ├── spt_track.m spt_process_cell.m spt_measure.m spt_load_seg.m       ← tracking + per-spot mito/ER distance
+│   ├── spt_link_cost.m spt_link_cost_geo.m spt_seg_off_fraction.m        ← Euclid/penalty · geodesic link costs
+│   ├── spt_er_support.m spt_on_er.m spt_seg_fg_label.m                   ← the ONE definition of "on the ER"
+│   ├── spt_compare_app.m spt_method_compare.m spt_link_compare.m         ← 3-way linking-method comparison
+│   ├── spt_curate_read.m spt_curate_write.m spt_write_outputs.m          ← output + filter (only tracks filtered)
+│   ├── spt_write_settings.m spt_append_curation_settings.m spt_append_detection_summary.m  ← provenance
 │   ├── spt_track_movie.m       ← embedded track player (frames + ER/mito overlays)
-│   └── spt_pixel_size.m
+│   ├── spt_pixel_size.m
+│   └── *_smoke.m               ← regression tests (geodesic-strict, compare, shape, save-video, …)
 │
-├── tool2_analyze/              ← TOOL 2 (advisor's published pipeline + additive drivers)
+├── tool2_analyze/              ← TOOLS 2 + 3 (advisor's published pipeline + additive drivers)
 │   ├── app/
-│   │   ├── spt_pipeline_app.m  ← one-window app: Calibration · Curate · Build · Run · Contact sites · Dwell · Compare
-│   │   ├── track_viewer.m
+│   │   ├── spt_analyze_app.m   ← the shared app — 'curate' | 'analyze' | 'full'
+│   │   ├── spt_curate_app.m    ← thin Tool 2 wrapper over it
+│   │   ├── spt_experiment_panel.m  ← the Experiment tab, shared by all three tools
+│   │   ├── spt_pipeline_app.m  ← LEGACY one-window app; not what run_* launches
+│   │   ├── track_viewer.m      ← the curation viewer (embedded in Import & Curate)
 │   │   └── cs_pipeline_doc.html
 │   ├── drivers/                ← EDITABLE additive layer (the picker rework lives here)
 │   │   ├── TrackImporter_direct.m   ← curated XML/CSV → Tracks struct (reads MITO_DIST_UM + ER_DIST_UM)
 │   │   ├── build_trackstruct.m      ← folder-picker wrapper over the importer (the slow MSD step)
-│   │   ├── cs_identify.m cs_window_density.m cs_mito_from_dist.m         ← contact-site picker + density
-│   │   ├── cs_mc_threshold.m cs_refine.m cs_radial_plot.m               ← Monte-Carlo null · refine · radial
-│   │   └── run_pipeline.m run_contactsite_analysis.m setup_run_folder.m … ← staged drivers
+│   │   ├── cs_active_trackstruct.m  ← the SINGLE resolver for "which build is in force"
+│   │   ├── cs_window_picker.m cs_window_mapper.m cs_window_density.m cs_window_dwell.m  ← windowed picker → sites → dwell
+│   │   ├── cs_footprints_build.m cs_refine.m cs_mc_threshold.m cs_radial_plot.m         ← footprints · refine · MC null · radial
+│   │   ├── cs_identify.m cs_detect.m cs_mito_from_dist.m                                ← whole-movie picker · peak detection · mito from distance
+│   │   ├── cs_experiment_scan.m cs_experiment_aggregate.m cs_experiment_status.m        ← the experiment manifest
+│   │   └── run_pipeline.m run_contactsite_analysis.m setup_run_folder.m … ← staged drivers (legacy path)
 │   ├── ContactSites_robust/    ← WORKING suite — the app + drivers actually run against THIS.
 │   │                              Hardened refactor of the paper code (config-driven scale factor,
 │   │                              robust name handling); proven equal to the original. Editable if needed.
@@ -52,21 +69,33 @@ SPTinMatlab/
 │   │                              Kept as the reference of record; robust was validated against it.
 │   └── docs/                   ← DOCUMENTATION.md, tracks_struct_contract.md, SPT_pipeline_map.md, …
 │
-└── docs/                       ← cross-tool notes (the file handoff contract)
+└── docs/                       ← cross-tool notes: PIPELINE.md, DATA_STRUCTURE.md, SESSION_HANDOFF.md
 ```
 
-## The two-tool contract
+## The tool-to-tool contract
 
-Tool 1 writes, and Tool 2 reads, one pair per cell in `<project>/tracks/`:
+**Tool 1 → Tool 2.** Tool 1 writes, and Tool 2 reads, one set per cell in `<project>/tracks/`:
 
 - **`<base>_tracks_filtered.xml`** — only the tracks that passed curation (renumbered `TRACK_ID` 0…K-1).
 - **`<base>_spots_filtered.csv`** — **every** detection (the localization cloud is never filtered),
   columns `TRACK_ID, SPOT_ID, FRAME, T_s, X_um, Y_um, QUALITY, MEAN/MAX/TOTAL_INTENSITY,
   MITO_DIST_UM, ER_DIST_UM`. `TRACK_ID` is blank for spots in dropped/untracked tracks.
+- **`<base>_settings.txt`** — the run provenance (below), plus a project-level `detection_summary.csv`.
 
 `MITO_DIST_UM` / `ER_DIST_UM` are signed µm (− inside the organelle, + outside) computed per spot
 from the **per-frame** ER/mito masks. Tool 2's importer carries both into
 `Tracks(k).mitoDist` / `Tracks(k).erDist` (per tracked spot) and `Tracks(k).allSpots` (every detection).
+
+**Tool 2 → Tool 3.** Build & QC has a **Name** field: a build writes `<project>/analysis/<name>.mat`
+(default `TrackStruct.mat`) and records that name in `analysis/active_trackstruct.txt`. A project can
+therefore hold several **named builds** side by side (`Day1_WT.mat`, `Day1_KO.mat`, …).
+`drivers/cs_active_trackstruct.m` is the single resolver — pointer file → `TrackStruct.mat` →
+legacy `Tracks.mat` → any `.mat` in the folder that actually contains a `Tracks` variable. Tool 3,
+the contact-site picker, the window mapper, footprints, `cs_refine`, the experiment scan and the
+Experiment "built" lamp all resolve through it, so they can never disagree about which build is in
+force. `Tracks.mat` is **legacy**: it is written only by `run_contactsite_analysis`, which only the
+legacy `spt_pipeline_app` / `pipeline_gui` invoke, so it never appears in the `run_curate` /
+`run_analyze` flow.
 
 ## Provenance & which suite runs
 
@@ -79,6 +108,18 @@ There are two copies of the ContactSites suite, with distinct roles:
   (e.g. the density-map scale factor comes from `cs_config.m` instead of the paper's hardcoded value,
   and name handling is robust). The app auto-selects `ContactSites_robust` when both are present.
 
-All new / reworked analysis (including the frame-based contact-site picker) is *additive* and lives in
+All new / reworked analysis (including the windowed contact-site picker) is *additive* and lives in
 `tool2_analyze/drivers/` — it calls the suite in the intended order and never edits a suite `.m` file.
 The upstream originals also remain untouched in `../SPT_ContactSites_Pipeline/`.
+
+Per run, Tool 1 writes `<base>_settings.txt` next to the outputs: detection diameter, threshold mode
+and gate, and the **effective** linking mode (`tracking.link_mode` = `euclid` | `penalty` | `geodesic`)
+— never the requested one, so a cell whose ER mode was downgraded for want of a segmentation records
+the request separately as `tracking.link_mode_req`. Strict `geodesic` linking **fails closed**: each
+frame is pre-filtered to the detections on that frame's own 1 px-dilated ER support (`spt_er_support`
+/ `spt_on_er` — the one shared definition), so an off-ER detection cannot enter a track by any route,
+gap closing must be reachable *along* the ER, and a frame with no ER mask contributes nothing. Both
+costs are counted as `tracking.frames_no_er_mask` and `tracking.dets_off_er`; curating a cell upserts
+a `curation.*` block into the same file. `⚖ Compare methods` on the Track tab opens three
+side-by-side synchronized players — one per linking mode, over the real frames — with a ranked list
+of the links the methods disagree on and MP4 export.

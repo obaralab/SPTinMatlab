@@ -17,15 +17,17 @@ in MATLAB, as three tools that hand off through files. This document is the refe
 ```
 Tool 1 · TRACK              handoff (files)      Tool 2 · CURATE & BUILD    handoff (file)     Tool 3 · ANALYZE
 raw SPT + ER-seg + mito ─▶  tracks/*_filtered ─▶ import → curate → build ─▶ analysis/         ─▶ density → contact
-match·detect·track·filter    .xml + .csv          the slow MSD step         TrackStruct.mat      sites → refine →
-                             + _settings.txt      → TrackStruct.mat                              sites → dwell → compare
+match·detect·track·filter    .xml + .csv          the slow MSD step         <name>.mat  +        sites → refine →
+                             + _settings.txt      → analysis/<name>.mat     active_trackstruct   sites → dwell → compare
 ```
 
 Three tools, coupled only through files. **Tool 1** (`spt_app`, new, built from scratch) tracks + filters and
 writes `tracks/<base>_tracks_filtered.xml` + `_spots_filtered.csv`. **Tool 2** (`spt_curate_app`) curates those
-tracks (embeds `track_viewer`) and runs `build_trackstruct` (the slow MSD step) → `analysis/TrackStruct.mat`.
-**Tool 3** (`spt_analyze_app`) starts from that TrackStruct: density → contact-site picker → refine → mapper →
-dwell → compare, reusing the advisor's ContactSites suite (`ContactSites_robust`, validated against the pristine
+tracks (embeds `track_viewer`) and runs `build_trackstruct` (the slow MSD step) → a **named build**
+`analysis/<name>.mat` (`TrackStruct.mat` unless you name it), recorded as the one in force in
+`analysis/active_trackstruct.txt`. **Tool 3** (`spt_analyze_app`) starts from that build — which it resolves
+through `cs_active_trackstruct` (§7.2), never by a hardcoded filename: density → contact-site picker → refine →
+mapper → dwell → compare, reusing the advisor's ContactSites suite (`ContactSites_robust`, validated against the pristine
 Nature-2024 `ContactSites_original`). A shared **Experiment** tab (`spt_experiment_panel`) is present in ALL three
 tools — the multi-folder / per-condition manifest (day, condition, exclude, derived tracked/curated/built/mapped/
 dwelled status) that ties the dataset together and drives Tool 3's cross-condition Compare.
@@ -82,7 +84,11 @@ SPTinMatlab/
 │   ├── <base>_spots_curated.csv    all detections, TRACK_ID for twice-curated kept
 │   ├── <base>_settings.txt         provenance: detection + tracking params used
 │   └── cs_calib.mat                per-dataset calibration (written by Tool 2)
-└── analysis/ (Tool 2 downstream: TrackStruct.mat, Densities/, csIDs/, …)
+└── analysis/                   ← Tool 2 writes the build here, Tool 3 reads it
+    ├── <name>.mat              a NAMED build (Tracks struct); TrackStruct.mat by default, several may coexist
+    ├── active_trackstruct.txt  one line: the basename of the build IN FORCE (§7.2)
+    ├── cs_calib.mat            copied in from tracks/ at build time
+    └── Densities/ csIDs/ Density_<cell>_CSwindows.mat CS_footprints.mat CSW_final.mat cs_window_dwell.* …
 ```
 
 `<base>` = the spt file name, e.g. `250408_WT_012_spt1`. Channel-name mismatches (the seg files carry a
@@ -198,10 +204,18 @@ Key=value lines: `detection.diameter_um`, `detection.threshold_mode` (top-percen
 excluded: `tracking.frames_no_er_mask`, `tracking.dets_off_er` (§6.2).
 **Tool 2 reads the tracking lines to populate its curate params.**
 
-### `detection_summary.csv` — project-level detection log (one row per cell)
-`cell, threshold_mode, top_percent, quality_min, thr_abs, diameter_um, n_spots, n_tracks, er_aware,
-run_time`. Upserted by cell name on every run, so with many cells you can see each cell's threshold at a
-glance and audit which percentile / quality gate produced each result.
+### `detection_summary.csv` — project-level detection + tracking log (one row per cell)
+Header, in order (`spt_append_detection_summary.m`):
+```
+cell, threshold_mode, top_percent, quality_min, thr_abs, diameter_um,
+link_mode, link_um, max_gap_um, max_gap_frames, lambda,
+n_spots, n_tracks, er_aware, run_time
+```
+`link_mode` is the **effective** engine key (the same value as `<base>_settings.txt`'s
+`tracking.link_mode`, so a cell downgraded for want of an ER segmentation reads `euclid` here).
+`quality_min` / `thr_abs` are `NA` when they do not apply. Upserted by cell name on every run, so with
+many cells you can see each cell's threshold **and linking parameters** at a glance and audit which
+percentile / quality gate produced each result.
 
 ### Curation naming
 `_filtered` = Tool 1 (length/displacement). `_curated` = Tool 2 (density/variance/manual). Both preserve
@@ -361,30 +375,94 @@ New tab app `spt_analyze_app.m`; reuses the drivers + `ContactSites_robust` suit
    records `manual_keep`/`manual_reject` that **override the auto-filter and survive a re-apply**
    (`kept = (filter ∖ manual_reject) ∪ manual_keep`); the preview count shows the override-adjusted total.
 2. **Build & QC** *(done)* — `build_trackstruct` on the `_curated` tracks (falls back to `_filtered`/raw if
-   not yet curated) → **`<project>/analysis/TrackStruct.mat`** (the slow MSD step, once, after curation) +
-   a **📂 Load TrackStruct.mat** button (`onLoadTracks`) loads an existing struct (project `analysis/`, else
-   browse) and shows the QC **without recomputing MSD** — it infers the project from an `analysis/` path,
-   copies the struct into `analysis/`, and adopts any `cs_calib.mat` (`applyCalib`). QC survives structs with
-   **no `erDist`/`mitoDist`/`MSD`** (a `fieldOr` guard), so no-ER or older builds load cleanly.
-   a copy of `cs_calib.mat`. Carries `mitoDist`/`erDist` per tracked spot + `allSpots` (every detection).
-   Time unit `frame` (default; reproduces legacy MSD binning) or `seconds`. Then, in the same tab, an
-   **interactive QC** (per cell or pooled): a per-cell summary table; pooled **track-length**, **ER/mito
-   signed-distance** (with **on-ER %** — §6.2, e.g. "on-ER 96.0% (median −0.193 µm)") and **D-distribution**
-   (per-track D = slope/4, median annotated) histograms; and a **clickable tracks panel** — click a track to
-   (a) highlight its trajectory, (b) **play it in the embedded player panel** (SPT frames + per-frame ER/mito
-   overlay, right in the tab — no popup), and (c) see its **MSD with a D = slope/4 linear fit** whose title
-   reports **D and the fit R²** (goodness-of-fit). One **MSD-fit %** spinner drives both the per-track fit and
-   the pooled D-distribution, and re-fitting preserves the clicked track. `fitTrackD(msd,dt,fracPct)` returns
-   `D, R², lag, y, fitX, fitY`; the embedded player is `spt_track_movie(panel)`, torn down on app close.
+   not yet curated) → **`<project>/analysis/<name>.mat`** (the slow MSD step, once, after curation), where
+   `<name>` is the tab's **Name** field (default `TrackStruct`) — see *Named builds* below. Building also
+   copies `tracks/cs_calib.mat` into `analysis/`. A **📂 Load TrackStruct…** button (`onLoadTracks`) loads an
+   existing build and shows the QC **without recomputing MSD**: when the project holds **more than one** build
+   it always opens a file picker (the shortcut to the active one made the other named builds unreachable),
+   otherwise it goes straight to the active one. It infers the project from an `analysis/` path, copies the
+   struct into `analysis/` **under its own name**, makes it active, and adopts any `cs_calib.mat`
+   (`applyCalib`). QC survives structs with **no `erDist`/`mitoDist`/`MSD`** (a `fieldOr` guard), so no-ER or
+   older builds load cleanly. Carries `mitoDist`/`erDist` per tracked spot + `allSpots` (every detection).
+   Time unit `frame` (default; reproduces legacy MSD binning) or `seconds`.
+
+   **Named builds — the ACTIVE TrackStruct.** A project may hold several builds side by side in `analysis/`
+   (`Day1_WT.mat`, `Day1_KO.mat`, …). Every build **and** every load writes the basename of the one in force
+   into **`analysis/active_trackstruct.txt`**, and **`drivers/cs_active_trackstruct.m` is the single
+   resolver** — resolution order: (1) `active_trackstruct.txt` when it names a file that exists, (2)
+   `TrackStruct.mat` (the default name, what every pre-naming project has), (3) `Tracks.mat` (legacy), (4)
+   any other `.mat` in the folder that actually contains a `Tracks` variable, so a hand-copied build
+   registers even without a pointer; `''` when the folder holds no build. Tool 3, the contact-site picker
+   (`cs_window_picker`), the window mapper (`cs_window_mapper`), the footprint builder
+   (`cs_footprints_build`), `cs_refine`, the experiment scan (`cs_experiment_scan`) and the Experiment
+   **built** lamp (`cs_experiment_status`) all resolve through it, so they can never disagree about which
+   file the folder is working from — and a separately launched `run_analyze` opens the build the Curate tool
+   last wrote or loaded. The picker also accepts an already-loaded struct via `opts.Tracks` (plus
+   `opts.tsFile`), so Tool 3 does not put a second full copy of the same build in RAM; it falls back to
+   `cs_active_trackstruct` when run standalone. **`Tracks.mat` is legacy**: it is written only by
+   `run_contactsite_analysis`, which only the old one-window `spt_pipeline_app` / `pipeline_gui` invoke, so
+   it never appears in the `run_curate` → `run_analyze` flow.
+
+   **Per-localization diffusion is computed at build** (`addDiffusion` → `drivers/spt_track_diffusion.m`,
+   after the MSD import and before the save; also filled in on Load for an older build that lacks it). It is
+   the native-MATLAB equivalent of `run_step.py`'s noise-corrected rolling estimator —
+   `D = ⟨dr²⟩/(4·dt) − σ²/dt`, floored at 0, over a rolling window of 7 localizations (`mode 'lag1'`; a
+   local-MSD-slope `'msdfit'` mode also exists) — and **adds four fields** to every cell, all aligned with
+   `matrix` (`[nF × nT]`, NaN/false where there is no localization): **`Dt`** (D per localization, µm²/s),
+   **`confined`** (`Dt ≤ confineD`), **`stateChange`** (the rising edge into a confined run — a fast→slow
+   capture event), **`diffOpts`** (provenance: `dt, sigmaUm, win, mode, confineD, method`). The **confined ≤ D**
+   spinner (default 0.15 µm²/s) re-derives `confined`/`stateChange` from the **stored** `Dt` — cheap, no
+   re-rolling and no rebuild — re-saves the **active** build (not `TrackStruct.mat` unconditionally, which
+   used to leave a divergent shadow file) and refreshes the QC. These fields are what Tool 3's **Confined /
+   State-change** density channels run on (§7.3).
+
+   Then, in the same tab, an **interactive QC** (per cell or pooled): a per-cell summary table; pooled
+   **track-length**, **ER/mito signed-distance** (with **on-ER %** — §6.2, e.g. "on-ER 96.0% (median
+   −0.193 µm)") and **D-distribution** (per-track D = slope/4, median annotated, the confinement threshold
+   drawn as a line, titled with the % of confined localizations and the state-change count) histograms; three
+   further panels off the diffusion + step fields —
+   - **stepwise D (per localization)** — the pooled `Dt` histogram. A *different quantity* from the
+     D-distribution above: that one fits an MSD per **track**, this is the rolling D at every
+     **localization**, and it is what the `confined`/`stateChange` flags (and Tool 3's density channels) are
+     derived from. Log-y (the confined peak sits orders below the bulk); the top 0.5% is **dropped**, not
+     clamped into the last bin (clamping built a false spike that read as a real population); confinement
+     threshold marked; titled median · % confined · n.
+   - **stepwise D(t)** *(the clicked track)* — that track's `Dt` against time along the track, points
+     coloured mobile vs confined, the threshold as a dashed line, and each `stateChange` frame as a vertical
+     marker; titled median · % confined · # state-changes.
+   - **CSD — cumulative displacement** — every track's cumulative path length (µm) vs step number, faint,
+     with the **median** curve bold and the clicked track highlighted on top. The median is drawn only while
+     at least `max(5, 10%)` of tracks are still alive at that step — past that it is a handful of long tracks
+     and drifts upward — and the title says how far that is, plus the median total path length.
+
+   — and a **clickable tracks panel**: click a track to (a) highlight its trajectory, (b) **play it in the
+   embedded player panel** (SPT frames + per-frame ER/mito overlay, right in the tab — no popup), (c) see its
+   **MSD with a D = slope/4 linear fit** whose title reports **D and the fit R²** (goodness-of-fit), and
+   (d) see the **D & R² vs fit-window sweep** for that track. A **D fit** dropdown chooses *Fixed %* (the same
+   % of lags for every track) or *Adaptive R²* (per track, the largest window up to that % that still fits
+   with R² ≥ 0.95), and one **fit %** spinner drives both the per-track fit and the pooled D-distribution;
+   re-fitting preserves the clicked track. The fit itself is `drivers/spt_fit_msd.m` (extracted from the app
+   so it is unit-testable), returning `D, R², b, sigLocUm, nPts, fracUsed, lag, y, fitX, fitY`; the embedded
+   player is `spt_track_movie(panel)`, torn down on app close.
 3. **Contact sites** *(done — consolidated windowed picker; the standalone Density tab was removed and folded
    in here)* — Tab 3 embeds a purpose-built **time-resolved** picker `cs_window_picker.m` (non-blocking, opens
    in ~1 s). It splits each cell's movie into **frame windows** (you set *frames per window*; a tiny trailing
    remainder merges into the last) and shows **one localization-density panel per window in a grid**; click a
    window → a large **zoomed detail view** to **＋Add** sites by clicking, **Detect** on demand, and
    **multi-select** the site list to remove.
-   - **Density source** toggle — **All localizations** (`allSpots`, the full ~220 k cloud; default) or
-     **Tracked only** (`matrix`, curated tracks). Both live in `TrackStruct.mat`; the choice also sets what
-     the null scatters. **Contrast** (turbo clip at contrast·peak) + **map α** (dim to reveal points) +
+   - **Density source is fixed to tracked-only** — the density (and therefore the null, the peaks and the
+     saved `windows.source`) is always built from the active build's `matrix`, i.e. curated tracked
+     localizations. There is **no all-vs-tracked toggle**: `st.src = 'tracked'` is hardcoded and `cellLocs`
+     is always called with `useTracked = true`, which keeps single-frame noise out of the map. The full
+     `allSpots` cloud is read only for the status readout `detections N · tracked M (P%)`.
+   - **Channel** dropdown — what *is* selectable is **which** tracked localizations the density is built
+     from: **Tracked** (all of them; default), **Confined (low D)** (only localizations flagged `confined`),
+     or **State-change** (only fast→slow entry localizations). The last two identify sites by **diffusion
+     state** rather than by density alone, and read the per-localization `confined`/`stateChange` flags
+     stored at Build (§7.2) — so the dropdown is **disabled** for a build without them. Switching channel
+     invalidates the per-window density and MC-null caches, so **re-run Detect** afterwards; the status line
+     then appends `· channel <name> (N locs)`.
+   - Display: **contrast** (turbo clip at contrast·peak) + **map α** (dim to reveal points) +
      **＋locs** overlay (this window's localizations).
    - **Detection** (`cs_detect.m`): **ER Monte-Carlo** (default; null scatters the on-ER localizations
      **uniformly inside the ER footprint** — no intensity weight, binary seg — so only peaks above
@@ -452,7 +530,10 @@ New tab app `spt_analyze_app.m`; reuses the drivers + `ContactSites_robust` suit
    image). Window frame ranges come from `Density_<cell>_CSwindows.mat` (authoritative; never recomputed);
    with no CSwindows file it **falls back to one whole-movie window** per Slice. Membership + the dwell
    coordinate frame (`CSmatrix`, µm rel refCentre) are **always** on `matrix`; only the density/enrichment
-   *source* may be `all`/`tracked`. Output: **`analysis/CSW_final.mat`** (flat struct, one element per
+   *source* may be `all`/`tracked`, and it is **locked to `windows.source`** written by the picker — which is
+   now always `tracked` (§7.3), so `all` survives only as the mapper's standalone default. The tracks come
+   from the **active** build (`cs_active_trackstruct`), not a hardcoded `TrackStruct.mat`.
+   Output: **`analysis/CSW_final.mat`** (flat struct, one element per
    site×window, carrying `siteUID, window, winFrames, refboundary, tracks, LocIDs, CSmatrix, MitoFlag,
    enrichment, …`) + `cs_window_metrics.csv`. If `analysis/CS_footprints.mat` exists (from the Refine tab) it
    **overrides** the auto footprint (and **skips deleted sites**) per matching `file|csID|window`. The tab shows a **per-(site,window) results
@@ -512,8 +593,23 @@ PyTorch + `step` lib + trained weights) or a numpy rolling-window fallback; `⇠
 Smokes: `cs_smooth_smoke`, `cs_step_roundtrip_smoke` (export→run_step.py→import, a slowing track → Din≪Dout).
 
 ### Downstream struct (`TrackImporter_direct.m` → `Tracks`)
-Per cell: `file, matrix (frame,x,y), MSD, steps, intens (mean/max/total), allSpots (FRAME,X,Y[,MITODIST][,ERDIST]),
-mitoDist [m×n], erDist [m×n]`. `mitoDist`/`erDist` are signed µm per tracked spot; `[]` if the CSV lacks the column.
+Per cell: `file, lengths, matrix (frame,x,y), center, rawSteps, steps, MSDdata, MSD, MSDstdev, MSDerror,
+CSD, CSDnorm, rawVector, vector, intens (mean/max/total), allSpots (FRAME,X,Y[,MITODIST][,ERDIST]),
+mitoDist [m×n], erDist [m×n], trackIDs, frameInterval`. `mitoDist`/`erDist` are signed µm per tracked spot;
+`[]` if the CSV lacks the column. Build & QC then adds `Dt, confined, stateChange, diffOpts` (§7.2).
+
+Two of these were **corrected**, and the fix moves downstream numbers — an old `.mat` build is not
+comparable to a new one, so rebuild rather than mix them:
+- **`CSD`** = `cumsum(dS1)`, the cumulative sum of the **actual step distance** (µm). It was
+  `cumsum(dS1./dT1)` — the *per-frame speed* — which charges a gap-closed step only its per-frame average,
+  and is not even in µm unless every `dT` is 1. On the WithER cell (**86.6%** of tracks contain a 2-frame
+  gap) total path length ran a median **2.0% low**, up to **11.5%** per track. `steps = dS1./dT1` remains the
+  per-frame speed on purpose; only `CSD` is a distance.
+- **`MSDerror`** = `MSDstdev ./ sqrt(cntSD)` — that track's own spread over **its own pair count at that
+  lag**. It was divided by the number of *tracks* that happen to have a finite MSD at that lag, so a track
+  with 374 pairs and a track with 1 pair got the same divisor and the error bars came out a median **4×
+  too small** (10× too small to 3.7× too large). **`MSD` itself was independently verified correct and is
+  unchanged.**
 
 ---
 

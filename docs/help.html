@@ -92,25 +92,25 @@
 <div class="flow">
   <span class="chip">SPT movie + ER seg + mito seg</span><span class="arw">→</span>
   <span class="chip b">Tool 1 · Track</span><span class="arw">→</span>
-  <span class="chip">_tracks_filtered.xml + _spots.csv</span><span class="arw">→</span>
+  <span class="chip">_tracks_filtered.xml + _spots_filtered.csv</span><span class="arw">→</span>
   <span class="chip b">Tool 2 · Curate &amp; Build</span><span class="arw">→</span>
-  <span class="chip">TrackStruct.mat</span><span class="arw">→</span>
+  <span class="chip">analysis/&lt;name&gt;.mat (active build)</span><span class="arw">→</span>
   <span class="chip b">Tool 3 · Analyze</span><span class="arw">→</span>
   <span class="chip">contact sites · dwell · diffusion</span>
 </div>
 <table>
   <tr><th>Tool</th><th>Launcher</th><th>Does</th></tr>
-  <tr><td><b>1 · Track</b></td><td><code>spt_app</code></td><td>Match the 3 input folders → detect spots → link tracks (ER-aware) → curate → export curated tracks.</td></tr>
-  <tr><td><b>2 · Curate &amp; Build</b></td><td><code>spt_curate_app</code></td><td>Import curated tracks → build the <code>TrackStruct</code> (MSD, diffusion, precision) → QC each track.</td></tr>
-  <tr><td><b>3 · Analyze</b></td><td><code>spt_analyze_app</code> (<code>run_analyze</code>)</td><td>Density → contact-site picking → boundary refine → membership mapping → residence times → diffusion changes.</td></tr>
+  <tr><td><b>1 · Track</b></td><td><code>run_track</code> (<code>spt_app</code>)</td><td>Match the 3 input folders → detect spots → link tracks (ER-aware) → filter → export curated tracks.</td></tr>
+  <tr><td><b>2 · Curate &amp; Build</b></td><td><code>run_curate</code> (<code>spt_curate_app</code>)</td><td>Import curated tracks → build a <b>named</b> <code>TrackStruct</code> (MSD, diffusion, precision) → QC each track.</td></tr>
+  <tr><td><b>3 · Analyze</b></td><td><code>run_analyze</code> (<code>spt_analyze_app</code>)</td><td>Contact-site picking → boundary refine → membership mapping → residence times → cross-condition compare.</td></tr>
 </table>
 <div class="warn"><b>Never edit or run</b> <code>ContactSites_original/</code> — it is the pristine reference implementation from the Nature-2024 paper, kept only for comparison.</div>
 
 <h2 id="quickstart">Quick start</h2>
 <ol>
-  <li><b>Track</b> (<code>spt_app</code>): point the three folder pickers at <code>spt/</code>, <code>er_seg/</code>, <code>mito_seg/</code> → <kbd>Scan</kbd>. On the Detect tab set the top-percentile (default 6 %); on the Track tab set link/gap distances and pick a <b>Linking mode</b> from the dropdown (Euclidean · ER-penalty · ER-geodesic); run, curate (min length 50), export.</li>
-  <li><b>Curate &amp; Build</b>: import the curated tracks, then <kbd>Build</kbd> the TrackStruct (this is the slow MSD step — done once). QC individual tracks.</li>
-  <li><b>Analyze</b>: set the project folder; on <b>Contact sites</b> pick a cell → <kbd>Detect all</kbd> → <kbd>Save</kbd>; on <b>Refine</b> tidy the boundaries; on <b>Sites</b> run the mapper; on <b>Dwell</b> compute residence times.</li>
+  <li><b>Track</b> (<code>run_track</code>): point the three folder pickers at <code>spt/</code>, <code>er_seg/</code>, <code>mito_seg/</code> → <kbd>Scan</kbd>. On the Detect tab set the top-percentile (default 6 %); on the Track &amp; filter tab set link/gap distances and pick a <b>Linking mode</b> from the dropdown (Euclidean · ER-penalty · ER-geodesic); run, filter (min length 50), export.</li>
+  <li><b>Curate &amp; Build</b> (<code>run_curate</code>): import the curated tracks, type a <b>Name</b> for this build, then <kbd>▶ Build + QC</kbd> (this is the slow MSD step — done once). QC individual tracks.</li>
+  <li><b>Analyze</b> (<code>run_analyze</code>): set the project folder — it opens the active build; on <b>Contact sites</b> pick a cell → <kbd>Detect all</kbd> → <kbd>Save</kbd>; on <b>Refine</b> tidy the boundaries; on <b>Sites</b> run the mapper; on <b>Dwell</b> compute residence times.</li>
 </ol>
 
 <h2 id="track">1 · Track</h2>
@@ -118,14 +118,15 @@
 <ul>
   <li><b>Match files</b> — three folders → regex key matching → a found/not-found table. SPT alone suffices; ER enables ER-aware linking; mito enables per-spot mito distance.</li>
   <li><b>Detect</b> — per-cell spot detection with a live preview. Two threshold modes: <em>top&nbsp;%</em> (keep the brightest N % of DoG responses, default 6) or <em>Quality ≥</em> (an absolute cut). The percentile actually used is recorded per cell.</li>
-  <li><b>Track</b> — TrackMate-style LAP linking: link distance, max-gap distance, max-gap frames, and a <b>Linking mode</b> dropdown with three choices, softest to strictest:
+  <li><b>Track &amp; filter</b> — TrackMate-style LAP linking: link distance, max-gap distance, max-gap frames, and a <b>Linking mode</b> dropdown with three choices, softest to strictest:
     <ul>
       <li><b>Euclidean</b> — distance only; the ER masks are ignored.</li>
       <li><b>ER-penalty</b> (default) — <em>soft</em>. The cost becomes <code>dist·(1+λ·off-ER-frac)</code> (λ=3, editable): an off-ER link costs more, but nothing is refused, so every detection can still end up in a track.</li>
       <li><b>ER-geodesic</b> — <em>strict</em>. A detection that does not sit on its <em>own</em> frame's ER is excluded from tracking entirely; the surviving links are costed by the shortest path <em>through</em> the ER, so a partner that cannot be reached without leaving the ER is forbidden. λ is unused in this mode.</li>
     </ul>
-    Both ER modes dilate the ER mask by 1 px to tolerate registration slack, and a frame whose ER mask is missing is treated as <em>forbid</em>, never as "no constraint". Detections that geodesic excludes are not thrown away — they stay in <code>_spots.csv</code> with a blank <code>TRACK_ID</code>. A methods comparison (<kbd>⚖ Compare methods</kbd>) lists the places the three methods link a spot differently and plays the one you pick as <b>three side-by-side videos — one per method</b> — over the real frames, so you can see what each method did rather than reading three overlaid markers. Panels are labelled when ER-penalty is identical to Euclidean, or when geodesic excluded the spot for being off the ER. <kbd>Save video…</kbd> writes it as an MP4.</li>
-  <li><b>Curate</b> — filter tracks by length / displacement before export.</li>
+    Both ER modes dilate the ER mask by 1 px to tolerate registration slack, and a frame whose ER mask is missing is treated as <em>forbid</em>, never as "no constraint". Detections that geodesic excludes are not thrown away — they stay in the spots CSV with a blank <code>TRACK_ID</code>. A methods comparison (<kbd>⚖ Compare methods</kbd>) lists the places the three methods link a spot differently and plays the one you pick as <b>three side-by-side videos — one per method</b> — over the real frames, so you can see what each method did rather than reading three overlaid markers. Panels are labelled when ER-penalty is identical to Euclidean, or when geodesic excluded the spot for being off the ER. <kbd>Save video…</kbd> writes it as an MP4.
+    The same tab then filters the result by <b>min track length</b> (default 50) and <b>min displacement</b> — with a length histogram and a kept-vs-removed map — and exports the <code>_tracks_filtered.xml</code> + <code>_spots_filtered.csv</code> pair Tool 2 reads, for one cell or every tracked cell.</li>
+  <li><b>Experiment</b> — the shared condition manifest (the same panel Tools 2 and 3 embed), so conditions can be assigned <em>before</em> tracking and every tool sees the same per-cell status.</li>
 </ul>
 <div class="card">
 <b>Which linking mode? The trade-off.</b> Strictness costs you data. Measured on the <code>WithER</code> test cell (frames 1–300, 11,535 detections, link 0.8 µm, max-gap 1.4 µm, max gap 1 frame, λ=3, top 6 %):
@@ -146,16 +147,24 @@
   <li><b>Adaptive R²</b> — per track, use the largest lag-window with R²≥0.95 (linear tracks get more lags, confined/directed ones fewer). Clicking a track adds a sweep of D and R² vs fit-window %.</li>
 </ul>
 <p>MSD model: <code>MSD(τ) = 4·D·τ + b</code>. The slope gives the diffusion coefficient <code>D = slope/4</code>; the intercept gives an upper bound on localization precision <code>σ_loc = sqrt(b)/2</code>.</p>
+<p>The QC panels beside it are: track length, ER/mito distance, the per-track <b>D distribution</b>, the fit-window sweep — and three <b>stepwise</b> views <span class="tag you">new</span>. Stepwise D is a different quantity from the MSD fit above: one noise-corrected <code>D</code> at <em>every localization</em>, not one per track, and it is what the confined / state-change flags feed downstream.</p>
+<ul>
+  <li><b>stepwise D (per localization)</b> — the pooled histogram (log y — the confined peak sits orders below the bulk), with the <code>confined ≤ D</code> threshold drawn on it. Changing that spinner re-derives the flags from the stored <code>D(t)</code>; no rebuild.</li>
+  <li><b>stepwise D(t)</b> — click a track and its D over time appears: mobile localizations in blue, confined in red, and a vertical mark at every <em>state change</em> (a fast→slow entry — a capture event).</li>
+  <li><b>CSD — cumulative displacement</b> — cumulative path length in µm per track (every track faint, the median bold, the clicked track highlighted). It sums the <em>actual</em> step distances, so a gap-closed step counts its full length.</li>
+</ul>
+<div class="good"><b>Named builds <span class="tag you">new</span>.</b> The <b>Name</b> field next to <kbd>▶ Build + QC</kbd> names the build: it is written to <code>analysis/&lt;name&gt;.mat</code> (e.g. <code>Day1_WT.mat</code>) and recorded in <code>analysis/active_trackstruct.txt</code> as the <b>active</b> build. Several named builds can sit side by side in one <code>analysis/</code> folder. Everything downstream follows the pointer — a separately launched <b>Analyze</b> tool, the contact-site picker, the window mapper, the footprints and the Experiment tab's "built" lamp all resolve the same way, so they can never disagree about which build a folder is working from. <kbd>📂 Load TrackStruct…</kbd> switches the active build (and shows its QC without recomputing MSD). Leave the name at <code>TrackStruct</code> and nothing changes: a project with no pointer falls back to <code>TrackStruct.mat</code>.</div>
 
 <h2 id="analyze">3 · Analyze</h2>
-<p>The analysis tool has five working tabs. The heart of it — <b>Contact sites</b> — is where density peaks become candidate sites, so most of this guide's deep dives live there.</p>
+<p>The analysis tool has six tabs — <b>Contact sites · Refine · Sites · Dwell · Experiment · Compare</b>. It starts from the <a href="#curate">active build</a>; there is no separate density stage, the density is built inside the Contact-sites tab. The heart of it — <b>Contact sites</b> — is where density peaks become candidate sites, so most of this guide's deep dives live there.</p>
 <table>
   <tr><th>Tab</th><th>Purpose</th></tr>
   <tr><td><b>Contact sites</b></td><td>Build the localization density per time window, detect significant peaks against a Monte-Carlo null, classify mito vs non-mito, save the picks. See <a href="#detection">Detection</a>, <a href="#windowing">Windowing</a>, <a href="#peaks">Robust peaks</a>.</td></tr>
   <tr><td><b>Refine</b></td><td>Hand-edit / smooth each site boundary; a radial plot judges concentration against a <a href="#radial">cell-wide ER null</a>.</td></tr>
   <tr><td><b>Sites</b></td><td>Run the mapper (which tracks dwell there), inspect member tracks, filter by % localizations inside, play tracks over the raw movie (auto-zoomed to the site).</td></tr>
   <tr><td><b>Dwell</b></td><td>Residence-time distribution + per-window escape rate <code>k_out</code>; animate a track on the site density with filled ER/mito overlays.</td></tr>
-  <tr><td><b>Experiment / Compare</b></td><td>Aggregate many cells by condition and compare.</td></tr>
+  <tr><td><b>Experiment</b></td><td>The shared manifest: many day/batch folders in one table, each cell's condition, per-stage status (tracked · curated · built · picked · mapped · dwelled), QC-exclude flag and notes. The same panel is embedded in Tools 1 and 2.</td></tr>
+  <tr><td><b>Compare</b></td><td>Pool this project or the whole experiment and compare a metric (dwell, <code>k_out</code>, enrichment, area, n_loc, mito fraction, # sites) grouped by condition, mito vs non-mito, or window; export the table as CSV.</td></tr>
 </table>
 
 <h2 id="detection">Spot detection (Tool 1)</h2>
@@ -241,17 +250,19 @@ ref(r) = ρ · A_ER(r);        % A_ER(r) = ER area within radius r of the site c
 <ul>
   <li><b>Per-site stats table</b> (right of the Contact-sites map): each site's <code>p</code>, enrichment <code>×</code>, distinct <code>trk</code>, enclosed <code>loc</code>, and <code>stab</code>. Click a row to highlight it on the map.</li>
   <li><b>🔍 explain spot</b>: turn it on and click <em>anywhere</em> on the density — even a place with no detected site — to read that point's density, null percentile, enrichment, #tracks and p. Use it to understand near-misses ("why wasn't this called a site?").</li>
+  <li><b>Tracking settings file</b>: every Tool 1 run writes <code>tracks/&lt;base&gt;_settings.txt</code> with the detection + linking parameters actually used. It records the <em>effective</em> linking mode, and adds <code>tracking.link_mode_req</code> only when an ER mode had to be downgraded (no ER segmentation for that cell). In ER-geodesic it also reports <code>tracking.frames_no_er_mask</code> (frames whose missing ER mask contributed nothing) and <code>tracking.dets_off_er</code> (detections excluded as off their own frame's ER).</li>
   <li><b>Provenance stamp</b>: <kbd>Save</kbd> writes, next to the sites, a <code>_CSsites_provenance.json</code> with the exact parameters (method, α, M, σ, gates, source, window ranges, date) and a <code>_CSsites_stats.csv</code> with every site's stats — so a result is fully reproducible.</li>
 </ul>
 
 <h2 id="outputs">File outputs</h2>
 <table>
   <tr><th>File</th><th>Written by</th><th>Contents</th></tr>
-  <tr><td><code>tracks/*_tracks_filtered.xml</code>, <code>*_spots.csv</code></td><td>Tool 1</td><td>Curated tracks + per-spot ER/mito distance (Tool 2's input). Detections that never joined a track — including the ones ER-geodesic excludes for being off their frame's ER — appear in the CSV with a blank <code>TRACK_ID</code>.</td></tr>
-  <tr><td><code>analysis/TrackStruct.mat</code></td><td>Tool 2</td><td>All tracked localizations + MSD/D per track.</td></tr>
+  <tr><td><code>tracks/*_tracks_filtered.xml</code>, <code>*_spots_filtered.csv</code></td><td>Tool 1 · export</td><td>Curated tracks + per-spot ER/mito distance (Tool 2's input). Detections that never joined a track — including the ones ER-geodesic excludes for being off their frame's ER — appear in the CSV with a blank <code>TRACK_ID</code>. The unfiltered run writes <code>*_tracks.xml</code> + <code>*_spots.csv</code> alongside them, plus a <code>*_settings.txt</code> recording the parameters actually used.</td></tr>
+  <tr><td><code>analysis/&lt;name&gt;.mat</code>, <code>analysis/active_trackstruct.txt</code></td><td>Tool 2</td><td>All tracked localizations + MSD/D per track (the <a href="#curate">named build</a>), and the pointer naming the active one. Default name: <code>TrackStruct.mat</code>.</td></tr>
   <tr><td><code>analysis/csIDs/*_CSsites.txt</code></td><td>Tool 3 · Contact sites</td><td>Picked sites (X,Y density px; Slice = window; mito flag).</td></tr>
   <tr><td><code>analysis/csIDs/*_CSsites_stats.csv</code></td><td>Tool 3 · Contact sites</td><td>Per-site p, enrichment, #tracks, #locs, stability, area.</td></tr>
   <tr><td><code>analysis/csIDs/*_CSsites_provenance.json</code></td><td>Tool 3 · Contact sites</td><td>Exact detection parameters + date (reproducibility).</td></tr>
+  <tr><td><code>analysis/CS_footprints.mat</code></td><td>Tool 3 · Refine</td><td>Edited / smoothed site boundaries + the sites you deleted (the mapper honours both).</td></tr>
   <tr><td><code>analysis/CSW_final.mat</code></td><td>Tool 3 · Sites (mapper)</td><td>Per site×window membership, boundaries, enrichment.</td></tr>
   <tr><td><code>analysis/cs_window_dwell.csv</code>, <code>cs_window_track_labels.csv</code></td><td>Tool 3 · Dwell</td><td>Dwell events + per-track residence (keyed by cell·site·win·track).</td></tr>
 </table>

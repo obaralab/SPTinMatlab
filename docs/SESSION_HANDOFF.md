@@ -1,161 +1,218 @@
 # SPTinMatlab — Session Handoff
 
-**Status:** all changes below are **verified present in source** (grep-checked) and the app **builds green**
-(`spt_split_smoke` passes for curate/analyze/full). MATLAB apps do **not** hot-reload — **close and relaunch**
-`spt_app` (Tool 1) and `spt_analyze_app`/`run_analyze` (Tool 3) to see any of this.
+**Status:** everything below is **verified present in source** and the **full smoke suite passes — 19/19**.
+MATLAB apps do **not** hot-reload — **close and relaunch** `run_track` (Tool 1) and
+`run_curate` / `run_analyze` (Tools 2 & 3) to see any of this.
+
+**Tools:** `run_track` → `tool1_track/spt_app.m` · `run_curate` → `spt_analyze_app('curate')` ·
+`run_analyze` → `spt_analyze_app('analyze')`. Tools 2 and 3 are the **same app**
+(`tool2_analyze/app/spt_analyze_app.m`) in two modes. `tool2_analyze/app/spt_pipeline_app.m` is the
+legacy one-window app and is **not** what `run_*` launches.
 
 ## Quick re-verification
+
 ```bash
-# 1) app builds (all tabs construct)
-/Applications/MATLAB_R2024b.app/bin/matlab -batch "cd SPTinMatlab/tool2_analyze/app; spt_split_smoke"
-# 2) strict ER-geodesic regression (section H) — 27 assertions
-/Applications/MATLAB_R2024b.app/bin/matlab -batch "cd SPTinMatlab/tool1_track; spt_geo_strict_smoke"
-# 3) confirm markers exist (any ✗ = reverted/lost)
-grep -c "cs_split_peaks" SPTinMatlab/tool2_analyze/drivers/cs_detect.m
-grep -c "densMode"       SPTinMatlab/tool2_analyze/drivers/cs_window_picker.m
-grep -c "addDiffusion"   SPTinMatlab/tool2_analyze/app/spt_analyze_app.m
-grep -c "C(:) = Inf"     SPTinMatlab/tool1_track/spt_link_cost_geo.m
-grep -c "spt_on_er"      SPTinMatlab/tool1_track/spt_track.m
-grep -c "geo_bridge"     SPTinMatlab/tool1_track/spt_track.m
-grep -c "nDetsOffEr"     SPTinMatlab/tool1_track/spt_process_cell.m
+# full suite — 19 *_smoke.m across tool1_track/, tool2_analyze/app/, tool2_analyze/drivers/
+cd /Users/safal-mac/Desktop/IntegratedPipeline/SPTinMatlab
+/Applications/MATLAB_R2024b.app/bin/matlab -batch "
+addpath(genpath(pwd));
+t = dir('**/*_smoke.m'); t = t(~contains({t.folder},'ContactSites_original'));
+nf = 0;
+for k = 1:numel(t)
+    [~,n] = fileparts(t(k).name);
+    try, feval(n); fprintf('PASS %s\n',n);
+    catch ME, nf = nf+1; fprintf(2,'FAIL %s : %s\n',n,ME.message); end
+    close all force;
+end
+fprintf('%d/%d passed\n', numel(t)-nf, numel(t)); exit(nf>0);"
 ```
-> The old marker `grep -c "FORBID all" .../spt_link_cost_geo.m` is **retired** — section H rewrote that
-> header, so it now returns 0 for a healthy tree. Use `C(:) = Inf` instead.
-> The per-feature headless test scripts were written to the **session scratchpad**, which is **ephemeral** —
-> they will NOT be present next session. Re-verify via `spt_split_smoke` + relaunching the apps + the grep markers.
-> `WithER/` was **not modified** by any test (writes went to symlinked temp dirs).
+There is **no runner file checked in** — the loop above is the runner. It must find **19** tests
+(6 in `tool1_track/`, 2 in `tool2_analyze/app/`, 11 in `tool2_analyze/drivers/`); a lower count means
+`genpath` missed a folder, not that a test was deleted.
+
+```bash
+# marker greps — any 0 means the change was reverted/lost
+grep -c "spt_on_er"              tool1_track/spt_track.m                      # 1
+grep -c "geo_bridge"             tool1_track/spt_track.m                      # 2
+grep -cF "C(:) = Inf"            tool1_track/spt_link_cost_geo.m              # 1
+grep -c "nDetsOffEr"             tool1_track/spt_process_cell.m               # 1
+grep -cF "cumsum(dS1, 1)"        tool2_analyze/drivers/TrackImporter_direct.m # 1
+grep -cF "MSDstdev ./ sqrt(cntSD)" tool2_analyze/drivers/TrackImporter_direct.m # 1
+grep -c  "active_trackstruct.txt" tool2_analyze/app/spt_analyze_app.m         # 2
+grep -cF "'Tracks',buildTracks"  tool2_analyze/app/spt_analyze_app.m          # 1
+```
 
 ---
 
-## What changed this session (by area)
+## What changed this session (most important first)
 
-### A. Dwell tab (Tool 3)
-- **csID column** — `drivers/cs_window_dwell.m` (perTrack/perSite/events carry csID) + `app` `tblDwell` shows
-  `cell·site·win·track…`. *Verify:* Dwell tab table has a `site` column with real IDs.
-- **Filled ER/mito overlay + toggle-hang fix** — `app` `dwellOrgMask`/`addOrgFill` (translucent filled masks,
-  z-ordered below the track). Removed the **per-frame `imfinfo`** on the ~5981-page seg (the hang) → single cached
-  `imread(page)`. *Verify:* Dwell tab, toggle ER/mito → filled tint (not outline), no stall.
+### 1. Strict ER-geodesic linking is COMPLETE (Tool 1)
+The rule is now enforced **by construction**, not by the cost function alone: in `'geodesic'` mode a
+detection that is not on **its own frame's** ER can never reach a track by any route.
+- **`spt_track.m`** — signature `[tracks, info] = spt_track(...)`,
+  `info = struct(mode, nFramesNoErMask, nDets, nDetsOffEr)`. Before the LAP it **pre-filters
+  `dets{t}`** through `spt_on_er(dets{t}(:,1:2), supD{t})`, so an off-ER detection is unavailable to
+  frame linking, chain assembly **and** gap closing. A frame whose mask is missing *or present but
+  all-false* keeps **nothing** (fail closed), is counted in `nFramesNoErMask`, and raises
+  `warning('spt_track:noErMask',…)`. Geodesic no longer routes through `spt_link_cost` at all.
+- **Gap closing takes `mode`.** Geodesic requires the bridge to be reachable **along the ER**
+  (`geo_bridge` → `spt_link_cost_geo(pEnd, pStart, G, sE, 0, sS)`; `Inf` or a missing mask = refuse).
+  `'penalty'` keeps its old soft ">50 % off-ER straight line" veto **unchanged**.
+- **`spt_link_cost_geo.m`** — `(P, Q, R, supP, lambda, supQ)`, `supQ` defaults to `supP`. The target
+  is tested against **its own frame's** support (the ER moves between frames); an empty `supP` *or*
+  `supQ` sets the whole matrix to `Inf`. `lambda` is unused in strict mode, kept for signature parity.
+- **New helpers** — `spt_er_support.m` (the *single* definition: `imdilate(logical(sup),strel('disk',1))`,
+  1 px registration slack, `[]` in → `[]` out = *forbid*), `spt_on_er.m` (out-of-image and empty mask
+  both → `false`), `spt_seg_fg_label.m` (now `warning('spt_seg_fg_label:uniformStack',…)` on a
+  single-valued stack, where an ER-aware mode would otherwise silently stop constraining anything).
+- **Provenance** — `spt_process_cell.m` downgrades an ER mode with no segmentation to `'euclid'`
+  **once, explicitly**, and carries `linkMode` / `linkModeReq` / `nFramesNoErMask` / `nDetsOffEr`.
+  `<base>_settings.txt` gains `tracking.link_mode_req` (**only** when downgraded) and, in geodesic
+  mode, `tracking.frames_no_er_mask` + `tracking.dets_off_er`.
+- *Verify:* `spt_geo_strict_smoke` (27 assertions); Tool 1 → ER-geodesic → Run → `_settings.txt`
+  reports the strict counters.
 
-### B. Sites-tab raw-movie player (Tool 1 widget, `spt_track_movie.m`)
-- **"zoom" toggle** (default on) frames the CS + played tracks; axes toolbar enabled for manual pan/zoom-out.
-  *Verify:* Sites tab → Play → view is zoomed to the site; uncheck "zoom" → full frame.
+### 2. CSD and MSDerror were WRONG in `TrackImporter_direct.m` — both fixed
+Both are per-track fields of every built `TrackStruct`. **Existing builds carry the old values and
+need a rebuild.**
+- **CSD** is now `cumsum(dS1, 1)` — the cumulative sum of the **actual step distance** in µm. It was
+  `cumsum(dS1./dT1)`, a per-*frame* speed, so a gap-closed step was charged only its per-frame
+  average. Measured on the WithER cell: **86.6 % of tracks contain a 2-frame gap**; total path length
+  ran a **median 2.0 % low, up to 11.5 %** per track. Consumers read this field as µm.
+- **MSDerror** is now `MSDstdev ./ sqrt(cntSD)` — this track's own spread over **its own pair count**
+  at that lag. It was divided by `sum(isfinite(MSD),2)`, the **number of tracks** with a finite MSD at
+  that lag, so a track with 374 pairs and one with 1 pair got the same divisor. Error bars came out a
+  **median 4× too small** (10× too small … 3.7× too large).
+- **MSD itself was independently verified CORRECT** and is unchanged — a brute-force per-track pair
+  loop over 5,501 (lag, track) values agrees to **8.9e-16**. It is time-averaged over all pairs and
+  binned by **integer frame lag**, so gaps are handled.
+- *Verify:* the two `grep -cF` markers above; `docs/DATA_STRUCTURE.md` § *Correctness notes*.
 
-### C. Density picker (Tool 3 Contact-sites, `drivers/cs_window_picker.m`)
-- **Tracked-only density** — "All localizations" option **removed**; density always from the tracked matrix
-  (`cellLocs(T,true)`). *Verify:* no Source dropdown; readout says "tracked … (density source)".
-- **Total/tracked/window counts** in the status readout: `detections N · tracked M (46%) · … · THIS window W`.
-- **Windowing tools:** `step frames` (sliding/overlapping windows), `min locs/win` (red ⚠ warning floor),
-  **⇢ Sweep window length** (popup: #sites + median significance vs frames/window).
-- **Robust peak detection + transparency:**
-  - **split peaks** (default on) — watershed splits touching peaks (`cs_detect.m` `cs_split_peaks`).
-  - **min enrich ×** — effect-size gate (peak/ER-median-bg). **min tracks** — distinct-molecule gate (≥K unique
-    tracks → rejects one parked molecule).
-  - **per-site table** (`#,p,enr×,trk,dw%,stab`): p-value, enrichment, distinct tracks, **dwell %** (median % of
-    each track's locs inside the site — passing vs dwelling), split-half stability. Click a row → overlays that
-    site's tracks colored blue(passing)→red(dwelling).
-  - **🔍 explain spot** — click anywhere (even a non-site) → density/null-percentile/enrichment/#tracks/p.
-  - **Save provenance** → `csIDs/<base>_CSsites_provenance.json` (all params+date) + `_CSsites_stats.csv`.
-  - **＋ Add site** manual button restyled prominent (soft-orange).
-- **Diffusion channels** (see F): `channel` dropdown Tracked | Confined (low D) | State-change.
-- *Verify:* Contact-sites tab, Detect → per-site table populates; toggle a gate + re-Detect → count changes.
+### 3. Named builds + a single active-build resolver
+- **Build & QC has a `Name` field** (`eTsName`, default `TrackStruct`). A build writes
+  `analysis/<name>.mat` and records the basename in `analysis/active_trackstruct.txt`. Loading a
+  build **adopts** its name rather than copying it over `TrackStruct.mat`, so several builds coexist
+  (`Day1_WT.mat`, `Day1_KO.mat`) and the one you loaded is the one in force. No pointer means
+  `TrackStruct.mat` — every pre-naming project keeps working, nothing to migrate.
+- **`drivers/cs_active_trackstruct.m`** (NEW) is the **single** resolver:
+  pointer → `TrackStruct.mat` → legacy `Tracks.mat` → any other `.mat` in the folder that actually
+  contains a `Tracks` variable (`whos -file`, with a skip list for `cs_calib.mat` etc.).
+- **Everything downstream resolves through it** — `spt_analyze_app` (`activeTsName`),
+  `cs_window_picker`, `cs_window_mapper`, `cs_footprints_build`, `cs_refine`, `cs_experiment_scan`
+  and `cs_experiment_status` (the Experiment "built" lamp). Before the audit these all hard-coded
+  `TrackStruct.mat`, so a named build looked fine in Build & QC and then dead-ended: Sites and Refine
+  asserted, the experiment scan enumerated zero cells while its lamp said "built", `setProject` kept
+  the **previous** project's active name, and the confine-D spinner re-saved to a shadow file.
+- **`Tracks.mat` is LEGACY.** Only `spt_pipeline_app` / `pipeline_gui` call
+  `run_contactsite_analysis`, which is what writes it, so it never appears in the
+  `run_curate` / `run_analyze` flow. The fallback exists only to keep those older paths alive.
+- *Verify:* `spt_named_build_smoke`; Build & QC → Name `Day1_KO` → Build → `analysis/Day1_KO.mat` +
+  `active_trackstruct.txt`; relaunch `run_analyze` → it opens that build.
 
-### D. Refine radial null (Tool 3, `drivers/cs_radial_plot.m` + `app` `erGridForCell`/`erNullForSite`)
-- Dashed "uniform" line is now **cell-wide ER-uniform** (`ρ·A_ER(r)`, ρ = cell-wide locs-over-ER per ER-µm²),
-  not a local disk. *Verify:* Refine tab → radial plot legend reads "uniform over ER (cell density)".
+### 4. "Compare methods" is now three side-by-side videos (Tool 1, `spt_compare_app.m`)
+The 3×3 static grid (max projection + time-coloured candidate rings + all three methods' markers
+stacked) is gone. One example at a time now plays as **three synchronized players**, one per method,
+sharing a crop, a frame and a ±N-frame window (default 10 → 22 frames), over the **real** frames.
+Each panel draws only **its own** method's tracks; the focus track is bright in the method colour,
+everything else is thin grey context, and a dotted segment marks a gap-closed jump. A divergence
+strip under each panel fills where that method's chain exists, ticks where the three disagree, and
+seeks on click. The example list is ranked by how much the three chains **actually differ over the
+window**, and a selected example opens paused at the **first diverging frame**.
+Two measured facts drove this: ER-penalty's focus chain is identical to Euclidean's in **~75 %** of
+examples, and ER-geodesic has **no chain at all in ~57 %** (strict linking excluded the spot) — the
+difference is usually an **absence**, which one overlaid picture cannot show. Both cases are labelled
+in the panel title. **Save video…** writes the window as MPEG-4 (AVI fallback) of all three players.
+The summary panel no longer claims "(~equal)" linked detections: it reports how many detections
+geodesic **excludes** and states that ER-penalty excludes none.
+- *Verify:* `spt_compare_smoke` (drives the UI headlessly, asserts the panels differ per method,
+  exercises seek/play/backdrop, checks the exported MP4 frame count).
 
-### E. Docs
-- **`docs/help.html`** — full pipeline guide (self-contained, theme-aware). Opened by a new **❓ Help** button in
-  BOTH `spt_app` and `spt_analyze_app` (`onHelp` → `web(...,'-browser')`). *Verify:* click ❓ Help → opens.
+### 5. Three new QC panels in Build & QC
+The pre-existing panels (track length, ER/mito distance, D distribution, MSD, fit-window sweep) are
+**unchanged**. Added, all in `drawQC` / `onTrackPick` in `spt_analyze_app.m`:
+- **`axDloc`** — pooled **per-localization** stepwise D histogram; title carries median, % confined
+  and n.
+- **`axDtrace`** — stepwise **D(t)** for the clicked track, mobile vs confined points coloured,
+  state-changes counted in the title.
+- **`axCSD`** — cumulative path length per track (every track faint, median bold); clicking a track
+  highlights its curve (`csdHi`).
+Guards found in the audit: `drawQC` threw `Unrecognized field name "confined"` and blanked the whole
+tab for a struct with `Dt` but no `confined`/`stateChange` (reachable via `combine_trackstructs` or a
+pre-diffusion build); the D(t) axis was `dt`× too small for a `TimeUnit='seconds'` build (there
+`matrix(:,:,1)` is already seconds); the CSD median was survivorship-biased, so it is drawn only
+while ≥5 tracks **and** ≥10 % contribute and the title says how far.
 
-### F. Stepwise-diffusion integration (step 1 of the STEP plan — DONE)
-Goal: compute pointwise diffusion **after curation**, independent of contact sites, so Tool 3 can identify sites by
-**confinement** and **fast→slow state change**.
-- **`drivers/spt_track_diffusion.m`** (NEW, native MATLAB) — per-loc `Dt` (noise-corrected rolling: `<Δr²>/(4dt) −
-  σ²/dt`, σ from Loc-prec), `confined` (D≤confineD), `stateChange` (rising edge mobile→confined). ~0.1 s for 100k locs.
-- **Wired into Build** — `app` `addDiffusion` runs it in `onBuild` (before save) + `onLoadTracks` (if missing) and
-  stores the fields in `TrackStruct.mat`. Build&QC "**confined ≤ D**" spinner (`onConfineD`→`reDeriveConfinement`)
-  re-derives confined/stateChange from stored Dt (no re-roll) + re-saves; the D-distribution shows the cutoff + %
-  confined + #state-changes. **GOTCHA fixed:** `Tracks(k)=struct-with-new-fields` throws "dissimilar structures" →
-  assign field-by-field.
-- **Tool 3 channels** — picker `channel` dropdown (enabled iff TrackStruct has diffusion); `densMask()` filters the
-  density by confined/stateChange; Detect runs on the chosen channel. *Verified on WithER:* confined→10 sites vs
-  tracked→28; state-change→0 (sparse). *Verify:* Build (or Load) → Contact-sites → channel=Confined → Detect.
-- **`run_step.py`** gained `--sigma` (noise correction), `--win`, `--mode lag1|msdfit` — the Python bridge stays the
-  optional real-STEP path.
-
-### G. Strict ER-geodesic (Tool 1 linking, `tool1_track/spt_link_cost_geo.m`)
-- The two `E·(1+λ)` soft fallbacks → **`Inf`**: geodesic is now a **hard** constraint (on-ER links only; off-ER /
-  unreachable / detour>R **forbidden**). Ladder: euclid < penalty (soft) < geodesic (strict). Breaks only for
-  genuinely off-(that-frame's)-ER detections → **more/shorter tracks, more sensitive to seg quality + SPT/ER
-  registration**. Labels updated (dropdown tooltip + provenance `linkModeName`).
-  *Verify:* Tool 1 → ER-geodesic → Run; provenance `_settings.txt` says "strict".
-- ⚠ **CORRECTION.** This section originally claimed *"Uses the per-frame ER support, so ER motion is fine"*. That
-  was **false when written**: the cost function received one mask and judged **both** endpoints against it, so the
-  target in frame t+1 was tested against **frame t's** ER. A spot that moved *with* the ER onto newly-covered
-  pixels was scored against a stale mask. The claim became **true only in section H** (the `supQ` argument =
-  the target frame's own support). Anything produced by the ER-geodesic mode **before** section H carries that bug.
-
-### H. Strict-mode fail-closed audit + fixes (2026-07-28, Tool 1 linking)
-Requirement: in ER-geodesic mode a detection **outside the ER must not end up in any track**. An audit found
-strict mode **failed OPEN in four places** — the constraint was silently dropped instead of refusing. Every fix
-below makes the missing/empty case **forbid**, never "no constraint".
-- **`spt_er_support.m`** (NEW) — `supD = imdilate(logical(sup), strel('disk',1))`. The **single** definition of
-  the ER support (1 px registration slack). `[]` in → `[]` out, and every caller must read `[]` as *forbid*.
-  The cost function, the detection pre-filter and the gap-close test all go through it, so they cannot drift apart.
-- **`spt_on_er.m`** (NEW) — `tf = spt_on_er(xy, supD)`: which detections sit on the dilated support **of their own
-  frame**. Out-of-image and empty-mask both → `false`.
-- **`spt_geo_strict_smoke.m`** (NEW) — 27-assertion regression test for all of the above. **ALL PASS.**
-- **`spt_link_cost_geo.m`** — signature now `(P, Q, R, supP, lambda, supQ)`, `supQ` defaulting to `supP`. Fails
-  **CLOSED**: an empty `supP` *or* `supQ` sets the whole matrix to `Inf`. The target is validated against **its own
-  frame's** ER (`supQ`), not the source frame's — see the section-G correction. `lambda` unused in this mode.
-- **`spt_track.m`** — returns `[tracks, info]`, `info = struct(mode, nFramesNoErMask, nDets, nDetsOffEr)`. In
-  `'geodesic'` it **pre-filters `dets{t}`** to on-ER-in-frame-t detections **before** the LAP, so an off-ER
-  detection cannot enter a track by *any* route (frame link, chain assembly, gap close). A frame with no ER mask
-  keeps nothing and raises `warning('spt_track:noErMask',…)`. Geodesic no longer routes into `spt_link_cost` at
-  all. Gap closing now takes `mode`: geodesic requires the bridge to be reachable **along the ER** (`geo_bridge`
-  → a geodesic cost call; `Inf` = refuse, missing mask = refuse); `'penalty'` keeps its old soft
-  ">50 % off-ER straight line" veto **unchanged**.
-- **`spt_process_cell.m`** — an ER mode with **no ER segmentation** is now downgraded to `'euclid'` **once,
-  explicitly** (previously it emerged implicitly from an all-empty supports array). `R` carries `linkMode`
-  (effective), `linkModeReq` (requested), `nFramesNoErMask`, `nDetsOffEr`.
-- **`spt_write_settings.m`** — reports the **effective** mode; adds `tracking.link_mode_req` when downgraded, and
-  `tracking.frames_no_er_mask` / `tracking.dets_off_er` in geodesic mode.
-- **`spt_compare_app.m`** — the summary panel no longer claims "(~equal)" linked detections; it reports how many
-  detections geodesic **excludes** and states that penalty excludes none.
-- **`spt_link_compare.m`, `spt_method_compare.m`** — pass the **target** frame's ER mask to `spt_link_cost_geo`,
-  so the comparison matches what tracking actually does.
-- *Verify:*
-  ```bash
-  /Applications/MATLAB_R2024b.app/bin/matlab -batch "cd SPTinMatlab/tool1_track; spt_geo_strict_smoke"
-  grep -c "spt_on_er"    SPTinMatlab/tool1_track/spt_track.m
-  grep -c "C(:) = Inf"   SPTinMatlab/tool1_track/spt_link_cost_geo.m
-  grep -c "geo_bridge"   SPTinMatlab/tool1_track/spt_track.m
-  grep -c "nDetsOffEr"   SPTinMatlab/tool1_track/spt_process_cell.m
-  ```
-  Pre-existing `spt_track_changes_smoke`, `spt_compare_smoke`, `spt_shape_smoke` all still pass.
+### 6. Tool 3 no longer loads the same TrackStruct twice
+`cs_window_picker` accepts an already-loaded struct via `opts.Tracks` and only falls back to disk when
+used standalone (then: caller's `opts.tsFile` → the folder's active build). It never writes
+`st.Tracks`, so the hand-off shares under copy-on-write instead of putting a **second full copy** of
+the project's tracks in RAM — **70 MB per cell** today, scaling with cells per folder. This is
+*Stage 0* of `docs/DATA_STRUCTURE.md`, now done.
 
 ---
 
-## Pending / next steps
-1. **`train_step.py` kit** (real STEP) — no pretrained weights exist; STEP must be TRAINED on simulated AnDi
-   trajectories. Local blockers: only py3.10 is **x86_64/Rosetta (no MPS)** + torch download timed out → train on
-   **arm64+MPS or Colab**. Simulation config from WithER is in scratchpad `track_cfg.json` (dt 0.02, len median 75,
-   D 0.12–2 µm²/s, σ 30 nm). Deliverable: a script that simulates + trains `XResAttn` (matching `run_step.py`'s
-   arch) → `step_D.pt`, + a Colab recipe. Then `run_step.py --weights step_D.pt` upgrades the D with zero code change.
-2. **`spt_step_export_all.m` / `spt_step_import_all.m`** — optional: export ALL curated tracks → `run_step.py`
-   (real STEP) → re-import D(t) into TrackStruct, replacing the native rolling D.
-3. (Optional) declutter the Contact-sites tab — it now has 5 control rows; consider a collapsible "advanced" strip.
+## ⚠ Caution for test authors — `save()` follows symlinks
 
-## Key data facts (WithER test cell)
+The previous handoff asserted "`WithER/` was **not modified** by any test (writes went to symlinked
+temp dirs)". **That was false this session.** `spt_named_build_smoke` built its temp project by
+symlinking WithER's **directories**; setting a project runs `onCalAuto → writeCalib`, which saves
+`cs_calib.mat` into `tracks/`, and that write **followed the directory symlink into
+`WithER/tracks/cs_calib.mat`** (rewritten three times, 2026-07-28 23:43). The content was
+byte-identical to the untouched `analysis/cs_calib.mat`, so **no data was lost** — but the pristine
+reference folder was written to.
+
+Fixed: the test now symlinks **individual files** into real directories and **skips `.mat` entirely**,
+since `save()` follows a symlink. Verified by mtime before/after: WithER untouched.
+
+**Rule going forward:** never symlink a directory the app may write into, and never symlink a filename
+the app may `save()` over. Only inputs the app strictly reads (`.tif/.tiff/.xml/.csv/.txt`) are safe
+to link.
+
+---
+
+## Open items
+
+1. **Leaked timer at MATLAB shutdown.** After `spt_named_build_smoke` prints its PASSED banner,
+   `-batch` prints `Invalid or deleted object` / `timer/timercb`. **Cosmetic — exit code is 0** and
+   the test passes. The **owner is not yet identified**; the candidate timers are
+   `spt_analyze_app.m:1587` (Dwell player), `spt_app.m:417`, `spt_compare_app.m:545`,
+   `spt_track_movie.m:207`, `spt_pipeline_app.m:2583`. Fix = stop/delete the timer in the figure's
+   `CloseRequestFcn`/`DeleteFcn` once the owner is confirmed.
+2. **Data-structure staging** — `docs/DATA_STRUCTURE.md` plans Stages 0–4. **Stage 0 is done**
+   (item 6 above). Stage 1 (one file per cell + `cells_index.mat`) is the one that matters at scale:
+   200 cells goes from ~14 GB resident to ~70 MB × cells-held, with `nF`, field names and shapes
+   untouched so no consumer breaks. Stages 2–4 are only worth it past what the manifest workflow
+   keeps cells-per-folder at, and Stage 4 must not be attempted without version-stamping `nF` and
+   migrating every stored linear index in `CSdata/`, `TrackData/` and `CSW_final.mat`.
+3. **Rebuild existing `TrackStruct.mat` files** — they carry the old (wrong) CSD and MSDerror.
+4. **`train_step.py` kit** (real STEP) — no pretrained weights exist; STEP must be trained on
+   simulated AnDi trajectories. Local blocker: the only py3.10 here is x86_64/Rosetta (no MPS) →
+   train on arm64+MPS or Colab. Then `run_step.py --weights step_D.pt` upgrades D with no code change.
+
+## Open design questions (user's call — current behaviour noted)
+
+1. **Should gap closing bridge an ER-segmentation hole in strict mode?** *Currently: no* — the bridge
+   must be reachable **along** the ER, so a frame where the segmentation drops out breaks the track.
+2. **Should a track tolerate *k* consecutive off-ER frames instead of terminating?** *Currently: no
+   tolerance* — one off-ER detection ends the track. A small *k* would trade strictness for length.
+3. **Should the 1 px dilation be a GUI parameter?** *Currently: hard-coded* in `spt_er_support.m`. It
+   ought to be tied to the **measured** SPT/ER channel offset, since it sets exactly how far outside
+   the segmented ER a detection may sit and still count as on it.
+
+## Key data facts (WithER test cell, `250408_WT_012`)
+
 - Movie 256×256, **5981 frames**; PXUM ≈ 0.10785 µm/px; dt 0.02006 s.
-- **220,401 detections → 101,948 tracked (46%)**; ~17 tracked locs/frame; flat rate (no bleaching).
-- Per-track D median 0.76 µm²/s; per-loc: 10.6% confined (≤0.15), 1,815 state-changes in 622/1076 tracks.
-- 17 mapped contact sites; density peaks are mostly pass-throughs (median dwell ≈ 9%).
+- **220,401 detections → 101,948 tracked (46 %)**; ~17 tracked locs/frame; flat rate (no bleaching).
+- Built `TrackStruct`: 838 tracks, nF 381, 73,994 localizations; 11.9 MB on disk, **70.7 MB in RAM**,
+  23.2 % occupancy, `load()` 51 ms.
+- Per-track D median 0.76 µm²/s; per-loc 10.6 % confined (≤0.15), 1,815 state-changes.
+  *(Carried over from the previous handoff, measured before this session's CSD/MSDerror fix — D and
+  the state-change counts do not depend on either field, but re-measure if you cite them.)*
 
-### Link-mode comparison — `250408_WT_012_spt1.tif`, **frames 1–300 ONLY**
-> A **300-frame slice**, not the full 5981-frame movie above — the counts here are *not* comparable to the
-> 220,401 / 101,948 whole-movie figures and neither set supersedes the other.
-Params: 11,535 detections, pxUm 0.10785, link 0.8 µm, gap 1.4 µm, maxGap 1, λ 3, Top 6 %.
+### Link-mode comparison — frames 1–300 ONLY
+> A **300-frame slice**, not the 5981-frame movie above; these counts are *not* comparable to the
+> 220,401 / 101,948 whole-movie figures. Params: 11,535 detections, link 0.8 µm, gap 1.4 µm,
+> maxGap 1, λ 3, Top 6 %.
 
 | mode | tracks | linked | % linked | medLen | maxLen |
 |---|---|---|---|---|---|
@@ -163,21 +220,13 @@ Params: 11,535 detections, pxUm 0.10785, link 0.8 µm, gap 1.4 µm, maxGap 1, λ
 | penalty | 617 | 11,108 | 96.3 % | 7 | 300 |
 | geodesic | 644 | 10,361 | 89.8 % | 7 | 246 |
 
-- The strict pre-filter excluded **653 of 11,535 detections (5.7 %)** as off their **own** frame's ER.
-- **Frames with no ER mask: 0** — the ER stack has 5981 pages, same as the movie.
-- Tracks surviving the export default **Min-track-length = 50**: euclid 56, penalty 49, geodesic 37.
-
-## Open design questions (user's call — current behaviour noted)
-1. **Should gap closing bridge an ER-segmentation hole at all in strict mode?** *Currently: no* — the bridge must
-   be reachable **along** the ER, so a frame where the segmentation drops out breaks the track. The alternative is
-   to let a gap span a hole on the assumption it is a seg artefact, not real off-ER travel.
-2. **Should a track tolerate *k* consecutive off-ER frames instead of terminating?** *Currently: no tolerance* —
-   strict per-frame; one off-ER detection ends the track. A small *k* would trade some strictness for length.
-3. **Should the 1 px dilation become a GUI parameter?** *Currently: hard-coded* in `spt_er_support.m`. It ought to
-   be tied to the **measured SPT/ER channel offset** rather than assumed, since it sets exactly how far outside the
-   segmented ER a detection may sit and still count as on it.
+The strict pre-filter excluded **653 of 11,535 detections (5.7 %)** as off their **own** frame's ER.
+Frames with no ER mask: **0**. Surviving the export default Min-track-length 50: euclid 56,
+penalty 49, geodesic 37.
 
 ## Standing constraints
+
 - **Never edit or run `ContactSites_original/`** (pristine Nature-2024 reference).
-- Clean up any project writes from headless drives (use symlinked temp anaDirs; WithER stays pristine).
-</content>
+- **Never write into `/Users/safal-mac/Desktop/IntegratedPipeline/WithER`** — see the symlink caution
+  above. Headless drives use a temp project of per-file symlinks; verify with mtime before/after.
+- MATLAB apps do not hot-reload: relaunch after any source edit.

@@ -37,33 +37,39 @@ backstop for pathological input, not an expected event.
 
 So the growth term is **cells per project folder**, and it is linear:
 
-| cells in one project folder | resident | with the Contact-sites tab open (see below) |
-|---|---|---|
-| 1 (today) | 70.7 MB | ~141 MB |
-| 20 | 1.4 GB | 2.8 GB |
-| 50 | 3.5 GB | 7.0 GB |
-| 200 | 14 GB | 28 GB |
+| cells in one project folder | resident |
+|---|---|
+| 1 (today) | 70.7 MB |
+| 20 | 1.4 GB |
+| 50 | 3.5 GB |
+| 200 | 14 GB |
 
-## How Tool 3 actually loads it — and the one real waste
+**Opening the Contact-sites tab no longer doubles this.** It used to — that was Stage 0, and it has
+since shipped; see below.
 
-`ensureTracksLoaded()` (`spt_analyze_app.m:251`) loads **the whole `<project>/analysis/TrackStruct.mat`**
-— every cell of that project — into `buildTracks`. Then the Contact-sites tab calls
-`cs_window_picker(pnCS, anaDir, …)`, and the picker **loads the same file again** independently
-(`cs_window_picker.m:37-42`) and keeps it as `st.Tracks`.
+## How Tool 3 actually loads it
 
-Two independent `load` calls, two full copies resident at once. That is the right-hand column above,
-and it is the cheapest thing to fix in this whole document: pass the already-loaded struct into the
-picker instead of re-reading it. Halves Tool 3's footprint for a few lines of change.
+`ensureTracksLoaded()` (`spt_analyze_app.m:310`) loads **the whole active build** — every cell of that
+project, resolved through `cs_active_trackstruct` — into `buildTracks`. The Contact-sites tab then
+hands that struct straight to the picker as `opts.Tracks` (`spt_analyze_app.m:439-441`), and
+`cs_window_picker` uses it as `st.Tracks` (`cs_window_picker.m:39-50`), falling back to `load` only
+when no struct was passed — i.e. when the picker is driven standalone.
 
-Within the picker the access pattern is already correct: `onCell()` flattens **one** cell (1.8 ms) and
-caches the flat arrays; everything after that works columnar.
+One `load`, one copy. Nothing in the picker writes `st.Tracks` (it is only read, at
+`cs_window_picker.m:189, 200, 727, 742, 780`), so MATLAB's copy-on-write shares the data rather than
+duplicating it.
+
+Within the picker the access pattern is already correct: `onCell()` (`cs_window_picker.m:198`)
+flattens **one** cell (1.8 ms) and caches the flat arrays; everything after that works columnar.
+Those per-cell flat vectors are the only thing the picker adds on top of the table above — megabytes
+for the selected cell, not a second project.
 
 ## Comparing cells across conditions — the scaling layer already exists
 
 There are two paths, and only one of them scales.
 
 **Use the Experiment + Compare tabs.** The manifest **references** each day/batch folder and
-*never merges the TrackStructs* (`spt_analyze_app.m:1580-1581` says so in as many words: "This is the
+*never merges the TrackStructs* (`spt_analyze_app.m:1644-1646` says so in as many words: "This is the
 scaling layer for many cells/conditions"). `cs_experiment_aggregate` reads each folder's
 `CSW_final.mat` and `cs_window_dwell.mat`, tags every site and event with that cell's `condition` and
 source folder, and concatenates the **results** — which are small. Compare then groups by condition
@@ -80,32 +86,40 @@ number that matters is cells-per-folder, not cells in the study.
 
 ## The blocker on any layout change
 
-**`nF` is the column stride of persisted `sub2ind` linear indices.** `ContactSiteMapper` and
-`cs_refine` store `find(mnID)` / `sub2ind(size(...))` results into `analysis/CSdata/*.mat`,
-`analysis/TrackData/*.mat` and `CSW_final.mat`. Change `nF` — by trimming padding, going ragged, or
-merely re-curating to a different longest track — and every stored index silently points at a
-**different localization**. No error, wrong answers.
+**`nF` is the column stride of persisted `find` / `sub2ind` linear indices.** In the live flow
+`cs_window_mapper` stores `find(mnID)` as each site-window's `LocIDs` (`cs_window_mapper.m:208, 242`)
+into `CSW_final.mat`. The legacy `run_contactsite_analysis` path does the same into
+`analysis/TrackData/*.mat` and `analysis/CSdata/*.mat`
+(`ContactSites_robust/ContactSiteMapper.m:70-71`, `cs_refine.m:830`). Change `nF` — by trimming
+padding, going ragged, or merely re-curating to a different longest track — and every stored index
+silently points at a **different localization**. No error, wrong answers.
 
 Two secondary hazards:
 
 - `ContactSites_robust/CellAccumulator.m:11` does `Tracks(i) = CellTracks`, which throws
   `Subscripted assignment between dissimilar structures` on any field add or removal. This is the
   exact failure a previous session hit.
-- The shape guards in `spt_analyze_app.m:279-280` and `cs_window_picker.m:229-231` test
-  `isequal(size(field), [nF nT])` and **fall back to NaN/false silently** when it stops matching.
+- The shape guards in `spt_analyze_app.m:341-342` and `cs_window_picker.m:237-239` test
+  `isequal(size(field), [nF nT])` (or `size(M(:,:,1))`) and **fall back to NaN/false silently** when
+  it stops matching.
 
 Only three fields are frozen by the robust/pristine suite: `file`, `matrix`, `vector`.
 
 ## Staged plan
 
-Ordered by payoff per unit of risk, after the corrections above. Stages 0 and 1 are worth doing;
-2–4 are only worth it if cells-per-folder grows past what the manifest workflow keeps it at.
+Ordered by payoff per unit of risk, after the corrections above. Stage 0 is done; Stage 1 is worth
+doing; 2–4 are only worth it if cells-per-folder grows past what the manifest workflow keeps it at.
 
-### Stage 0 — stop loading the same file twice *(do this first: −50% of Tool 3's RAM, a few lines)*
+### Stage 0 — stop loading the same file twice ✅ **DONE** *(−50% of Tool 3's RAM)*
 
-Pass the app's already-loaded `buildTracks` into `cs_window_picker` instead of having it re-`load`
-the same `TrackStruct.mat`. Keep the current `load` as the fallback for when the picker is used
-standalone. No format change, no consumer affected.
+Shipped. `onLaunchCS()` passes the app's already-loaded `buildTracks` to the picker as `opts.Tracks`
+(plus `opts.tsFile`, the active build's path), and `cs_window_picker` takes it as `st.Tracks` when
+it is non-empty. The `load` survives only as the standalone fallback, and it now resolves through
+`cs_active_trackstruct(anaDir)` — so a standalone picker opens the same **named** build the app
+would have. No format change, no consumer affected.
+
+Side benefit beyond the RAM: the picker can no longer analyse a different build from the one on
+screen, because it is handed the exact struct the app holds.
 
 ### Stage 1 — one file per cell *(worth it once a folder holds tens of cells)*
 
