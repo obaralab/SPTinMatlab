@@ -33,6 +33,8 @@ S.loaded         = false;
 S.kept_ids       = [];
 S.manual_keep    = [];   % tracks the user forced KEEP (survive a filter re-apply)
 S.manual_reject  = [];   % tracks the user forced REJECT (survive a filter re-apply)
+S.manual_by_cell = containers.Map('KeyType','char','ValueType','any');  % base -> the two lists,
+                         % so manual decisions survive switching cells AND a batch run
 S.selected_id    = [];
 S.shown_ids      = [];
 S.current_frame  = 0;
@@ -77,42 +79,38 @@ end
 
 % 3-column top-level grid
 gl = uigridlayout(container,[1 3],...
-    'ColumnWidth',{300,'1x',340},...
+    'ColumnWidth',{322,'1x',340},...
     'Padding',[6 6 6 6],'ColumnSpacing',6,...
     'BackgroundColor',[0.95 0.95 0.95]);
 
 % ============================================================
-% LEFT PANEL — controls
+% LEFT PANEL — controls (scrollable) + an always-visible activity log
 % ============================================================
 lp = uipanel(gl,'Title','Controls','FontSize',10,'FontWeight','bold');
 lp.Layout.Column = 1;
-lg = uigridlayout(lp,[60 2],...
+lpg = uigridlayout(lp,[2 1],'RowHeight',{'1x',108},'Padding',[0 0 0 0],'RowSpacing',4, ...
+    'BackgroundColor',[0.97 0.97 0.97]);
+lg = uigridlayout(lpg,[60 2],...
     'RowHeight',   repmat({22},1,60),...
     'ColumnWidth', {'fit','1x'},...
     'Scrollable','on',...
     'Padding',[5 4 5 4],'RowSpacing',2,...
     'BackgroundColor',[0.97 0.97 0.97]);
+% the log lives OUTSIDE the scrollable grid so it never scrolls out of view — every long action
+% (apply, toggle, export, batch) writes here, so a click always leaves a visible trace.
+c.log = uitextarea(lpg,'Editable','off','FontSize',8.5,'FontName','Menlo', ...
+    'Value',{'Curate log:'});
 
 row = 0;
 
-% -- Load section --  (the folder auto-loads from the Experiment tab's tracks folder;
-% "Load single file" below stays for loading a one-off XML+CSV outside that flow)
-row=row+1; sec_lbl(lg,row,'LOAD (auto from Experiment tracks folder)');
-row=row+1; lbl2(lg,row,'Single XML (optional):');
-row=row+1; c.xml = wide_txt(lg,row,'');
-row=row+1; lbl2(lg,row,'Spots CSV:');
-row=row+1; c.csv = wide_txt(lg,row,'');
-row=row+1;
-c.load_btn = wide_btn(lg,row,'Load single file',[0.3 0.3 0.3],'white');
-c.load_btn.ButtonPushedFcn = @(~,~) do_load_single();
-
+% -- Cell navigation. The tracks folder auto-loads from the project, so there is no manual
+% XML+CSV picker any more: it predated the Tool 1 -> Tool 2 handoff and only invited loading a
+% mismatched pair. Everything comes from <project>/tracks/ via the Experiment/project folder.
+row=row+1; sec_lbl(lg,row,'CELL  (auto-loaded from the project tracks/ folder)');
 row=row+1;
 c.status = uilabel(lg,'Text','Not loaded','FontSize',9,...
     'FontColor',[0.4 0.4 0.4],'WordWrap','on');
 c.status.Layout.Row = row; c.status.Layout.Column = [1 2];
-
-% -- File navigation (folder mode) --
-row=row+1; sec_lbl(lg,row,'FILE');
 row=row+1;
 c.prev_btn = half_btn(lg,row,1,'< Prev',[0.8 0.8 0.8],[0 0 0]);
 c.next_btn = half_btn(lg,row,2,'Next >',[0.8 0.8 0.8],[0 0 0]);
@@ -179,30 +177,59 @@ row=row+1;
 c.apply_btn = wide_btn(lg,row,'Apply filter',[0.16 0.50 0.26],'white');
 c.apply_btn.ButtonPushedFcn = @(~,~) do_apply_filter();
 
-% -- Inspect section --
-row=row+1; sec_lbl(lg,row,'INSPECT');
-row=row+1;
-c.kept_chk = uicheckbox(lg,'Text','Kept only','Value',false,...
-    'ValueChangedFcn',@(~,~) do_reshuffle(),'FontSize',9);
-c.kept_chk.Layout.Row=row; c.kept_chk.Layout.Column=1;
+% -- Review section — the point of this tab: look at what the filter rejected and overrule it --
+row=row+1; sec_lbl(lg,row,'REVIEW  (click a track in Overview, then keep/reject it)');
+row=row+1; lbl2(lg,row,'Show:');
+c.show_mode = uidropdown(lg,'Items',{'All tracks','Kept only','Rejected only'}, ...
+    'ItemsData',{'all','kept','rej'},'Value','all','FontSize',9, ...
+    'Tooltip',['Which tracks the Overview draws. "Rejected only" is the review mode: the tracks ' ...
+    'the filter threw out, on their own, so you can click each one and decide. The kept ones are ' ...
+    'already accepted — you do not need to see them to review.'], ...
+    'ValueChangedFcn',@(~,~) do_reshuffle());
+c.show_mode.Layout.Row=row; c.show_mode.Layout.Column=2;
+row=row+1; lbl2(lg,row,'Max drawn:');
 c.max_shown = uispinner(lg,'Limits',[10 2000],'Value',100,'Step',10,...
     'FontSize',9,'ValueChangedFcn',@(~,~) do_reshuffle());
 c.max_shown.Layout.Row=row; c.max_shown.Layout.Column=2;
 row=row+1;
-c.reshuffle = wide_btn(lg,row,'Reshuffle',[0.85 0.85 0.85],[0 0 0]);
+c.reshuffle = half_btn(lg,row,1,'Reshuffle',[0.85 0.85 0.85],[0 0 0]);
 c.reshuffle.ButtonPushedFcn = @(~,~) do_reshuffle();
+c.next_rej = half_btn(lg,row,2,'Next rejected ▶',[0.80 0.45 0.10],'white');
+c.next_rej.Tooltip = 'Select the next rejected track and centre the detail panel on it — walk the rejects one by one.';
+c.next_rej.ButtonPushedFcn = @(~,~) next_rejected();
+
+% The decision button. Big, coloured by what it will DO, and it names the track — this is the
+% control the whole tab exists for, so it should not look like a grey utility button.
+row=row+1; row=row+1;                                        % two rows tall
+c.toggle_btn = uibutton(lg,'Text','Toggle keep/reject','FontSize',12,'FontWeight','bold', ...
+    'BackgroundColor',[0.55 0.55 0.58],'FontColor','white','Enable','off', ...
+    'Tooltip','Flip the selected track between KEEP and REJECT. Manual decisions survive re-filtering, batch runs and switching cells.', ...
+    'ButtonPushedFcn',@(~,~) do_toggle());
+c.toggle_btn.Layout.Row=[row-1 row]; c.toggle_btn.Layout.Column=[1 2];
+row=row+1; row=row+1; row=row+1;                             % 3 rows so the detail never clips
+c.sel_lbl = uilabel(lg,'Text','Click a track in the Overview panel to select it.','FontSize',8.5,...
+    'WordWrap','on','FontColor',[0.2 0.2 0.2],'VerticalAlignment','top');
+c.sel_lbl.Layout.Row=[row-2 row]; c.sel_lbl.Layout.Column=[1 2];
+
+% -- Export --
+row=row+1; sec_lbl(lg,row,'EXPORT (current file)');
+row=row+1; c.export_dir = wide_txt(lg,row,'');
 row=row+1;
-c.toggle_btn = wide_btn(lg,row,'Toggle keep/reject',[0.85 0.85 0.85],[0 0 0]);
-c.toggle_btn.ButtonPushedFcn = @(~,~) do_toggle();
+c.export_btn = wide_btn(lg,row,['Export ' S.exportSuffix],[0.17 0.24 0.31],'white');
+c.export_btn.ButtonPushedFcn = @(~,~) do_export();
 row=row+1;
-c.sel_lbl = uilabel(lg,'Text','Click track to select','FontSize',8,...
-    'WordWrap','on','FontColor',[0.2 0.2 0.2]);
-c.sel_lbl.Layout.Row=row; c.sel_lbl.Layout.Column=[1 2];
+c.export_next_btn = wide_btn(lg,row,'Export + Next ▶',[0.15 0.36 0.30],'white');
+c.export_next_btn.ButtonPushedFcn = @(~,~) do_export_next();
+row=row+1;
+c.ws_btn = wide_btn(lg,row,'Send data to workspace',[0.40 0.20 0.60],'white');
+c.ws_btn.ButtonPushedFcn = @(~,~) send_to_workspace();
 
 % -- Playback --
 row=row+1; sec_lbl(lg,row,'PLAYBACK');
 row=row+1; lbl2(lg,row,'FPS:');
-c.fps = uispinner(lg,'Limits',[1 60],'Value',15,'Step',1,'FontSize',9);
+c.fps = uispinner(lg,'Limits',[1 60],'Value',15,'Step',1,'FontSize',9, ...
+    'Tooltip','Playback rate. Takes effect immediately, including while playing.', ...
+    'ValueChangedFcn',@(~,~) retune_playback());   % live: was only read once, at Play
 c.fps.Layout.Row=row; c.fps.Layout.Column=2;
 row=row+1; lbl2(lg,row,'Emitter r (um):');
 c.emitter_rad = uispinner(lg,'Limits',[0.01 2],'Value',0.25,'Step',0.05,...
@@ -217,19 +244,6 @@ c.play_btn  = half_btn(lg,row,1,'Play', [0.18 0.80 0.44],'white');
 c.pause_btn = half_btn(lg,row,2,'Pause',[0.91 0.30 0.24],'white');
 c.play_btn.ButtonPushedFcn  = @(~,~) do_play();
 c.pause_btn.ButtonPushedFcn = @(~,~) do_pause();
-
-% -- Export --
-row=row+1; sec_lbl(lg,row,'EXPORT (current file)');
-row=row+1; c.export_dir = wide_txt(lg,row,'');
-row=row+1;
-c.export_btn = wide_btn(lg,row,['Export ' S.exportSuffix],[0.17 0.24 0.31],'white');
-c.export_btn.ButtonPushedFcn = @(~,~) do_export();
-row=row+1;
-c.export_next_btn = wide_btn(lg,row,'Export + Next ▶',[0.15 0.36 0.30],'white');
-c.export_next_btn.ButtonPushedFcn = @(~,~) do_export_next();
-row=row+1;
-c.ws_btn = wide_btn(lg,row,'Send data to workspace',[0.40 0.20 0.60],'white');
-c.ws_btn.ButtonPushedFcn = @(~,~) send_to_workspace();
 
 % -- Structure overlay (ER / mito) --
 row=row+1; sec_lbl(lg,row,'OVERLAY (ER / mito structure)');
@@ -432,24 +446,86 @@ end
         load_file(S.current_file);
     end
 
-    % ---- Single file load -----------------------------------
-    function do_load_single()
-        xml_path = strtrim(strjoin(c.xml.Value,''));
-        csv_path = strtrim(strjoin(c.csv.Value,''));
-        if ~isfile(xml_path), c.status.Text=['XML not found: ' xml_path]; return, end
-        if ~isfile(csv_path), c.status.Text=['CSV not found: ' csv_path]; return, end
-        [fdir,base] = fileparts(xml_path);
-        base = regexprep(base,'_tracks$','');
-        blt_path = fullfile(fdir,[base '_tracks_builtin.xml']);
-        blt = ''; if isfile(blt_path), blt = blt_path; end
-        S.file_list = {{xml_path, csv_path, base, blt}};
-        S.current_file = 1;
-        load_file(1);
+    % ---- activity log + busy feedback -----------------------
+    function clog(varargin)
+        % Every long or destructive action writes here, so a click always leaves a trace even when
+        % the result is "nothing changed". The pane sits outside the scrollable controls.
+        if ~isfield(c,'log') || isempty(c.log) || ~isgraphics(c.log), return; end
+        c.log.Value = [c.log.Value; {sprintf(varargin{:})}];
+        scroll(c.log,'bottom'); drawnow limitrate;
+    end
+
+    function setBusy(tf, actor, busyTxt)
+        % Amber "working…" on the button that was clicked, the other long-running actions disabled,
+        % everything restored afterwards. Same pattern as Tool 1's Track tab.
+        for h = [getf_(c,'apply_btn'), getf_(c,'export_btn'), getf_(c,'export_next_btn'), getf_(c,'batch_btn')]
+            if isempty(h) || ~isgraphics(h), continue; end
+            if tf, h.Enable = 'off'; else, h.Enable = 'on'; end
+        end
+        if nargin >= 2 && ~isempty(actor) && isgraphics(actor)
+            if tf
+                actor.UserData = {actor.Text, actor.BackgroundColor, actor.FontColor};
+                if nargin < 3 || isempty(busyTxt), busyTxt = '⏳ working…'; end
+                actor.Text = busyTxt; actor.BackgroundColor = [0.90 0.58 0.10];
+                actor.FontColor = 'white'; actor.Enable = 'on';
+            elseif iscell(actor.UserData) && numel(actor.UserData) == 3
+                actor.Text = actor.UserData{1}; actor.BackgroundColor = actor.UserData{2};
+                actor.FontColor = actor.UserData{3}; actor.UserData = [];
+            end
+        end
+        drawnow;
+    end
+
+    function h = getf_(s, f)
+        if isfield(s,f), h = s.(f); else, h = gobjects(0); end
+    end
+
+    function publish_state()
+        % Headless test hook (spt_curate_review_smoke): mirror the decision state onto the host
+        % figure after every change. The UI itself never reads this.
+        if isempty(fig) || ~isgraphics(fig), return; end
+        base = ''; if ~isempty(S.file_list) && S.current_file>=1, base = S.file_list{S.current_file}{3}; end
+        nAll = 0; if ~isempty(S.track_metrics), nAll = height(S.track_metrics); end
+        setappdata(fig,'tv_state', struct( ...
+            'base',base, 'nAll',nAll, 'nKept',numel(S.kept_ids), 'nRej',nAll-numel(S.kept_ids), ...
+            'kept',S.kept_ids(:)', 'shown',S.shown_ids(:)', 'nShown',numel(S.shown_ids), ...
+            'sel',S.selected_id, 'mkeep',S.manual_keep(:)', 'mrej',S.manual_reject(:)', ...
+            'playing',S.playing));
+    end
+
+    function s = hms_(sec)
+        if sec < 60, s = sprintf('%.1f s', sec);
+        else, s = sprintf('%d m %02.0f s', floor(sec/60), mod(sec,60)); end
+    end
+
+    % ---- manual keep/reject, remembered PER CELL -------------
+    % These decisions are the user's own judgement and must outlive everything automatic: a filter
+    % re-apply, a batch run over every cell, and navigating away to another cell and back. They were
+    % previously wiped on every load_file and ignored by the batch entirely.
+    function key = man_key(base)
+        key = char(base);
+    end
+
+    function man_store()
+        if isempty(S.file_list) || S.current_file < 1, return; end
+        k = man_key(S.file_list{S.current_file}{3});
+        S.manual_by_cell(k) = struct('keep', S.manual_keep(:)', 'reject', S.manual_reject(:)');
+    end
+
+    function man_restore(base)
+        k = man_key(base);
+        if isKey(S.manual_by_cell, k)
+            m = S.manual_by_cell(k);
+            S.manual_keep = m.keep(:); S.manual_reject = m.reject(:);
+        else
+            S.manual_keep = []; S.manual_reject = [];
+        end
     end
 
     % ---- Core load + compute --------------------------------
     function load_file(idx)
         do_pause();
+        man_store();                 % keep the outgoing cell's decisions before switching
         info     = S.file_list{idx};
         xml_path = info{1}; csv_path = info{2}; base_name = info{3};
         n_files  = numel(S.file_list);
@@ -513,8 +589,8 @@ end
         S.track_metrics = tm;
         S.xml_doc       = xdoc;
         S.kept_ids      = track_ids;
-        S.manual_keep   = [];   % new dataset -> no overrides yet
-        S.manual_reject = [];
+        man_restore(base_name);   % this cell's own manual decisions, if it has been reviewed before
+        S.kept_ids      = union(setdiff(S.kept_ids, S.manual_reject), S.manual_keep);
         S.selected_id   = [];
         S.loaded        = true;
         S.filter_log    = {};   % reset filter history for new file
@@ -539,10 +615,16 @@ end
 
         c.status.Text = sprintf('Loaded: %d tracks | %d spots | dt=%.4fs',...
             n_t, height(spots_t), S.frame_interval);
+        c.status.FontColor = [0.4 0.4 0.4];
+        nman = numel(S.manual_keep) + numel(S.manual_reject);
+        clog('LOAD %s · %d tracks · %d spots%s', base_name, n_t, height(spots_t), ...
+            tern_(nman>0, sprintf(' · restored %d manual override%s', nman, tern_(nman==1,'','s')), ''));
 
         update_histograms();
         updateFilterLabels();
         refresh_thresh_labels();   % show each percentile's threshold value for THIS file
+        refresh_toggle_btn();
+        publish_state();
         do_reshuffle();
     end
 
@@ -668,6 +750,49 @@ end
         end
     end
 
+    function retune_playback()
+        % FPS is live: if a track is playing, restart the timer at the new period rather than
+        % waiting for the next Play (the period was previously read once, at Play time).
+        if S.playing, do_pause(); do_play(); end
+    end
+
+    function next_rejected()
+        % Walk the rejected tracks one at a time — the review loop this tab exists for.
+        if ~S.loaded, return; end
+        rej = setdiff(S.track_metrics.TRACK_ID, S.kept_ids);
+        if isempty(rej)
+            c.sel_lbl.Text = 'Nothing is rejected at the current thresholds.';
+            clog('Review: nothing rejected at the current thresholds.'); return;
+        end
+        if isempty(S.selected_id), nxt = rej(1);
+        else
+            after = rej(rej > S.selected_id);
+            if isempty(after), nxt = rej(1); else, nxt = after(1); end
+        end
+        % make sure it is drawn, then select it
+        if ~ismember(nxt, S.shown_ids), S.shown_ids = [S.shown_ids(:); nxt]; end
+        select_track(nxt);
+        clog('Review: rejected track %d  (%d of %d rejected)', nxt, find(rej==nxt,1), numel(rej));
+    end
+
+    function refresh_toggle_btn()
+        % The decision button states what it will DO to the selected track, and is coloured for it.
+        if ~isfield(c,'toggle_btn') || ~isgraphics(c.toggle_btn), return; end
+        if ~S.loaded || isempty(S.selected_id)
+            c.toggle_btn.Text = 'Toggle keep/reject';
+            c.toggle_btn.BackgroundColor = [0.55 0.55 0.58];
+            c.toggle_btn.Enable = 'off'; return;
+        end
+        c.toggle_btn.Enable = 'on';
+        if ismember(S.selected_id, S.kept_ids)
+            c.toggle_btn.Text = sprintf('✖  REJECT track %d', S.selected_id);
+            c.toggle_btn.BackgroundColor = [0.80 0.22 0.18];
+        else
+            c.toggle_btn.Text = sprintf('✔  KEEP track %d', S.selected_id);
+            c.toggle_btn.BackgroundColor = [0.16 0.55 0.28];
+        end
+    end
+
     function apply_percentile_filter()
         if ~S.loaded, return, end
         tm = S.track_metrics;
@@ -735,7 +860,11 @@ end
     end
 
     function do_apply_filter()
-        if ~S.loaded, return, end
+        if ~S.loaded
+            clog('APPLY: nothing loaded — nothing to do.'); return
+        end
+        setBusy(true, c.apply_btn, '⏳ applying…');
+        aGuard = onCleanup(@() setBusy(false, c.apply_btn)); %#ok<NASGU>
         prev_kept = S.kept_ids;
         % filter from the sliders, THEN re-apply the user's manual keep/reject on
         % top so hand overrides survive a filter re-apply (filter + manual coexist).
@@ -759,6 +888,14 @@ end
             entry.n_kept      = n_k;
             S.filter_log{end+1} = entry;
         end
+        clog('APPLY: %d kept / %d rejected of %d  ·  disp var <= %.4f · density <= %.0f%s%s', ...
+            n_k, n_t-n_k, n_t, c.max_dv.Value, c.max_dn.Value, ...
+            tern_(isfield(c,'reject_jumps') && isgraphics(c.reject_jumps) && c.reject_jumps.Value, ...
+                  sprintf(' · jump > %.3g µm', c.gap_dist.Value), ''), ...
+            tern_(nov>0, sprintf('  (%d manual override%s kept)', nov, tern_(nov==1,'','s')), ''));
+        man_store();
+        refresh_toggle_btn();
+        publish_state();
         do_reshuffle();
     end
 
@@ -766,10 +903,16 @@ end
     function do_reshuffle()
         if ~S.loaded, return, end
         rng(S.resample_seed); S.resample_seed=S.resample_seed+1;
-        if c.kept_chk.Value
-            pool = S.kept_ids;
-        else
-            pool = S.track_metrics.TRACK_ID;
+        all_ids = S.track_metrics.TRACK_ID;
+        switch c.show_mode.Value
+            case 'kept', pool = S.kept_ids;
+            case 'rej',  pool = setdiff(all_ids, S.kept_ids);   % review mode: only what was thrown out
+            otherwise,   pool = all_ids;
+        end
+        if isempty(pool)
+            S.shown_ids = zeros(0,1); update_spatial();
+            if strcmp(c.show_mode.Value,'rej'), clog('Review: nothing rejected at the current thresholds.'); end
+            return;
         end
         n_show = min(c.max_shown.Value, numel(pool));
         idx3   = randperm(numel(pool),n_show);
@@ -777,6 +920,7 @@ end
         if ~isempty(S.selected_id) && ~ismember(S.selected_id,S.shown_ids)
             S.shown_ids=[S.shown_ids;S.selected_id];
         end
+        publish_state();
         update_spatial();
     end
 
@@ -990,13 +1134,40 @@ end
         d  = sqrt((tm.x_mean-pt(1)).^2+(tm.y_mean-pt(2)).^2);
         [md,mi]=min(d);
         if md>2.0, return, end
-        S.selected_id=tm.TRACK_ID(mi);
-        tm_sel=S.track_metrics(S.track_metrics.TRACK_ID==S.selected_id,:);
-        S.current_frame=tm_sel.frame_start;
-        st='KEEP'; if ~ismember(S.selected_id,S.kept_ids), st='REJECT'; end
-        c.sel_lbl.Text=sprintf('Track %d [%s]\nSpots:%d Frames:%d-%d\nDispVar:%.4f  MaxDens:%.0f',...
-            S.selected_id,st,tm_sel.n_spots,tm_sel.frame_start,tm_sel.frame_end,...
-            tm_sel.disp_variance,tm_sel.mean_local_density);
+        select_track(tm.TRACK_ID(mi));
+    end
+
+    function select_track(tid)
+        % One selection path for both the click and "Next rejected", so the detail panel, the
+        % decision button and the label can never disagree about what is selected.
+        if ~S.loaded, return; end
+        S.selected_id = tid;
+        tm_sel = S.track_metrics(S.track_metrics.TRACK_ID==tid,:);
+        if isempty(tm_sel), return; end
+        S.current_frame = tm_sel.frame_start;
+        kept = ismember(tid, S.kept_ids);
+        st = 'KEEP'; if ~kept, st = 'REJECT'; end
+        why = '';
+        if ismember(tid, S.manual_keep),   why = '  ← your manual KEEP';
+        elseif ismember(tid, S.manual_reject), why = '  ← your manual REJECT';
+        elseif ~kept
+            % name which gate actually rejected it, so the decision is informed
+            r = {};
+            if ~isnan(tm_sel.disp_variance) && tm_sel.disp_variance > c.max_dv.Value, r{end+1} = 'disp var'; end
+            if ~isnan(tm_sel.mean_local_density) && tm_sel.mean_local_density > c.max_dn.Value, r{end+1} = 'density'; end
+            if isfield(c,'reject_jumps') && isgraphics(c.reject_jumps) && c.reject_jumps.Value ...
+                    && ismember('max_step_um',tm_sel.Properties.VariableNames) ...
+                    && ~isnan(tm_sel.max_step_um) && tm_sel.max_step_um > c.gap_dist.Value, r{end+1} = 'jump'; end
+            if ~isempty(r), why = ['  ← rejected by ' strjoin(r,' + ')]; end
+        end
+        c.sel_lbl.Text = sprintf(['Track %d  [%s]%s\n' ...
+            'spots %d · frames %d–%d\n' ...
+            'disp var %.4f  (max %.4f)\n' ...
+            'max density %.0f  (max %.0f)'], ...
+            tid, st, why, tm_sel.n_spots, tm_sel.frame_start, tm_sel.frame_end, ...
+            tm_sel.disp_variance, c.max_dv.Value, tm_sel.mean_local_density, c.max_dn.Value);
+        refresh_toggle_btn();
+        publish_state();
         update_spatial();
         update_trajectory(S.current_frame);
         update_disp_plot();
@@ -1152,9 +1323,14 @@ end
         entry.max_dv=NaN; entry.max_dn=NaN;
         entry.pct_dv=NaN;
         S.filter_log{end+1} = entry;
+        man_store();                                  % persist against this cell straight away
 
-        c.sel_lbl.Text=regexprep(c.sel_lbl.Text,'\[(KEEP|REJECT)\]',['[' st ']']);
-        update_spatial();
+        clog('%s track %d  (now %d kept / %d rejected · %d manual override%s)', st, sid, ...
+            numel(S.kept_ids), height(S.track_metrics)-numel(S.kept_ids), ...
+            numel(S.manual_keep)+numel(S.manual_reject), ...
+            tern_(numel(S.manual_keep)+numel(S.manual_reject)==1,'','s'));
+        select_track(sid);            % refresh the label, the button colour and the overview
+        if strcmp(c.show_mode.Value,'rej'), do_reshuffle(); end   % it left the review pool
     end
 
     function do_play()
@@ -1198,12 +1374,18 @@ end
     function ok = do_export(silent)
         if nargin<1, silent=false; end   % silent = no modal popup (for Export + Next)
         ok = false;
-        if ~S.loaded, return, end
+        if ~S.loaded
+            clog('EXPORT: nothing loaded — nothing to do.');
+            c.status.Text = 'Nothing loaded to export.'; return
+        end
         out_dir=strtrim(strjoin(c.export_dir.Value,''));
         if isempty(out_dir)
             out_dir=uigetdir('.','Select output folder');
-            if isequal(out_dir,0), return, end
+            if isequal(out_dir,0), clog('EXPORT: cancelled at the folder picker.'); return, end
         end
+        setBusy(true, c.export_btn, '⏳ exporting…');
+        expGuard = onCleanup(@() setBusy(false, c.export_btn)); %#ok<NASGU>
+        tExp = tic;
         if ~isfolder(out_dir), mkdir(out_dir); end
 
         good_ids   = S.kept_ids;
@@ -1338,19 +1520,20 @@ end
         end
 
         n_removed = numel(removed_ids);
-        if silent
-            c.status.Text = sprintf('Exported %s: kept %d, removed %d  ->  %s', base_name, numel(good_ids), n_removed, out_dir);
-        else
-            msgbox(sprintf(['Exported to: %s\n\n'...
-                'Kept: %d tracks\nRemoved: %d tracks\n\n'...
-                'Files written:\n'...
-                '  _track_metrics.csv  (KEEP column)\n'...
-                '  _spots_filtered.csv\n'...
-                '  _filter_log.csv  (per-track removal reason)\n'...
-                '  _tracks_filtered.xml\n'...
-                '  _tracks_builtin_filtered.xml'],...
-                out_dir, numel(good_ids), n_removed), 'Export done');
-        end
+        nman = numel(S.manual_keep) + numel(S.manual_reject);
+        clog('▶ EXPORT %s · %s', base_name, hms_(toc(tExp)));
+        clog('   %d kept / %d rejected of %d%s', numel(good_ids), n_removed, numel(all_ids), ...
+            tern_(nman>0, sprintf(' · %d manual override%s honoured', nman, tern_(nman==1,'','s')), ''));
+        clog('   thresholds: disp var <= %.4f · density <= %.0f%s', c.max_dv.Value, c.max_dn.Value, ...
+            tern_(isfield(c,'reject_jumps') && isgraphics(c.reject_jumps) && c.reject_jumps.Value, ...
+                  sprintf(' · jump gate > %.3g µm', c.gap_dist.Value), ''));
+        clog('   -> %s  [_tracks_%s.xml · _spots_%s.csv · _track_metrics.csv · _filter_log.csv]', ...
+            out_dir, S.exportSuffix, S.exportSuffix);
+        % No modal box: it blocked the app and told you nothing the log does not. The status line
+        % plus the log entry above are the confirmation, the same way Tool 1's Track tab reports.
+        c.status.Text = sprintf('✔ Exported %s — kept %d, removed %d  ->  %s', ...
+            base_name, numel(good_ids), n_removed, out_dir);
+        c.status.FontColor = [0.15 0.50 0.20];
         ok = true;
     end
 
@@ -1392,6 +1575,15 @@ end
                     'Cancelable','on','Value',0); catch, dlg=[]; end
         end
         dlgGuard = onCleanup(@() closeIfValid(dlg)); %#ok<NASGU>   % never leave the bar stuck open
+        setBusy(true, c.batch_btn, '⏳ batch running…');
+        bGuard = onCleanup(@() setBusy(false, c.batch_btn)); %#ok<NASGU>
+        man_store();          % flush the open cell's decisions so the batch honours them too
+        tBatch = tic;
+        nman_all = 0; ks = S.manual_by_cell.keys;
+        for q = 1:numel(ks), mm = S.manual_by_cell(ks{q}); nman_all = nman_all + numel(mm.keep) + numel(mm.reject); end
+        clog('▶ BATCH %d cell(s) · disp var <= %.4f · density <= %.0f%s%s', n_files, thr_dv, thr_dn, ...
+            tern_(jump_on, sprintf(' · jump > %.3g µm', thr_jump), ''), ...
+            tern_(nman_all>0, sprintf(' · %d manual override(s) preserved', nman_all), ''));
         c.status.Text = sprintf('Batch filtering %d files...', n_files);
         drawnow;
 
@@ -1471,7 +1663,19 @@ end
                 % the shared helper, so batch == what you saw on the tuning cell.
                 keep_mask    = ids_from_abs_thresh(tm_b);
                 good_ids_b   = track_ids_b(keep_mask);
-                removed_ids_b= track_ids_b(~keep_mask);
+                % ...then re-apply THIS cell's manual keep/reject on top. A batch run must never
+                % silently overrule a decision the user made by hand; it previously ignored them
+                % entirely, so reviewing a cell and then batching threw that work away.
+                mk = []; mr = [];
+                if isKey(S.manual_by_cell, man_key(base_nm))
+                    mm = S.manual_by_cell(man_key(base_nm)); mk = mm.keep(:); mr = mm.reject(:);
+                end
+                nman_b = numel(mk) + numel(mr);
+                if nman_b > 0
+                    good_ids_b = union(setdiff(good_ids_b, mr), intersect(mk, track_ids_b));
+                    good_ids_b = good_ids_b(:);
+                end
+                removed_ids_b = setdiff(track_ids_b, good_ids_b);
 
                 % Export filtered custom XML
                 fid_x = fopen(fullfile(out_dir,[base_nm '_tracks_filtered.xml']),'w');
@@ -1552,7 +1756,10 @@ end
                 r_struct.removed_ids = removed_ids_b';
                 batch_results(end+1)  = r_struct; %#ok
 
+                clog('   %s · %d -> %d kept (%d rejected)%s', base_nm, n_tb, numel(good_ids_b), ...
+                    numel(removed_ids_b), tern_(nman_b>0, sprintf(' · %d manual', nman_b), ''));
             catch ME
+                clog('   %s: ERROR — %s', base_nm, ME.message);
                 warning('Batch filter failed on %s: %s', base_nm, ME.message);
             end
         end
@@ -1562,9 +1769,9 @@ end
         write_html_report(batch_results, html_path, thr_dv, thr_dn, jump_on, thr_jump);
 
         if ~isempty(dlg) && isvalid(dlg), dlg.Value=1; dlg.Message='Done'; close(dlg); end
-        c.status.Text = sprintf('Batch done: %d files. Report: %s', n_files, html_path);
-        msgbox(sprintf('Batch filter complete.\n%d files processed.\n\nReport:\n%s',...
-            n_files, html_path), 'Batch done');
+        clog('✔ BATCH done — %d cell(s) in %s -> %s', n_files, hms_(toc(tBatch)), html_path);
+        c.status.Text = sprintf('✔ Batch done: %d files in %s. Report: %s', n_files, hms_(toc(tBatch)), html_path);
+        c.status.FontColor = [0.15 0.50 0.20];
     end
 
     % ---- HTML report writer ----------------------------------

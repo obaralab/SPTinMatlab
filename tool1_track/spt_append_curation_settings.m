@@ -14,7 +14,11 @@ lines{end+1} = sprintf('curation.min_track_len  = %g', minLen);
 lines{end+1} = sprintf('curation.min_disp_um    = %g', minDisp);
 lines{end+1} = sprintf('curation.tracks_before  = %d', getf_(stat,'before',NaN));
 lines{end+1} = sprintf('curation.tracks_after   = %d', getf_(stat,'after',NaN));
-lines{end+1} = sprintf('curation.n_spots_kept   = %d', getf_(stat,'nSpots',NaN));
+% NOT "kept": spt_curate_write's nSpots is every detection WRITTEN to the filtered CSV — the whole
+% localization cloud is preserved by design, so this equals the raw spot count and says nothing about
+% the surviving tracks. The spots belonging to kept tracks are in <base>_track_metrics.csv (n_spots
+% summed over KEEP=1); naming this "kept" read as though the filter had discarded nothing.
+lines{end+1} = sprintf('curation.n_spots_written= %d', getf_(stat,'nSpots',NaN));
 lines{end+1} = sprintf('curation.exported       = %s', datestr(now,'yyyy-mm-dd HH:MM:SS'));
 fid = fopen(f, 'w'); if fid < 0, return; end
 c = onCleanup(@() fclose(fid)); %#ok<NASGU>

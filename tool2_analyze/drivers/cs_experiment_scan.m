@@ -11,7 +11,9 @@ function cells = cs_experiment_scan(folders)
 % cells(k) fields:
 %   file, day, condition('') , exclude(false), reason(''), notes('')
 %   project, analysis, tracks, spt, erSeg, mitoSeg, trackstruct   (resolved paths)
-%   nTracks, status (struct from cs_experiment_status)
+%   nTracks, status (struct from cs_experiment_status — stage LAMPS plus the per-stage spot and
+%           track COUNTS: nSpotsRaw, nTracksRaw, nTracksFiltered, nTracksCurated, nTracksMetrics,
+%           nTracksKept, nSpotsInTracks, nSpotsKept, nTracksBuilt, nSpotsBuilt, nCellsBuilt)
 %   folder(=analysis), hasCSW, hasDwell                           (back-compat with the aggregator/UI)
 cells = emptyCells();
 if isempty(folders), return; end
@@ -33,7 +35,8 @@ for i = 1:numel(folders)
         rec.status  = cs_experiment_status(rec);
         rec.hasCSW  = rec.status.mapped;
         rec.hasDwell= rec.status.dwelled;
-        rec.nTracks = nTracksFor(P.analysis, base);
+        rec.nTracks = rec.status.nTracksBuilt;                 % already resolved (and cached) there
+        if isnan(rec.nTracks), rec.nTracks = 0; end            % callers expect a number, not NaN
         cells(end+1) = rec; %#ok<AGROW>
     end
 end
@@ -68,10 +71,10 @@ if isfolder(P.spt) && exist('spt_match','file')==2
 end
 ts = cs_active_trackstruct(P.analysis);        % the ACTIVE build, which may be named (Day1_WT.mat)
 if ~isempty(ts) && isfile(ts)
-    try, S = load(ts); fn = fieldnames(S); Tr = S.(fn{1});
-        for c = 1:numel(Tr), bases{end+1} = regexprep(char(Tr(c).file),'\.[^.]*$',''); end %#ok<AGROW>
-    catch
-    end
+    % Go through cs_experiment_status's cached reader, not a fresh load(): the per-cell status calls
+    % below need the same build, so this way the .mat is read once per scan instead of once per cell.
+    info = cs_experiment_status('build', ts);
+    for c = 1:numel(info.bases), bases{end+1} = info.bases{c}; end %#ok<AGROW>
 end
 bases = unique(bases,'stable');
 end
@@ -81,21 +84,6 @@ function p = tsOrDefault_(anaDir)
 % still names where a build WOULD go.
 p = cs_active_trackstruct(anaDir);
 if isempty(p), p = fullfile(anaDir,'TrackStruct.mat'); end
-end
-
-function n = nTracksFor(anaDir, base)
-n = 0;
-ts = cs_active_trackstruct(anaDir); if isempty(ts) || ~isfile(ts), return; end   % ACTIVE build
-try
-    S = load(ts); fn = fieldnames(S); Tr = S.(fn{1});
-    for c = 1:numel(Tr)
-        if strcmp(regexprep(char(Tr(c).file),'\.[^.]*$',''), base)
-            if isfield(Tr,'matrix') && ~isempty(Tr(c).matrix), n = size(Tr(c).matrix,2); end
-            return;
-        end
-    end
-catch
-end
 end
 
 function c = emptyCells()

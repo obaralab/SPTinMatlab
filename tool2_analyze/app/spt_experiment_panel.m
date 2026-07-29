@@ -5,8 +5,10 @@ function ctl = spt_experiment_panel(parent, opts)
 %
 % Builds inside PARENT a cell table spanning any number of day/batch folders, with each cell's
 % CONDITION, day/replicate, per-stage STATUS (tracked·curated·built·picked·mapped·dwelled, derived
-% from the filesystem), QC EXCLUDE flag and NOTES. One manifest is the single source of truth —
-% every tool embeds this same panel so conditions are defined once and shared.
+% from the filesystem), the per-stage SPOT AND TRACK COUNTS behind those stages (spots·tracks·filt·
+% cur·in build·trk spots — how much survived, not just whether the step ran), QC EXCLUDE flag and
+% NOTES. One manifest is the single source of truth — every tool embeds this same panel so
+% conditions are defined once and shared.
 %
 % opts (all optional):
 %   .seedFolders  cellstr of folders to scan on open (no dialog needed — for headless/host wiring).
@@ -70,12 +72,19 @@ ctl = struct('getCells',@getCellsLive, 'getManifest',@getManifest, 'getSelected'
         uibutton(r2,'Text','✖ Exclude','ButtonPushedFcn',@(s,e) onToggleExcl(),'Tooltip','Toggle QC-exclude for the selected rows (they drop from analysis but stay recorded).');
         uilabel(r2,'Text','filter','HorizontalAlignment','right');
         eFilter = uieditfield(r2,'text','Placeholder','condition / day / cell / ''unassigned'' / ''unmapped''','ValueChangedFcn',@(s,e) fillTable());
-        % row 3: the cell table (the dashboard)
-        tbl = uitable(g,'ColumnName',{'day','cell','condition','tracked','curated','built','picked','mapped','dwelled','excl','notes'}, ...
-            'ColumnWidth',{110,'auto',110,58,58,44,50,50,56,44,'1x'}, ...
-            'ColumnEditable',[true false true false false false false false false true true], ...
-            'ColumnFormat',{'char','char','char','char','char','char','char','char','char','logical','char'}, ...
-            'SelectionType','row','Multiselect','on','CellEditCallback',@(s,e) onEdit(e));
+        % row 3: the cell table (the dashboard). The ✓/– lamps say WHICH stages ran; the count block
+        % says how much survived each one, so a cell that "tracked" but kept 6 tracks is visible as
+        % such instead of looking as healthy as one that kept 800.
+        tbl = uitable(g,'ColumnName',{'day','cell','condition','tracked','curated','built','picked','mapped','dwelled', ...
+                                     'spots','tracks','filt','cur','in build','trk spots','excl','notes'}, ...
+            'ColumnWidth',{110,'auto',110,58,58,44,50,50,56, 62,58,52,52,60,66, 44,'1x'}, ...
+            'ColumnEditable',[true false true false false false false false false false false false false false false true true], ...
+            'ColumnFormat',[repmat({'char'},1,15) {'logical','char'}], ...
+            'SelectionType','row','Multiselect','on','CellEditCallback',@(s,e) onEdit(e), ...
+            'Tooltip',['Counts (– = not produced yet):   spots = detections found by Tool 1   ·   ' ...
+                       'tracks = tracks it linked   ·   filt = left after Tool 1''s length/displacement filter   ·   ' ...
+                       'cur = left after Tool 2''s curation   ·   in build = this cell''s tracks in the active ' ...
+                       'TrackStruct   ·   trk spots = localisations in those surviving tracks.']);
     end
 
     function onAdd()
@@ -107,17 +116,20 @@ ctl = struct('getCells',@getCellsLive, 'getManifest',@getManifest, 'getSelected'
         end
         cells = fresh; fillTable(); notifyChange();
         nMap = 0; nCond = 0; if ~isempty(cells), nMap = nnz([cells.hasCSW]); nCond = numel(setdiff(unique({cells.condition}),{''})); end
-        setStatus(sprintf('%d cell(s) · %d folder(s) · %d mapped · %d condition(s).', numel(cells), numel(folders), nMap, nCond));
+        setStatus(sprintf('%d cell(s) · %d folder(s) · %d mapped · %d condition(s)%s.', ...
+            numel(cells), numel(folders), nMap, nCond, totalsTag(cells)));
     end
 
     function fillTable()
         if isempty(cells), tbl.Data = {}; rowMap = []; return; end
         keep = filterRows();
         rowMap = keep;
-        D = cell(numel(keep),11);
+        D = cell(numel(keep),17);
         for i = 1:numel(keep)
             c = cells(keep(i)); s = c.status;
-            D(i,:) = {c.day, c.file, c.condition, y(s.tracked), y(s.curated), y(s.built), y(s.picked), y(s.mapped), y(s.dwelled), logical(c.exclude), c.notes};
+            D(i,:) = {c.day, c.file, c.condition, y(s.tracked), y(s.curated), y(s.built), y(s.picked), y(s.mapped), y(s.dwelled), ...
+                n(gs(s,'nSpotsRaw')), n(gs(s,'nTracksRaw')), n(gs(s,'nTracksFiltered')), n(gs(s,'nTracksCurated')), ...
+                n(gs(s,'nTracksBuilt')), n(spotsAtEnd(s)), logical(c.exclude), c.notes};
         end
         tbl.Data = D;
     end
@@ -144,8 +156,8 @@ ctl = struct('getCells',@getCellsLive, 'getManifest',@getManifest, 'getSelected'
         switch c
             case 1,  cells(idx).day = strtrim(char(string(e.NewData)));
             case 3,  cells(idx).condition = strtrim(char(string(e.NewData)));
-            case 10, cells(idx).exclude = logical(e.NewData);
-            case 11, cells(idx).notes = char(string(e.NewData));
+            case 16, cells(idx).exclude = logical(e.NewData);
+            case 17, cells(idx).notes = char(string(e.NewData));
         end
         notifyChange();
     end
@@ -211,6 +223,45 @@ end
 
 % ---- file-scope helpers ----
 function s = y(b), if b, s='✓'; else, s='–'; end, end
+
+function s = n(v)
+% A count for the table: '–' when the source file that would report it does not exist yet.
+if isempty(v) || ~isnumeric(v) || ~isfinite(v), s = '–'; else, s = sprintf('%d', round(v)); end
+end
+
+function v = gs(st, f)
+% Status counts are additive — a manifest saved before they existed has none, so read defensively.
+if isstruct(st) && isfield(st,f), v = st.(f); else, v = NaN; end
+end
+
+function t = totalsTag(cells)
+% Pooled attrition across every scanned cell, for the summary line: how many detections and tracks
+% the whole manifest starts from and how many are still standing. '' when nothing is countable yet.
+t = '';
+if isempty(cells) || ~isfield(cells,'status'), return; end
+st = [cells.status];
+raw = tot(st,'nSpotsRaw'); trk = tot(st,'nTracksRaw'); fin = tot(st,'nTracksCurated');
+if isnan(fin), fin = tot(st,'nTracksFiltered'); end
+if isnan(raw) && isnan(trk), return; end
+t = sprintf(' · %s spots · %s tracks linked', n(raw), n(trk));
+if ~isnan(fin), t = [t sprintf(' → %s kept', n(fin))]; end
+end
+
+function s = tot(st, f)
+% Sum one count across cells, ignoring the cells that have no value for it. NaN when none do.
+if ~isfield(st,f), s = NaN; return; end
+v = [st.(f)]; v = v(isfinite(v));
+if isempty(v), s = NaN; else, s = sum(v); end
+end
+
+function v = spotsAtEnd(st)
+% Detections belonging to the tracks that SURVIVED: from the build when there is one (the build's
+% own per-track lengths), otherwise from the KEEP rows of _track_metrics.csv, otherwise from the
+% whole metrics pool. This is the only spot count after the raw stage that is cheap to obtain.
+v = gs(st,'nSpotsBuilt');
+if ~isfinite(v), v = gs(st,'nSpotsKept'); end
+if ~isfinite(v), v = gs(st,'nSpotsInTracks'); end
+end
 function s = stagesTrue(st)
 nm = {}; f = {'tracked','curated','built','picked','mapped','dwelled'};
 for i=1:numel(f), if st.(f{i}), nm{end+1}=f{i}; end, end %#ok<AGROW>
