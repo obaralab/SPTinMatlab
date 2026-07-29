@@ -54,6 +54,7 @@ tg=[]; tImport=[]; tBuild=[]; tCS=[];                                 % tabs
 tRefine=[]; tSites=[]; tDwell=[]; tExpt=[]; tCompare=[];              % downstream tabs (Refine/Sites/Dwell/Experiment/Compare)
 ddTimeUnit=[]; lblBuild=[]; tblBuild=[]; txtBuild=[];                 % Build handles
 buildTracks=[]; ddQCcell=[]; axLen=[]; axMSD=[]; axCov=[]; axDist=[]; axDdist=[]; lblQCm=[]; eMsdFrac=[];   % QC handles
+tsName=''; eTsName=[];    % the ACTIVE TrackStruct basename in analysis/ (named builds; see activeTsName)
 axDloc=[]; axDtrace=[];   % stepwise-diffusion QC: pooled per-localization D, and D(t) for the clicked track
 axCSD=[]; csdHi=[];       % cumulative-displacement panel + the highlight of the clicked track
 eConfineD=[]; diffConfineD=0.15;   % per-localization diffusion: confinement threshold (µm²/s) computed at Build
@@ -89,6 +90,10 @@ try, tOrph = timerfindall('Tag','sptAnalyzeDwell'); if ~isempty(tOrph), stop(tOr
 % ============================ window =================================
 fig = uifigure('Name',toolName, 'Position',[60 60 1320 900]);
 fig.CloseRequestFcn = @(s,e) onAppClose();   % deletes tabs -> track_viewer's parent.DeleteFcn stops its timer
+% headless test hooks (spt_named_build_smoke); the UI itself never reads these. These must be
+% NESTED functions — an anonymous @() tsName would capture the value at construction time and
+% always report the empty initial state.
+fig.UserData = struct('activeTs',@activeTsNow, 'tracks',@tracksNow, 'loadTracks',@onLoadTracks);
 gl = uigridlayout(fig,[2 1],'RowHeight',{34,'1x'},'Padding',[8 8 8 8],'RowSpacing',6);
 
 top = uigridlayout(gl,[1 14],'ColumnWidth', ...
@@ -198,17 +203,24 @@ end
     function buildBuildTab(parent)
         g = uigridlayout(parent,[4 1],'RowHeight',{30,28,'1x',44},'Padding',[10 10 10 10],'RowSpacing',6);
         % row 1 — build controls
-        r1 = uigridlayout(g,[1 5],'ColumnWidth',{200,246,214,'1x',0},'Padding',[0 0 0 0],'ColumnSpacing',8);
+        r1 = uigridlayout(g,[1 6],'ColumnWidth',{200,188,206,190,'1x',0},'Padding',[0 0 0 0],'ColumnSpacing',8);
         r1a = uigridlayout(r1,[1 2],'ColumnWidth',{72,'1x'},'Padding',[0 0 0 0],'ColumnSpacing',6);
         uilabel(r1a,'Text','Time unit','HorizontalAlignment','right');
         ddTimeUnit = uidropdown(r1a,'Items',{'frame','seconds'},'Value','frame', ...
             'Tooltip','matrix(:,:,1) = integer FRAME (default; reproduces the legacy MSD lag-binning) or T = FRAME·dt.');
-        uibutton(r1,'Text','▶ Build TrackStruct.mat + QC','FontWeight','bold','BackgroundColor',[0.18 0.45 0.70], ...
+        r1b = uigridlayout(r1,[1 2],'ColumnWidth',{44,'1x'},'Padding',[0 0 0 0],'ColumnSpacing',6);
+        uilabel(r1b,'Text','Name','HorizontalAlignment','right');
+        eTsName = uieditfield(r1b,'text','Value','TrackStruct', ...
+            'Tooltip',['Name this build, e.g. Day1_WT. It is written to analysis/<name>.mat and becomes the ' ...
+                       'ACTIVE TrackStruct — the Contact-sites/Refine/Sites/Dwell tabs and a separately launched ' ...
+                       'Analyze tool all follow it. Several named builds can sit side by side in analysis/.'], ...
+            'ValueChangedFcn',@(s,e) onTsName());
+        uibutton(r1,'Text','▶ Build + QC','FontWeight','bold','BackgroundColor',[0.18 0.45 0.70], ...
             'FontColor','w','ButtonPushedFcn',@(s,e) onBuild(), ...
-            'Tooltip','Import the curated tracks, compute MSD for every track (the slow step, once), write analysis/TrackStruct.mat, and show the QC.');
-        uibutton(r1,'Text','📂 Load TrackStruct.mat','ButtonPushedFcn',@(s,e) onLoadTracks(), ...
-            'Tooltip','Load an existing analysis/TrackStruct.mat (or browse) and show the QC WITHOUT recomputing MSD — the slow build is skipped.');
-        lblBuild = uilabel(r1,'Text','Curate first (Import & Curate tab), then build + QC here — or Load an existing TrackStruct.mat.','FontColor',[0.45 0.45 0.45]);
+            'Tooltip','Import the curated tracks, compute MSD for every track (the slow step, once), write analysis/<name>.mat, and show the QC.');
+        uibutton(r1,'Text','📂 Load TrackStruct…','ButtonPushedFcn',@(s,e) onLoadTracks(), ...
+            'Tooltip','Load a built TrackStruct (the active one, or browse to any named build) and show the QC WITHOUT recomputing MSD.');
+        lblBuild = uilabel(r1,'Text','Curate first (Import & Curate tab), then build + QC here — or Load an existing build.','FontColor',[0.45 0.45 0.45]);
         uilabel(r1,'Text','');
         % row 2 — QC controls
         r2 = uigridlayout(g,[1 9],'ColumnWidth',{56,180,58,130,66,56,84,60,'1x'},'Padding',[0 0 0 0],'ColumnSpacing',6);
@@ -248,10 +260,56 @@ end
         txtBuild = uitextarea(g,'Editable','off','Value',{'Build log:'});
     end
 
-    function ok = ensureTracksLoaded()             % use the in-session build, else load analysis/TrackStruct.mat
+    % ---- the ACTIVE TrackStruct -------------------------------------------------------------
+    % A project may hold several named builds side by side in analysis/ (Day1_WT.mat, Day1_KO.mat…).
+    % analysis/active_trackstruct.txt names the one in force, so a separately launched Analyze tool
+    % (run_analyze) opens the same build the Curate tool last wrote or loaded. Absent pointer =
+    % TrackStruct.mat, which is what every previous project already has.
+    function n = activeTsName(anaDir)
+        n = 'TrackStruct.mat';
+        if nargin < 1 || isempty(anaDir), return; end
+        p = fullfile(anaDir,'active_trackstruct.txt');
+        if ~isfile(p), return; end
+        try
+            s = strtrim(fileread(p));
+            if ~isempty(s) && isfile(fullfile(anaDir,s)), n = s; end
+        catch
+        end
+    end
+
+    function setActiveTs(anaDir, name)
+        tsName = name;
+        if ~isempty(eTsName) && isgraphics(eTsName), [~,stem] = fileparts(name); eTsName.Value = stem; end
+        if isempty(anaDir) || ~isfolder(anaDir), return; end
+        try
+            fid = fopen(fullfile(anaDir,'active_trackstruct.txt'),'w');
+            if fid > 0, fprintf(fid,'%s\n',name); fclose(fid); end
+        catch
+        end
+    end
+
+    function v = activeTsNow(), v = tsName; end    % test hooks — see fig.UserData
+    function v = tracksNow(),   v = buildTracks; end
+
+    function p = activeTsPath()                    % '' when no project is set
+        p = ''; if isempty(projectDir), return; end
+        a = fullfile(projectDir,'analysis');
+        if isempty(tsName), tsName = activeTsName(a); end
+        p = fullfile(a, tsName);
+    end
+
+    function onTsName()
+        v = strtrim(eTsName.Value);
+        if isempty(v), v = 'TrackStruct'; eTsName.Value = v; end
+        [~,stem,ext] = fileparts(v); if ~strcmpi(ext,'.mat'), ext = '.mat'; end
+        tsName = [stem ext];
+    end
+
+    function ok = ensureTracksLoaded()             % use the in-session build, else load the ACTIVE build
         ok = ~isempty(buildTracks); if ok, return; end
         if isempty(projectDir), return; end
-        f = fullfile(projectDir,'analysis','TrackStruct.mat');
+        if isempty(tsName), tsName = activeTsName(fullfile(projectDir,'analysis')); end
+        f = activeTsPath();
         if isfile(f)
             try, L = load(f); if isfield(L,'Tracks') && ~isempty(L.Tracks), buildTracks = L.Tracks; ok = true; end, catch, end
         end
@@ -358,7 +416,8 @@ end
         if ~ensureTracksLoaded() || isempty(buildTracks)
             lblCS.Text = 'Build (Build & QC tab) or open a project with analysis/TrackStruct.mat first.'; return; end
         anaDir = fullfile(projectDir,'analysis'); if ~isfolder(anaDir), try, mkdir(anaDir); catch, end, end
-        tsFile = fullfile(anaDir,'TrackStruct.mat');
+        if isempty(tsName), tsName = activeTsName(anaDir); end
+        tsFile = fullfile(anaDir,tsName);
         if ~isfile(tsFile), Tracks = buildTracks; try, save(tsFile,'Tracks','-v7.3'); catch, end, end %#ok<NASGU>
         try, calib = struct('pixSizeUm',PXUM,'fovUm',FOVUM,'dt_s',DTS,'binNm',PRECNM,'snapFovUm',FOVUM); %#ok<NASGU>
              save(fullfile(anaDir,'cs_calib.mat'),'calib'); catch, end
@@ -372,8 +431,12 @@ end
         lblCS.Text = 'Preparing ER support…'; drawnow;
         mdir = ensureMips(anaDir);
         try
+            % Hand over the struct we already hold rather than making the picker re-load the same
+            % file: it never writes st.Tracks, so copy-on-write shares it instead of duplicating a
+            % second full copy. It also guarantees the picker analyses the ACTIVE named build.
             cs_window_picker(pnCS, anaDir, struct('FOV_um',FOVUM,'binNm',PRECNM, ...
-                'contactUm',eCScontact.Value,'mipDir',mdir,'segResolver',@resolveOverlay));
+                'contactUm',eCScontact.Value,'mipDir',mdir,'segResolver',@resolveOverlay, ...
+                'Tracks',buildTracks,'tsFile',tsFile));
             lblCS.Text = 'Windowed picker ready — set frames/window, click a window to zoom, Detect win / ＋Add, then 💾 Save.';
         catch ME
             lblCS.Text = ['Picker error: ' ME.message];
@@ -1774,9 +1837,11 @@ end
         anaDir = '';
         if isempty(projectDir), return; end
         anaDir = fullfile(projectDir,'analysis'); if ~isfolder(anaDir), try, mkdir(anaDir); catch, anaDir=''; return; end, end
-        % the mapper reads TrackStruct.mat from disk — make sure the in-session build is persisted
-        if ensureTracksLoaded() && ~isfile(fullfile(anaDir,'TrackStruct.mat'))
-            Tracks = buildTracks; try, save(fullfile(anaDir,'TrackStruct.mat'),'Tracks','-v7.3'); catch, end %#ok<NASGU>
+        % the mapper reads the build from disk — make sure the in-session one is persisted, under
+        % the ACTIVE name so a named build is what the downstream stages pick up
+        if isempty(tsName), tsName = activeTsName(anaDir); end
+        if ensureTracksLoaded() && ~isfile(fullfile(anaDir,tsName))
+            Tracks = buildTracks; try, save(fullfile(anaDir,tsName),'Tracks','-v7.3'); catch, end %#ok<NASGU>
         end
     end
     function ok = ensureCSWloaded()
@@ -1859,7 +1924,8 @@ end
         setBuild('Computing per-localization diffusion D(t) + confinement…',[0.2 0.4 0.5]); drawnow;
         Tracks = addDiffusion(Tracks);                         % per-loc D(t)/confined/stateChange stored in TrackStruct
         aDir = fullfile(projectDir,'analysis'); if ~isfolder(aDir), mkdir(aDir); end
-        save(fullfile(aDir,'TrackStruct.mat'),'Tracks','-v7.3');
+        onTsName(); setActiveTs(aDir, tsName);          % write analysis/<name>.mat and make it active
+        save(fullfile(aDir,tsName),'Tracks','-v7.3');
         cc = fullfile(tracksDir,'cs_calib.mat'); if isfile(cc), try, copyfile(cc, fullfile(aDir,'cs_calib.mat')); catch, end, end
         populateBuildSummary(Tracks, src, aDir);
     end
@@ -1870,11 +1936,12 @@ end
         % file lives in an analysis/ folder, infer the project from its path (and embed curation).
         f = '';
         if ~isempty(projectDir)
-            c = fullfile(projectDir,'analysis','TrackStruct.mat'); if isfile(c), f = c; end
+            a = fullfile(projectDir,'analysis');
+            c = fullfile(a, activeTsName(a)); if isfile(c), f = c; end
         end
         if isempty(f)
             start = pwd; if ~isempty(projectDir) && isfolder(projectDir), start = projectDir; end
-            [fn,fp] = uigetfile({'*.mat','TrackStruct (*.mat)'}, 'Pick a TrackStruct.mat', start);
+            [fn,fp] = uigetfile({'*.mat','TrackStruct (*.mat)'}, 'Pick a built TrackStruct', start);
             if isequal(fn,0), return; end
             f = fullfile(fp,fn);
         end
@@ -1896,8 +1963,13 @@ end
         aDir = '';
         if ~isempty(projectDir)
             aDir = fullfile(projectDir,'analysis'); if ~isfolder(aDir), mkdir(aDir); end
-            dst = fullfile(aDir,'TrackStruct.mat');
-            try, save(dst,'Tracks','-v7.3'); catch, end   % always persist (may have just added diffusion fields)
+            % Keep the file's OWN name — loading Day1_KO.mat must not overwrite TrackStruct.mat.
+            % A build picked from outside the project is copied in under that same name and becomes
+            % active, so several named builds coexist and the one you loaded is the one in force.
+            [~,stem,ext] = fileparts(f); if isempty(ext), ext = '.mat'; end
+            setActiveTs(aDir, [stem ext]);
+            dst = fullfile(aDir, tsName);
+            try, save(dst,'Tracks','-v7.3'); catch, end   % persist (may have just added diffusion fields)
             cc = fullfile(aDir,'cs_calib.mat'); if isfile(cc), try, calib=load(cc); if isfield(calib,'calib'), applyCalib(calib.calib); end, catch, end, end
         end
         resetDownstream();                                               % new tracks -> invalidate downstream state + caches

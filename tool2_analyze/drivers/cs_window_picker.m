@@ -32,13 +32,22 @@ st.method = 'ermc';  st.sens = 0.01;  st.MC = 300;  st.minArea = 3;   % more MC 
 st.clip = 0.5;  st.alpha = 1;  st.src = 'tracked';  st.scaleMode = 'density';  st.cbInfo = '';   % default: tracked-only density (excludes single-frame noise)
 st.addMode = false;  st.ci = 1;  st.cw = 1;  st.MAXPANELS = 24;
 
-% ---- load Tracks ----
-L = [];
-for f = {'Tracks.mat','TrackStruct.mat'}
-    p = fullfile(anaDir, f{1});
-    if isfile(p), Lt = load(p); if isfield(Lt,'Tracks'), L = Lt.Tracks; break; end, end
+% ---- Tracks: use the caller's already-loaded struct when it hands one over ----
+% The app holds the ACTIVE (possibly named) build in memory; re-loading it here would put a second
+% full copy of the same data in RAM. Nothing below writes st.Tracks, so this shares rather than
+% copies. Falling back to disk keeps the picker usable standalone.
+L = getf(opts,'Tracks',[]);
+if isempty(L)
+    cand = {};
+    tsf = getf(opts,'tsFile','');                       % the caller's active build, if it named one
+    if ~isempty(tsf), cand{end+1} = tsf; end
+    a = activeTsFile_(anaDir); if ~isempty(a), cand{end+1} = a; end   % analysis/active_trackstruct.txt
+    cand = [cand, {fullfile(anaDir,'Tracks.mat'), fullfile(anaDir,'TrackStruct.mat')}];
+    for f = cand
+        if isfile(f{1}), Lt = load(f{1}); if isfield(Lt,'Tracks'), L = Lt.Tracks; break; end, end
+    end
 end
-assert(~isempty(L), 'cs_window_picker: no Tracks.mat / TrackStruct.mat in %s', anaDir);
+assert(~isempty(L), 'cs_window_picker: no Tracks passed in, and no Tracks.mat / TrackStruct.mat in %s', anaDir);
 st.Tracks = L;
 st.grid = getf(opts,'grid', pickGrid());
 st.SF   = st.FOV / st.grid;
@@ -791,6 +800,19 @@ end
 
 % -------------------------------------------------------------------------
 function v=getf(s,f,d), if isstruct(s)&&isfield(s,f)&&~isempty(s.(f)), v=s.(f); else, v=d; end, end
+
+function p = activeTsFile_(anaDir)
+% The named build in force for this project, per analysis/active_trackstruct.txt (written by the
+% Curate & Build tool). Empty when there is no pointer or it names a file that is not there.
+p = '';
+try
+    q = fullfile(anaDir,'active_trackstruct.txt');
+    if ~isfile(q), return; end
+    s = strtrim(fileread(q));
+    if ~isempty(s) && isfile(fullfile(anaDir,s)), p = fullfile(anaDir,s); end
+catch
+end
+end
 function y=tern(c,a,b), if c, y=a; else, y=b; end, end
 function q=cs_quantile_(x,p)
 x=sort(x(:)); n=numel(x);
