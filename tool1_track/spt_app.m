@@ -1,11 +1,12 @@
 function fig = spt_app()
-%SPT_APP  Single-particle "Track" tool (Tool 1 of 3): match -> detect -> track -> curate -> export.
+%SPT_APP  Single-particle "Track" tool (Tool 1 of 3): match -> detect -> track -> filter -> export.
 %
 % Upstream of the existing SPT_ContactSites_Pipeline analysis app. Takes three input folders
 % (single-particle TIFF, ER segmentation, mito segmentation), matches cells, and (as tabs are
-% added) detects + tracks + curates, then exports curated <base>_tracks_filtered.xml +
-% <base>_spots_filtered.csv (with per-spot MITO_DIST_UM) — the exact contract the analysis app's
-% build_trackstruct reads. Built one tab at a time; this scaffold ships Tab 1 (Match files).
+% added) detects + tracks + FILTERS (by track length / displacement), then exports
+% <base>_tracks_filtered.xml + <base>_spots_filtered.csv (with per-spot MITO_DIST_UM) — the exact
+% contract Tool 2's build_trackstruct reads. Note this tool only FILTERS; curation proper (density,
+% step-variance, per-track inspection) is Tool 2's job, so nothing here calls itself curation.
 %
 %   spt_app        % opens the app
 
@@ -24,7 +25,9 @@ dispLo=0; dispHi=1; gMin=0; gMax=1; dLastIm=[]; dLastXY=zeros(0,3); dLastShp=zer
 ELONG_BLUR = 1.5;   % elongation above this flags a likely motion-blurred (streaked) spot
 % Track-tab handles + state
 spnLink=[]; spnGap=[]; spnInt=[]; ddMode=[]; spnLam=[]; eProj=[]; lblTrk=[]; lblTrkDet=[]; txtLog=[]; trkBusy=false; spnSampN=[]; playerCtl=[];
-% Filter (curate) handles + state — live in the "Track & filter" tab
+btR=[]; btB=[]; btExp=[]; btExpAll=[];   % the four action buttons — setBusy() drives their look
+% Filter handles + state — live in the "Track & filter" tab. NOTE: Tool 1 only FILTERS (length /
+% displacement); curation proper is Tool 2's job, so user-facing text here says "filter".
 ddCur=[]; spnMinLen=[]; spnMinDisp=[]; axCur=[]; axCurTrk=[]; lblCur=[]; curC=[]; dCurCell=0;
 exptCtl=[];   % shared multi-folder / condition experiment panel (spt_experiment_panel) — Experiment tab
 
@@ -34,7 +37,7 @@ t2_ = fullfile(fileparts(here_),'tool2_analyze');
 if isfolder(t2_), addpath(fullfile(t2_,'app')); addpath(fullfile(t2_,'drivers')); end
 
 % ---- window + tab group ----
-fig = uifigure('Name','SPT Track — match · detect · track · curate · export', ...
+fig = uifigure('Name','SPT Track — match · detect · track · filter · export', ...
     'Position',[80 80 1120 720]);
 fig.CloseRequestFcn = @(s,e) onClose();
 gl = uigridlayout(fig,[2 1],'RowHeight',{32,'1x'},'Padding',[8 8 8 8],'RowSpacing',6);
@@ -154,7 +157,7 @@ buildExperimentTab(tExpt);
             lbl.FontColor = [0.2 0.5 0.2];
             onCalAuto();                         % auto pixel size from the first cell's TIFF
             refreshDetectCells();                % populate the Detect tab's cell list
-            refreshCurateCells();                % populate the Curate tab's cell list
+            refreshCurateCells();                % populate the filter cell list
         end
 
         function onUseEdit(e)
@@ -519,7 +522,7 @@ buildExperimentTab(tExpt);
             'FontColor','w','ButtonPushedFcn',@(s,e) onTrackRun(),'Tooltip',detTip);
         btB = uibutton(r2,'Text','▶▶ Run all ticked','FontWeight','bold','ButtonPushedFcn',@(s,e) onTrackBatch(),'Tooltip',detTip);
 
-        % row 3 — filter tracks + export the _filtered pair (was the Curate tab)
+        % row 3 — filter tracks + export the _filtered pair
         r3 = uigridlayout(cp,[1 8],'ColumnWidth',{32,'1x',134,58,142,58,120,96},'Padding',[0 0 0 0],'ColumnSpacing',6);
         uilabel(r3,'Text','Cell','HorizontalAlignment','right');
         ddCur = uidropdown(r3,'Items',{'(scan first)'},'ValueChangedFcn',@(s,e) onCurCell());
@@ -527,15 +530,15 @@ buildExperimentTab(tExpt);
         spnMinLen = uispinner(r3,'Limits',[1 1e5],'Value',50,'Step',1,'ValueChangedFcn',@(s,e) onCurParam());
         uilabel(r3,'Text','Min displacement (µm)','HorizontalAlignment','right');
         spnMinDisp = uispinner(r3,'Limits',[0 100],'Value',0,'Step',0.1,'ValueChangedFcn',@(s,e) onCurParam());
-        uibutton(r3,'Text','Export cell','FontWeight','bold','BackgroundColor',[0.18 0.45 0.70],'FontColor','w', ...
+        btExp = uibutton(r3,'Text','Export cell','FontWeight','bold','BackgroundColor',[0.18 0.45 0.70],'FontColor','w', ...
             'ButtonPushedFcn',@(s,e) onCurApply(false), ...
             'Tooltip','Write _tracks_filtered.xml + _spots_filtered.csv for this cell (only tracks are filtered; every detection is kept).');
-        uibutton(r3,'Text','Export all','FontWeight','bold','ButtonPushedFcn',@(s,e) onCurApply(true), ...
+        btExpAll = uibutton(r3,'Text','Export all','FontWeight','bold','ButtonPushedFcn',@(s,e) onCurApply(true), ...
             'Tooltip','Same, for every tracked cell.');
 
-        % row 4 — one shared status line
+        % row 4 — one shared status line (bold + larger: this is the only live progress readout)
         lblTrk = uilabel(cp,'Text','Set a project folder, then Run. Filter by length / displacement, then Export the _filtered pair for the Analyze tool.', ...
-            'FontColor',[0.45 0.45 0.45]);
+            'FontColor',[0.45 0.45 0.45],'FontSize',13.5,'FontWeight','bold');
         lblCur = lblTrk;   % the filter code writes to this same status line
 
         % ---- main: left = filter feedback plots, right = embedded player ----
@@ -611,7 +614,7 @@ buildExperimentTab(tExpt);
             setTrk('This cell has no ER segmentation — the ER modes need it.',[0.6 0.4 0.1]); return; end
         prm = gatherPrm();
         try
-            copts = struct();   % open the comparison at the SAME min-length as the Curate filter, so counts match the pipeline
+            copts = struct();   % open the comparison at the SAME min-length as the export filter, so counts match the pipeline
             if ~isempty(spnMinLen) && isgraphics(spnMinLen), copts.minLen = spnMinLen.Value; end
             spt_compare_app(cel, prm, copts);   % standalone 3-way (Euclidean · ER-penalty · ER-geodesic) comparison window
             setTrk('Opened the linking-method comparison window (Euclidean · ER-penalty · ER-geodesic).',[0.2 0.5 0.2]);
@@ -635,15 +638,22 @@ buildExperimentTab(tExpt);
         runCells(idxs, strtrim(eProj.Value));
     end
 
-    function runCells(idxs, pdir)
-        trkBusy = true; tracksDir = fullfile(pdir,'tracks'); prm = gatherPrm();
+    function runCells(idxs, pdir, actor)
+        if nargin < 3, actor = btR; end
+        trkBusy = true; setBusy(true, actor);
+        cleanupBusy = onCleanup(@() setBusy(false, actor));   % restore even if a cell throws
+        tracksDir = fullfile(pdir,'tracks'); prm = gatherPrm(); tAll = tic;
+        logLine(sprintf('▶ RUN %d cell(s) · %s · link %.3g µm · gap %.3g µm / %d fr · λ %.3g -> %s', ...
+            numel(idxs), ddMode.Value, prm.linkUm, prm.gapUm, prm.maxGap, prm.lambda, tracksDir));
         % the CURRENT Detect-tab threshold policy — inherited by any ticked cell that wasn't previewed
         uiMode = 'pct'; uiQual = 0;
         if ~isempty(ddThrMode) && isgraphics(ddThrMode), uiMode = ddThrMode.Value; end
         if ~isempty(spnQual)   && isgraphics(spnQual),   uiQual = spnQual.Value; end
         for kk = 1:numel(idxs)
             k = idxs(kk); cel = resolveDetThr(matched(k), uiMode, uiQual);
-            prm.progressFcn = @(frac,msg) setTrk(sprintf('[%d/%d] %s: %s', kk, numel(idxs), cel.key, msg), [0.2 0.4 0.5]);
+            tCell = tic;
+            prm.progressFcn = @(frac,msg) setTrk(sprintf('⏳ [%d/%d] %s — %s   (%s elapsed)', ...
+                kk, numel(idxs), cel.key, msg, hms(toc(tCell))), [0.15 0.35 0.60]);
             try
                 R = spt_process_cell(cel, prm);
                 spt_write_outputs(R, tracksDir);
@@ -652,13 +662,31 @@ buildExperimentTab(tExpt);
                 if strcmpi(getf(cel,'thrMode','pct'),'qual'), ds = sprintf('quality ≥ %.4g', getf(cel,'qualThr',getf(cel,'thrAbs',0)));
                 elseif isfield(cel,'thrAbs') && ~isempty(cel.thrAbs), ds = sprintf('top %.3g%% (thr %s)', getf(cel,'keepPct',6), thrStr(cel.thrAbs));
                 else, ds = sprintf('top %.3g%%', getf(cel,'keepPct',6)); end
-                logLine(sprintf('%s: %d spots · %d tracks%s · [diam %.2g µm · %s] -> _tracks.xml + _spots.csv + _settings.txt', ...
-                    cel.key, numel(R.spotId), R.nTracks, tern(R.erAware,' (ER-aware)',''), getf(cel,'diamUm',0.5), ds));
+                el = toc(tCell);
+                nSp  = numel(R.spotId);
+                nTrk = nnz(~isnan(R.trackId));                       % detections that ended up in a track
+                pct  = 100*nTrk/max(nSp,1);
+                logLine(sprintf('   %s · %s · %d frames · %d spots -> %d tracked (%.0f%%) in %d tracks', ...
+                    cel.key, hms(el), R.nFrames, nSp, nTrk, pct, R.nTracks));
+                % why detections were rejected — the strict ER rule is the big one, so name it
+                if strcmp(getf(R,'linkMode','penalty'),'geodesic')
+                    logLine(sprintf('     ER-geodesic (strict): %d spots rejected as off-ER (%.1f%%)%s', ...
+                        getf(R,'nDetsOffEr',0), 100*getf(R,'nDetsOffEr',0)/max(nSp,1), ...
+                        tern(getf(R,'nFramesNoErMask',0)>0, sprintf(' · %d frames had NO ER mask (nothing tracked there)', getf(R,'nFramesNoErMask',0)), '')));
+                elseif ~strcmp(getf(R,'linkMode','penalty'), getf(R,'linkModeReq','penalty'))
+                    logLine(sprintf('     %s requested but NOT applied (no ER segmentation) — linked %s', ...
+                        getf(R,'linkModeReq','?'), getf(R,'linkMode','?')));
+                end
+                logLine(sprintf('     detection: diam %.2g µm · %s%s -> _tracks.xml + _spots.csv + _settings.txt', ...
+                    getf(cel,'diamUm',0.5), ds, tern(R.erAware,' · ER-aware','')));
             catch ME
-                logLine(sprintf('%s: ERROR — %s', cel.key, ME.message));
+                logLine(sprintf('   %s: ERROR — %s', cel.key, ME.message));
+                setTrk(sprintf('%s FAILED — %s', cel.key, ME.message), [0.75 0.1 0.1]);
             end
         end
-        setTrk(sprintf('Done — %d cell(s) written to %s', numel(idxs), tracksDir), [0.2 0.5 0.2]);
+        tot = toc(tAll);
+        logLine(sprintf('✔ RUN done — %d cell(s) in %s -> %s', numel(idxs), hms(tot), tracksDir));
+        setTrk(sprintf('✔ Run done — %d cell(s) in %s. Now set the filter and Export.', numel(idxs), hms(tot)), [0.15 0.50 0.20]);
         selectCurateCell(idxs(end));   % load the last run cell into the filter view (map + histogram)
         trkBusy = false;
     end
@@ -689,11 +717,37 @@ buildExperimentTab(tExpt);
         if ~isempty(lblTrk) && isgraphics(lblTrk), lblTrk.Text = msg; lblTrk.FontColor = col; drawnow limitrate; end
     end
 
+    function setBusy(tf, actor)
+        % Unmistakable feedback that a click landed and a long job is running: the button that
+        % started it turns amber and says so, every other action button is disabled so a second run
+        % cannot be launched underneath, and everything is restored when the job finishes.
+        for b = [btR btB btExp btExpAll]
+            if isempty(b) || ~isgraphics(b), continue; end
+            b.Enable = tern(tf,'off','on');
+        end
+        if nargin >= 2 && ~isempty(actor) && isgraphics(actor)
+            if tf
+                actor.UserData = {actor.Text, actor.BackgroundColor, actor.FontColor};
+                actor.Text = '⏳ working…'; actor.BackgroundColor = [0.90 0.58 0.10];
+                actor.FontColor = 'w'; actor.Enable = 'on';     % kept live so the amber reads clearly
+            elseif iscell(actor.UserData) && numel(actor.UserData) == 3
+                actor.Text = actor.UserData{1}; actor.BackgroundColor = actor.UserData{2};
+                actor.FontColor = actor.UserData{3}; actor.UserData = [];
+            end
+        end
+        drawnow;
+    end
+
+    function s = hms(sec)   % compact elapsed time for the log
+        if sec < 60, s = sprintf('%.1f s', sec);
+        else, s = sprintf('%d m %02.0f s', floor(sec/60), mod(sec,60)); end
+    end
+
     function logLine(s)
         if ~isempty(txtLog) && isgraphics(txtLog), txtLog.Value = [txtLog.Value; {s}]; drawnow limitrate; end
     end
 
-    % ---------------- Filter (curate) logic — controls live in the Track & filter tab ----------------
+    % ---------------- Filter logic — controls live in the Track & filter tab ----------------
     function refreshCurateCells()
         if isempty(ddCur) || ~isgraphics(ddCur), return; end
         idxs = find([matched.use]);
@@ -765,27 +819,57 @@ buildExperimentTab(tExpt);
 
     function onCurApply(allCells)
         pdir = ''; if ~isempty(eProj) && isgraphics(eProj), pdir = strtrim(eProj.Value); end
-        if isempty(pdir), lblCur.Text = 'Set a project folder in the Track tab first.'; lblCur.FontColor=[0.75 0.1 0.1]; return; end
+        if isempty(pdir)
+            lblCur.Text = 'Set a project folder in the Track tab first.'; lblCur.FontColor=[0.75 0.1 0.1];
+            logLine('EXPORT: no project folder set — nothing to do.'); return;
+        end
         tracksDir = fullfile(pdir,'tracks');
-        if allCells, idxs = find([matched.use]); else, if dCurCell<1, return; end, idxs = dCurCell; end
-        ml = spnMinLen.Value; mdp = spnMinDisp.Value; done = 0;
+        % Never return silently — a click that does nothing and says nothing is indistinguishable
+        % from a click that did not register.
+        if allCells
+            idxs = find([matched.use]);
+            if isempty(idxs)
+                lblCur.Text = 'Nothing to export — no cells are ticked in the Match tab.';
+                lblCur.FontColor = [0.75 0.35 0.05]; logLine('EXPORT: no ticked cells — nothing to do.'); return;
+            end
+        else
+            if dCurCell < 1
+                lblCur.Text = 'Pick a cell in the Cell dropdown first (or use Export all).';
+                lblCur.FontColor = [0.75 0.35 0.05]; logLine('EXPORT: no cell selected — nothing to do.'); return;
+            end
+            idxs = dCurCell;
+        end
+        actor = btExp; if allCells, actor = btExpAll; end
+        setBusy(true, actor);
+        cleanupBusy = onCleanup(@() setBusy(false, actor)); %#ok<NASGU>
+        ml = spnMinLen.Value; mdp = spnMinDisp.Value; done = 0; tAll = tic; nMiss = 0;
+        logLine(sprintf('▶ EXPORT %d cell(s) · filter: min length %d fr · min displacement %.3g µm', numel(idxs), round(ml), mdp));
         for k = idxs
             [~, base] = fileparts(matched(k).spt);
             csv = fullfile(tracksDir, [base '_spots.csv']);
-            if ~isfile(csv), continue; end
+            if ~isfile(csv)
+                logLine(sprintf('   %s: SKIPPED — no %s_spots.csv (run the cell first)', matched(k).key, base));
+                nMiss = nMiss + 1; continue;
+            end
             try
+                tCell = tic;
+                setTrk(sprintf('⏳ exporting %s…', matched(k).key), [0.15 0.35 0.60]);
                 Cc = spt_curate_read(csv);
                 km = Cc.len >= ml & Cc.dispUm >= mdp;
                 st = spt_curate_write(Cc, km, tracksDir, base);
                 spt_append_curation_settings(tracksDir, base, ml, mdp, st);   % stamp the filter params into _settings.txt
-                logLine(sprintf('curate %s: %d -> %d tracks (%d detections kept)', matched(k).key, st.before, st.after, st.nSpots));
+                nRej = st.before - st.after;
+                logLine(sprintf('   %s · %s · %d -> %d tracks kept (%d rejected, %.0f%%) · %d detections written', ...
+                    matched(k).key, hms(toc(tCell)), st.before, st.after, nRej, 100*nRej/max(st.before,1), st.nSpots));
                 done = done + 1;
             catch ME
-                logLine(sprintf('curate %s: ERROR — %s', matched(k).key, ME.message));
+                logLine(sprintf('   %s: ERROR — %s', matched(k).key, ME.message));
             end
         end
-        lblCur.Text = sprintf('Curated %d cell(s) -> _tracks_filtered.xml + _spots_filtered.csv', done);
-        lblCur.FontColor = [0.2 0.5 0.2];
+        logLine(sprintf('✔ EXPORT done — %d cell(s) in %s -> _tracks_filtered.xml + _spots_filtered.csv%s', ...
+            done, hms(toc(tAll)), tern(nMiss>0, sprintf(' (%d skipped)', nMiss), '')));
+        lblCur.Text = sprintf('✔ Exported %d cell(s) in %s -> _tracks_filtered.xml + _spots_filtered.csv — ready for Tool 2', done, hms(toc(tAll)));
+        lblCur.FontColor = [0.15 0.50 0.20];
     end
 end
 

@@ -13,7 +13,16 @@ function spt_named_build_smoke()
 here = fileparts(mfilename('fullpath')); addpath(here); addpath(fullfile(here,'..','drivers'));
 W   = '/Users/safal-mac/Desktop/IntegratedPipeline/WithER';
 src = fullfile(W,'analysis','TrackStruct.mat');
-assert(isfile(src), 'test data missing: %s', src);
+if ~isfile(src)
+    % A built TrackStruct is a DERIVED artifact — it may legitimately not exist (fresh clone, or the
+    % project was re-tracked and not yet rebuilt). Skip loudly rather than fail: this test is about
+    % named-build plumbing, not about whether someone has run Build recently.
+    fprintf(['SKIPPED — no built TrackStruct at %s.\n' ...
+             '  Rebuild one (Tool 2 -> Build + QC) and re-run to exercise the named-build contract.\n'], src);
+    return;
+end
+
+wsnap = snapWithER(W);   % fingerprint the pristine data; asserted unchanged at the end
 
 proj = fullfile(tempdir, sprintf('spt_named_%d', feature('getpid')));
 if isfolder(proj), rmdir(proj,'s'); end
@@ -109,5 +118,41 @@ drawnow;
 fprintf('picker standalone fallback OK\n');
 close(fh);
 
+assertWithERIntact(W, wsnap);
 fprintf('\nNAMED-BUILD / SINGLE-LOAD SMOKE PASSED.\n');
+end
+
+function snap = snapWithER(W)
+% Fingerprint every file under WithER (size + mtime) so a test can PROVE it did not modify the
+% pristine input data. Cheap: ~5 files plus the big stacks.
+snap = containers.Map('KeyType','char','ValueType','char');
+for d = {'', 'spt', 'er_seg', 'mito_seg', 'tracks', 'analysis'}
+    p = fullfile(W, d{1});
+    if ~isfolder(p), continue; end
+    ff = dir(fullfile(p,'*'));
+    for q = 1:numel(ff)
+        if ff(q).isdir, continue; end
+        k = fullfile(d{1}, ff(q).name);
+        snap(k) = sprintf('%d|%.6f', ff(q).bytes, ff(q).datenum);
+    end
+end
+end
+
+function assertWithERIntact(W, before)
+% The pristine test data must come out exactly as it went in. save() and fopen() FOLLOW SYMLINKS,
+% so any fixture that links WithER files can silently write through them; this catches that.
+after = snapWithER(W);
+bad = {};
+ks = before.keys;
+for i = 1:numel(ks)
+    k = ks{i};
+    if ~after.isKey(k), bad{end+1} = sprintf('DELETED %s', k); %#ok<AGROW>
+    elseif ~strcmp(before(k), after(k)), bad{end+1} = sprintf('MODIFIED %s', k); end %#ok<AGROW>
+end
+ks = after.keys;
+for i = 1:numel(ks)
+    if ~before.isKey(ks{i}), bad{end+1} = sprintf('CREATED %s', ks{i}); end %#ok<AGROW>
+end
+assert(isempty(bad), 'THIS TEST MODIFIED THE PRISTINE WithER DATA:\n  %s', strjoin(bad, sprintf('\n  ')));
+fprintf('WithER verified untouched by this test (%d files fingerprinted)\n', before.Count);
 end
