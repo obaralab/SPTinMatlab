@@ -33,6 +33,9 @@ here = fileparts(mfilename('fullpath'));                 % make cs_experiment_* 
 d1 = fullfile(fileparts(here),'drivers'); if isfolder(d1), addpath(d1); end
 
 folders = {}; sf = getf(opts,'seedFolders',{}); if ~isempty(sf), folders = cellstr(sf); end
+autoPath = '';   % canonical <project>/experiment_manifest.mat — auto-loaded on open and
+                 % auto-saved on every change, so the manifest lives WITH the project and no
+                 % one has to remember to save it.
 cells = []; rowMap = [];
 tbl=[]; eCond=[]; eDay=[]; eFilter=[]; lbl=[];
 
@@ -43,7 +46,8 @@ mp = getf(opts,'manifestPath',''); if ~isempty(mp) && isfile(mp), doLoad(mp); en
 % NB: getCells must be a NESTED function (reads the LIVE cells) — an anonymous @() cells would capture
 % the empty value at build time (the by-value-capture gotcha), so the host would always see 0 cells.
 ctl = struct('getCells',@getCellsLive, 'getManifest',@getManifest, 'getSelected',@getSelected, ...
-             'refresh',@doScan, 'load',@doLoad, 'save',@doSave, 'addFolder',@addFolder, 'panel',parent);
+             'refresh',@doScan, 'load',@doLoad, 'save',@doSave, 'addFolder',@addFolder, 'panel',parent, ...
+             'setAutoPath',@setAutoPath);
 
 % ======================= nested =======================
     function buildUI()
@@ -95,8 +99,12 @@ ctl = struct('getCells',@getCellsLive, 'getManifest',@getManifest, 'getSelected'
     function addFolder(d)
         d = char(d);
         if ~isfolder(d), return; end
-        if ~(isfile(fullfile(d,'TrackStruct.mat')) || isfolder(fullfile(d,'analysis')) || isfolder(fullfile(d,'spt')) || isfolder(fullfile(d,'tracks')))
-            setStatus('That folder is not a project/analysis folder (no TrackStruct/analysis/spt/tracks).'); return;
+        % Accept an analysis folder whose only build is a NAMED one (Day1_WT.mat) — checking for the
+        % literal TrackStruct.mat rejected exactly the projects the naming feature creates.
+        hasBuild = false;
+        try, hasBuild = ~isempty(cs_active_trackstruct(d)); catch, end
+        if ~(hasBuild || isfolder(fullfile(d,'analysis')) || isfolder(fullfile(d,'spt')) || isfolder(fullfile(d,'tracks')))
+            setStatus('That folder is not a project/analysis folder (no build, analysis/, spt/ or tracks/).'); return;
         end
         if ~any(strcmp(folders,d)), folders{end+1} = d; end %#ok<AGROW>
         doScan();
@@ -217,7 +225,23 @@ ctl = struct('getCells',@getCellsLive, 'getManifest',@getManifest, 'getSelected'
         setStatus(['Loaded ' p]);
     end
 
-    function notifyChange(), if ~isempty(onChange), try, onChange(getManifest()); catch, end, end, end
+    function notifyChange()
+        autoSave();                       % keep the project's own manifest current
+        if ~isempty(onChange), try, onChange(getManifest()); catch, end, end
+    end
+
+    function autoSave()
+        if isempty(autoPath) || isempty(cells), return; end
+        manifest = getManifest(); %#ok<NASGU>
+        try, save(autoPath,'manifest','-v7.3'); catch, end   % silent: this is a background save
+    end
+
+    function setAutoPath(p)
+        % Point the panel at a project's canonical manifest: load it if it is there, and from now
+        % on save every change straight back to it.
+        autoPath = char(p);
+        if ~isempty(autoPath) && isfile(autoPath), doLoad(autoPath); end
+    end
     function setStatus(t), if ~isempty(lbl)&&isgraphics(lbl), lbl.Text = t; end, end
 end
 

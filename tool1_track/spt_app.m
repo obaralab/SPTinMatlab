@@ -61,14 +61,17 @@ uibutton(top,'Text','❓ Help','Tooltip','Open the SPTinMatlab pipeline help gui
     'ButtonPushedFcn',@(s,e) onHelp());
 tg = uitabgroup(gl); tg.Layout.Row = 2;
 
-tMatch = uitab(tg,'Title','1 · Match files');
-buildMatchTab(tMatch);
-tDetect = uitab(tg,'Title','2 · Detect');
-buildDetectTab(tDetect);
-tTrack = uitab(tg,'Title','3 · Track & filter');
-buildTrackTab(tTrack);
-tExpt = uitab(tg,'Title','4 · Experiment');
+% Experiment FIRST: conditions and the cell inventory are what you set up before anything else,
+% and the same panel is tab 1 in all three tools so the manifest is always in the same place.
+tExpt = uitab(tg,'Title','1 · Experiment');
 buildExperimentTab(tExpt);
+tMatch = uitab(tg,'Title','2 · Match files');
+buildMatchTab(tMatch);
+tDetect = uitab(tg,'Title','3 · Detect');
+buildDetectTab(tDetect);
+tTrack = uitab(tg,'Title','4 · Track & filter');
+buildTrackTab(tTrack);
+tg.SelectedTab = tMatch;   % ...but open on Match files: that is where a fresh session starts
 
 % ======================= nested functions =======================
     function buildExperimentTab(parent)
@@ -177,6 +180,11 @@ buildExperimentTab(tExpt);
             if ~isempty(er), eEr.Value  = er; end
             if ~isempty(mi), eMi.Value  = mi; end
             if ~isempty(eProj) && isgraphics(eProj), eProj.Value = d; end   % output project = the same folder
+            % The manifest lives WITH the project: load <project>/experiment_manifest.mat if it is
+            % there and keep saving to it, so conditions set in any tool are already here next time.
+            try, if ~isempty(exptCtl) && isstruct(exptCtl) && isfield(exptCtl,'setAutoPath')
+                    exptCtl.setAutoPath(fullfile(d,'experiment_manifest.mat'));
+                 end, catch, end
             try, if ~isempty(exptCtl) && isstruct(exptCtl), exptCtl.addFolder(d); end, catch, end   % add to the Experiment manifest
             if ~isempty(sp)
                 onScan();                                                  % auto-scan when SPT was found

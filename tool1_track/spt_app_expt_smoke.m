@@ -1,5 +1,5 @@
 function spt_app_expt_smoke()
-% Verify Tool 1 (spt_app) now carries the shared Experiment tab: 4 tabs in order, the Experiment tab
+% Verify Tool 1 (spt_app) carries the shared Experiment tab FIRST: 4 tabs in order, the Experiment tab
 % embeds the panel (a uitable with the manifest columns), and it can ingest a project folder.
 here = fileparts(mfilename('fullpath')); addpath(here);
 t2 = fullfile(fileparts(here),'tool2_analyze'); addpath(fullfile(t2,'app')); addpath(fullfile(t2,'drivers'));
@@ -11,13 +11,13 @@ tabs = tg.Children;
 nums = arrayfun(@(t) sscanf(t.Title,'%d'), tabs);
 [nums, ord] = sort(nums(:)'); tabs = tabs(ord);
 titles = arrayfun(@(t) regexprep(t.Title,'^\d+\s·\s',''), tabs, 'uni',0);
-want = {'Match files','Detect','Track & filter','Experiment'};
+want = {'Experiment','Match files','Detect','Track & filter'};   % Experiment is tab 1 in every tool
 assert(isequal(titles(:)', want), 'tabs = {%s}', strjoin(titles,', '));
 assert(isequal(nums, 1:4), 'numbering not 1..4: %s', mat2str(nums));
 fprintf('Tool 1 tabs OK: %s\n', strjoin(titles,' | '));
 
 % the Experiment tab must contain the shared panel's table (columns include 'condition')
-et = tabs(4);
+et = tabs(find(strcmp(titles,'Experiment'),1));   % by TITLE, not a hardcoded index
 tbl = findobj(et,'Type','uitable'); assert(~isempty(tbl),'Experiment tab has no table (panel not embedded)');
 cols = tbl(1).ColumnName; assert(any(strcmpi(cols,'condition')), 'panel table missing condition column');
 fprintf('Experiment panel embedded: %d columns incl. condition\n', numel(cols));

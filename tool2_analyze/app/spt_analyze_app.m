@@ -54,7 +54,7 @@ tg=[]; tImport=[]; tBuild=[]; tCS=[];                                 % tabs
 tRefine=[]; tSites=[]; tDwell=[]; tExpt=[]; tCompare=[];              % downstream tabs (Refine/Sites/Dwell/Experiment/Compare)
 ddTimeUnit=[]; lblBuild=[]; tblBuild=[]; txtBuild=[];                 % Build handles
 buildTracks=[]; ddQCcell=[]; axLen=[]; axMSD=[]; axCov=[]; axDist=[]; axDdist=[]; lblQCm=[]; eMsdFrac=[];   % QC handles
-tsName=''; eTsName=[];    % the ACTIVE TrackStruct basename in analysis/ (named builds; see activeTsName)
+tsName=''; eTsName=[]; ddBuild=[];   % the ACTIVE TrackStruct basename in analysis/ (named builds)
 axDloc=[]; axDtrace=[];   % stepwise-diffusion QC: pooled per-localization D, and D(t) for the clicked track
 axCSD=[]; csdHi=[];       % cumulative-displacement panel + the highlight of the clicked track
 eConfineD=[]; diffConfineD=0.15;   % per-localization diffusion: confinement threshold (µm²/s) computed at Build
@@ -96,13 +96,21 @@ fig.CloseRequestFcn = @(s,e) onAppClose();   % deletes tabs -> track_viewer's pa
 fig.UserData = struct('activeTs',@activeTsNow, 'tracks',@tracksNow, 'loadTracks',@onLoadTracks);
 gl = uigridlayout(fig,[2 1],'RowHeight',{34,'1x'},'Padding',[8 8 8 8],'RowSpacing',6);
 
-top = uigridlayout(gl,[1 14],'ColumnWidth', ...
-    {150,'1x',60, 74,60, 60,54, 54,54, 84,54, 52, 60}, ...
+top = uigridlayout(gl,[1 16],'ColumnWidth', ...
+    {150,'1x',60, 40,132, 74,60, 60,54, 54,54, 84,54, 52, 60}, ...
     'Padding',[0 0 0 0],'ColumnSpacing',6);
 uilabel(top,'Text',tern(showCurate&&~showAnalyze,'Curate & Build — Tool 2',tern(showAnalyze&&~showCurate,'Analyze — Tool 3','Curate + Analyze')),'FontWeight','bold','FontColor',[0.25 0.25 0.3]);
 eProj = uieditfield(top,'text','Placeholder','Tool 1 project folder (tracks/, er_seg/, mito_seg/)', ...
     'ValueChangedFcn',@(s,e) onProjEdit());
 uibutton(top,'Text','Pick…','FontWeight','bold','ButtonPushedFcn',@(s,e) onPickProject());
+% Which BUILD this project is working from. Tool 2 names builds; Tool 3 needs to say which one it
+% is analysing rather than only inferring it, so the choice is explicit and visible in both modes.
+uilabel(top,'Text','Build','HorizontalAlignment','right');
+ddBuild = uidropdown(top,'Items',{'(none)'},'ItemsData',{''},'Value','', ...
+    'Tooltip',['The TrackStruct build in force for this project (analysis/<name>.mat). Tool 2 writes ' ...
+    'named builds; picking one here makes it active, so Tool 3 — and a separately launched Analyze ' ...
+    'tool — analyse exactly this file.'], ...
+    'ValueChangedFcn',@(s,e) onPickBuild());
 uilabel(top,'Text','Pixel µm/px','HorizontalAlignment','right');
 eCalPx = uieditfield(top,'numeric','Value',PXUM,'ValueDisplayFormat','%.5g','Limits',[1e-4 10], ...
     'Tooltip','Camera pixel size (µm/px) for THIS dataset.','ValueChangedFcn',@(s,e) onCal());
@@ -125,6 +133,10 @@ uibutton(top,'Text','❓ Help','Tooltip','Open the SPTinMatlab pipeline help gui
 % The Experiment tab is shared by every mode; handles for tabs this mode omits stay [] (guarded below).
 tg = uitabgroup(gl); tg.Layout.Row = 2;
 nTab = 0;
+% Experiment FIRST, in every mode and in Tool 1 too: the cell inventory and the condition
+% assignment are the setup step, and keeping it at tab 1 everywhere means the manifest is always
+% in the same place whichever tool you opened.
+nTab=nTab+1; tExpt = uitab(tg,'Title',sprintf('%d · Experiment',nTab));   % shared across all modes
 if showCurate
     nTab=nTab+1; tImport = uitab(tg,'Title',sprintf('%d · Import & Curate',nTab));
     nTab=nTab+1; tBuild  = uitab(tg,'Title',sprintf('%d · Build & QC',nTab));
@@ -134,9 +146,6 @@ if showAnalyze
     nTab=nTab+1; tRefine = uitab(tg,'Title',sprintf('%d · Refine',nTab));
     nTab=nTab+1; tSites  = uitab(tg,'Title',sprintf('%d · Sites',nTab));
     nTab=nTab+1; tDwell  = uitab(tg,'Title',sprintf('%d · Dwell',nTab));
-end
-nTab=nTab+1; tExpt = uitab(tg,'Title',sprintf('%d · Experiment',nTab));   % shared across all modes
-if showAnalyze
     nTab=nTab+1; tCompare = uitab(tg,'Title',sprintf('%d · Compare',nTab));
 end
 
@@ -200,7 +209,13 @@ end
         end
         onCalAuto();          % try to read dt from a tracks XML
         embedImportCurate();
+        % The manifest lives WITH the project (<project>/experiment_manifest.mat), so whichever tool
+        % opens this folder sees the same cells and conditions without an explicit Load/Save.
+        try, if ~isempty(exptCtl) && isstruct(exptCtl) && isfield(exptCtl,'setAutoPath')
+                exptCtl.setAutoPath(fullfile(d,'experiment_manifest.mat'));
+             end, catch, end
         try, if ~isempty(exptCtl) && isstruct(exptCtl) && isfolder(fullfile(d,'analysis')), exptCtl.addFolder(fullfile(d,'analysis')); end, catch, end   % keep the experiment in sync
+        refreshBuildList();
     end
 
     % ---------------- Tab 2: Build & QC (build + interactive per-track inspection) ----------------
@@ -282,12 +297,69 @@ end
     function setActiveTs(anaDir, name)
         tsName = name;
         if ~isempty(eTsName) && isgraphics(eTsName), [~,stem] = fileparts(name); eTsName.Value = stem; end
-        if isempty(anaDir) || ~isfolder(anaDir), return; end
+        if isempty(anaDir) || ~isfolder(anaDir), refreshBuildList(); return; end
         try
             fid = fopen(fullfile(anaDir,'active_trackstruct.txt'),'w');
             if fid > 0, fprintf(fid,'%s\n',name); fclose(fid); end
         catch
         end
+        refreshBuildList();   % keep the top-bar selector showing which build is in force
+    end
+
+    function names = listBuilds(anaDir)
+        % Every .mat in analysis/ that actually holds a 'Tracks' variable — i.e. every build this
+        % project has, named or not. whos('-file') is ~1 ms, so this is cheap enough to refresh.
+        names = {};
+        if isempty(anaDir) || ~isfolder(anaDir), return; end
+        skip = {'cs_calib.mat','CSW_final.mat','cs_window_dwell.mat','cs_footprints.mat','experiment_manifest.mat'};
+        d = dir(fullfile(anaDir,'*.mat'));
+        for k = 1:numel(d)
+            if any(strcmpi(d(k).name, skip)), continue; end
+            try
+                w = whos('-file', fullfile(anaDir,d(k).name));
+                if any(strcmp({w.name},'Tracks')), names{end+1} = d(k).name; end %#ok<AGROW>
+            catch
+            end
+        end
+    end
+
+    function refreshBuildList()
+        if isempty(ddBuild) || ~isgraphics(ddBuild), return; end
+        anaDir = ''; if ~isempty(projectDir), anaDir = fullfile(projectDir,'analysis'); end
+        names = listBuilds(anaDir);
+        if isempty(names)
+            ddBuild.Items = {'(no build yet)'}; ddBuild.ItemsData = {''}; ddBuild.Value = ''; return;
+        end
+        act = activeTsName(anaDir);
+        lbl = names;
+        for k = 1:numel(names)
+            if strcmp(names{k}, act), lbl{k} = [names{k} '  ●']; end   % ● marks the one in force
+        end
+        ddBuild.Items = lbl; ddBuild.ItemsData = names;
+        if any(strcmp(names, act)), ddBuild.Value = act; else, ddBuild.Value = names{1}; end
+    end
+
+    function onPickBuild()
+        % Make the chosen build the active one and load it, so every downstream tab analyses it.
+        if isempty(ddBuild) || ~isgraphics(ddBuild) || isempty(ddBuild.Value), return; end
+        if isempty(projectDir), return; end
+        anaDir = fullfile(projectDir,'analysis');
+        want = ddBuild.Value;
+        if strcmp(want, tsName) && ~isempty(buildTracks), return; end   % already on it
+        setActiveTs(anaDir, want);
+        buildTracks = [];                  % force a reload from the newly active file
+        resetDownstream();                 % sites/dwell/compare belong to the old build
+        if ensureTracksLoaded() && ~isempty(buildTracks)
+            if ~isempty(ddQCcell) && isgraphics(ddQCcell)
+                ddQCcell.Items = [{'All (pooled)'}, cellfun(@char, {buildTracks.file}, 'uni', 0)];
+                ddQCcell.Value = 'All (pooled)';
+                try, drawQC('All (pooled)'); catch, end
+            end
+            logBuild(sprintf('Active build -> %s  (%d cell(s))', want, numel(buildTracks)));
+        else
+            logBuild(sprintf('Could not load %s', want));
+        end
+        refreshBuildList();
     end
 
     function v = activeTsNow(), v = tsName; end    % test hooks — see fig.UserData

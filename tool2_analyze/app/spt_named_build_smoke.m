@@ -12,15 +12,19 @@ function spt_named_build_smoke()
 % Runs against a TEMP project whose inputs are symlinks to WithER — nothing is written into WithER.
 here = fileparts(mfilename('fullpath')); addpath(here); addpath(fullfile(here,'..','drivers'));
 W   = '/Users/safal-mac/Desktop/IntegratedPipeline/WithER';
-src = fullfile(W,'analysis','TrackStruct.mat');
-if ~isfile(src)
+% Resolve WHATEVER build the reference project has — it may well be a NAMED one (the very feature
+% under test), so hardcoding TrackStruct.mat here would skip the test on a correctly-named project.
+src = cs_active_trackstruct(fullfile(W,'analysis'));
+if isempty(src) || ~isfile(src)
     % A built TrackStruct is a DERIVED artifact — it may legitimately not exist (fresh clone, or the
     % project was re-tracked and not yet rebuilt). Skip loudly rather than fail: this test is about
     % named-build plumbing, not about whether someone has run Build recently.
-    fprintf(['SKIPPED — no built TrackStruct at %s.\n' ...
-             '  Rebuild one (Tool 2 -> Build + QC) and re-run to exercise the named-build contract.\n'], src);
+    fprintf(['SKIPPED — no built TrackStruct in %s.\n' ...
+             '  Rebuild one (Tool 2 -> Build + QC) and re-run to exercise the named-build contract.\n'], ...
+             fullfile(W,'analysis'));
     return;
 end
+[~,srcName] = fileparts(src); fprintf('fixture source build: %s\n', srcName);
 
 wsnap = snapWithER(W);   % fingerprint the pristine data; asserted unchanged at the end
 
@@ -84,6 +88,15 @@ d1 = dir(fullfile(proj,'analysis','Day1_WT.mat'));
 assert(~isempty(d1) && d1.bytes > 0, 'Day1_WT.mat disappeared');
 fprintf('named builds coexist: %s\n', strjoin({'Day1_WT.mat','Day1_KO.mat'},', '));
 
+f2 = spt_analyze_app('analyze'); U2 = f2.UserData;
+pe2 = findobj(f2,'Type','uieditfield');
+for k = 1:numel(pe2)
+    if contains(lower(string(pe2(k).Placeholder)),'project')
+        pe2(k).Value = proj; cb = pe2(k).ValueChangedFcn; if ~isempty(cb), cb(pe2(k), struct('Value',proj)); end
+    end
+end
+drawnow;
+
 %% the Experiment tab's "built" lamp must see a NAMED build --------------
 % This folder deliberately has NO TrackStruct.mat — only Day1_WT.mat / Day1_KO.mat + the pointer.
 rec = struct('file','250408_WT_012_spt1', 'analysis',fullfile(proj,'analysis'), 'tracks',fullfile(proj,'tracks'));
@@ -99,6 +112,32 @@ assert(~isempty(an2), 'no pointer + named build -> resolved nothing');
 assert(cs_experiment_status(rec).built, 'lamp dark for a named build with no pointer');
 fprintf('experiment lamp sees named builds (pointer: %s · no pointer: %s)\n', an, an2);
 fid = fopen(fullfile(proj,'analysis','active_trackstruct.txt'),'w'); fprintf(fid,'Day1_KO.mat\n'); fclose(fid);
+
+%% the top-bar Build selector lists every build and switches the active one ----
+dd = findobj(f2,'Type','uidropdown');
+bd = dd(arrayfun(@(d) iscell(d.ItemsData) && any(contains(string(d.ItemsData),'Day1_')), dd));
+if ~isempty(bd)
+    bd = bd(1);
+    assert(numel(bd.ItemsData) >= 2, 'Build selector lists %d build(s), expected both', numel(bd.ItemsData));
+    assert(any(contains(string(bd.Items),'●')), 'the active build is not marked in the selector');
+    other = 'Day1_WT.mat';
+    bd.Value = other; cb = bd.ValueChangedFcn; cb(bd, struct());
+    drawnow;
+    ptr = strtrim(fileread(fullfile(proj,'analysis','active_trackstruct.txt')));
+    assert(strcmp(ptr, other), 'picking a build did not make it active (pointer says %s)', ptr);
+    T2 = U2.tracks();
+    assert(~isempty(T2) && ~strcmp(char(T2(1).file),'KO_MARKER'), ...
+        'switching the build did not reload — still on the KO build');
+    fprintf('build selector switched the active build to %s and reloaded\n', other);
+end
+close(f2);
+
+%% the manifest lives at the PROJECT top level and round-trips ------------
+mf = fullfile(proj,'experiment_manifest.mat');
+assert(isfile(mf), 'no experiment_manifest.mat written at the project top level');
+Lm = load(mf);
+assert(isfield(Lm,'manifest') && isfield(Lm.manifest,'cells'), 'manifest has no cells');
+fprintf('manifest auto-saved at the project root (%d cell record(s))\n', numel(Lm.manifest.cells));
 
 %% the picker takes a handed-over struct instead of re-loading -----------
 anaDir = fullfile(proj,'analysis');
