@@ -54,6 +54,7 @@ tg=[]; tImport=[]; tBuild=[]; tCS=[];                                 % tabs
 tRefine=[]; tSites=[]; tDwell=[]; tExpt=[]; tCompare=[];              % downstream tabs (Refine/Sites/Dwell/Experiment/Compare)
 ddTimeUnit=[]; lblBuild=[]; tblBuild=[]; txtBuild=[];                 % Build handles
 buildTracks=[]; ddQCcell=[]; axLen=[]; axMSD=[]; axCov=[]; axDist=[]; axDdist=[]; lblQCm=[]; eMsdFrac=[];   % QC handles
+axDloc=[]; axDtrace=[];   % stepwise-diffusion QC: pooled per-localization D, and D(t) for the clicked track
 eConfineD=[]; diffConfineD=0.15;   % per-localization diffusion: confinement threshold (µm²/s) computed at Build
 ddFitMode=[]; axSweep=[];   % MSD fit-window mode (fixed % / adaptive R²) + the per-track D-vs-fit-window sweep
 qcTracks={}; qcSelIdx=0; qcHi=[]; playerCtl=[];   % click-to-inspect: flat track list, selection, highlight, embedded player
@@ -229,16 +230,18 @@ end
         lblQCm = uilabel(r2,'Text','Build, then click a track in the tracks panel to inspect it (it plays here).','FontColor',[0.2 0.4 0.5]);
         % row 3 — main: [ left pooled | middle clickable tracks | right: embedded player + small MSD ]
         mn = uigridlayout(g,[1 3],'ColumnWidth',{'0.78x','1.15x','1.05x'},'Padding',[0 0 0 0],'ColumnSpacing',8);
-        lp = uigridlayout(mn,[4 1],'RowHeight',{'0.8x','1x','1x','1x'},'Padding',[0 0 0 0],'RowSpacing',6);
+        lp = uigridlayout(mn,[5 1],'RowHeight',{'0.72x','1x','1x','1x','1x'},'Padding',[0 0 0 0],'RowSpacing',6);
         tblBuild = uitable(lp,'ColumnName',{'cell','tracks','med len','mito','ER'},'ColumnWidth',{'auto',52,64,44,44});
         axLen   = uiaxes(lp); title(axLen,'track length');
         axDist  = uiaxes(lp); title(axDist,'ER / mito distance');
         axDdist = uiaxes(lp); title(axDdist,'D distribution');
+        axDloc  = uiaxes(lp); title(axDloc,'stepwise D (per localization)');   % pooled Dt — one value per loc
         axCov  = uiaxes(mn); axCov.Toolbar.Visible='off'; title(axCov,'tracks (click one)'); axCov.ButtonDownFcn=@(s,e) onCovClick(e);
-        rp = uigridlayout(mn,[3 1],'RowHeight',{'1.6x','1x','1x'},'Padding',[0 0 0 0],'RowSpacing',6);
+        rp = uigridlayout(mn,[4 1],'RowHeight',{'1.35x','1x','1x','1x'},'Padding',[0 0 0 0],'RowSpacing',6);
         pc = uigridlayout(rp,[1 1],'Padding',[0 0 0 0]);   % embedded selected-track player
         if exist('spt_track_movie','file')==2, playerCtl = spt_track_movie(pc); end
         axMSD = uiaxes(rp); title(axMSD,'MSD + D fit');
+        axDtrace = uiaxes(rp); title(axDtrace,'stepwise D(t) (click a track)');   % the per-loc D over time
         axSweep = uiaxes(rp); title(axSweep,'D & R² vs fit window (click a track)');   % the fit-fraction sweep
         txtBuild = uitextarea(g,'Editable','off','Value',{'Build log:'});
     end
@@ -1948,7 +1951,11 @@ end
                 msdT = fieldOr(T,'MSD');   erT = fieldOr(T,'erDist');   miT = fieldOr(T,'mitoDist');   % may be absent (no-ER build / old struct)
                 rr = spt_fit_msd(colOr(msdT,c), dtk, fitSpec());        % per-track D at the current fit mode/window
                 s = struct('cellIdx',k,'col',c,'base',char(T.file),'X',X(ok),'Y',Y(ok),'F',F(ok),'len',nnz(ok), ...
-                    'MSD', colOr(msdT,c), 'ER', finiteCol(erT,c), 'MI', finiteCol(miT,c), 'D', rr.D, 'sigLoc', rr.sigLocUm, 'fracUsed', rr.fracUsed);
+                    'MSD', colOr(msdT,c), 'ER', finiteCol(erT,c), 'MI', finiteCol(miT,c), 'D', rr.D, 'sigLoc', rr.sigLocUm, 'fracUsed', rr.fracUsed, ...
+                    'dt', dtk, ...                                       % stepwise (per-localization) diffusion, aligned to X/Y/F:
+                    'Dt',   maskCol(fieldOr(T,'Dt'),          c, ok), ...
+                    'conf', maskCol(fieldOr(T,'confined'),    c, ok), ...
+                    'sc',   maskCol(fieldOr(T,'stateChange'), c, ok));
                 qcTracks{end+1} = s; L(end+1)=s.len; ER=[ER; s.ER]; MI=[MI; s.MI]; %#ok<AGROW>
             end
         end
@@ -2004,8 +2011,45 @@ end
                     median0_(Dv), fitTag, diffConfineD, 100*nConf/max(nLoc,1), nSC),'FontSize',8.5);
             end
         end
+        % ---- pooled STEPWISE diffusion: one D per localization (spt_track_diffusion), not per track ----
+        % This is a different quantity from the D-distribution above: that one fits an MSD per TRACK,
+        % this one is the rolling noise-corrected D at every localization, and it is what the confined /
+        % state-change flags — and Tool 3's density channels — are derived from.
+        cla(axDloc);
+        Dl = []; Cl = [];
+        for k = ks
+            Tk = buildTracks(k);
+            if ~isfield(Tk,'Dt') || isempty(Tk.Dt), continue; end
+            d = Tk.Dt(:); fin = isfinite(d); Dl = [Dl; d(fin)]; %#ok<AGROW>
+            if isfield(Tk,'confined') && ~isempty(Tk.confined)
+                cc = Tk.confined(:); Cl = [Cl; cc(fin)]; %#ok<AGROW>
+            end
+        end
+        if isempty(Dl)
+            title(axDloc,'stepwise D (per localization) — not in this TrackStruct');
+            xlabel(axDloc,''); ylabel(axDloc,'');
+        else
+            % Drop the top 0.5% rather than clamping it into the last bin — clamping builds a false
+            % spike at the right edge that reads as a real population.
+            hi = prctile(Dl, 99.5); if ~(hi > 0), hi = max(Dl); end
+            shown = Dl(Dl <= hi); nHid = numel(Dl) - numel(shown);
+            histogram(axDloc, shown, linspace(0, max(hi,eps), 60), 'FaceColor',[0.45 0.35 0.65],'EdgeColor','none');
+            hold(axDloc,'on');
+            xline(axDloc, diffConfineD, '-','Color',[0.85 0.3 0.2],'LineWidth',1.4);
+            hold(axDloc,'off');
+            try, set(axDloc,'YScale','log'); catch, end                   % the confined peak is orders below the bulk
+            xlim(axDloc, [0 max(hi, eps)]);
+            tail = ''; if nHid > 0, tail = sprintf('  ·  %d >%.2g hidden', nHid, hi); end
+            xlabel(axDloc, sprintf('stepwise D (µm²/s)/loc%s', tail));
+            ylabel(axDloc,'localizations');
+            pctC = 100*mean(Dl <= diffConfineD); if ~isempty(Cl), pctC = 100*mean(Cl); end
+            title(axDloc, sprintf('stepwise D · med %.3g · %.0f%% confined · n=%s', ...
+                median(Dl), pctC, kfmt_(numel(Dl))), 'FontSize',8.5);
+        end
+
         if ~isempty(playerCtl) && isstruct(playerCtl), playerCtl.load([], 0); end   % clear the player until a track is clicked
         cla(axMSD); title(axMSD,'MSD + D fit (click a track)');
+        cla(axDtrace); title(axDtrace,'stepwise D(t) (click a track)');
         cla(axSweep); title(axSweep,'D & R² vs fit window (click a track)');
         if ~isempty(ER)
             lblQCm.Text = sprintf('%d tracks · on-ER %.1f%% (median %.3f µm) · median len %.0f fr — click a track to inspect', ...
@@ -2047,6 +2091,36 @@ end
         end
         xlabel(axMSD,'lag (s)'); ylabel(axMSD,'MSD (µm²)');
         title(axMSD, sprintf('D = %.4g µm²/s · R² = %.3f · fit %d lags (%.0f%%)', r.D, r.R2, r.nPts, r.fracUsed));
+
+        % stepwise D(t) for THIS track — the per-localization rolling D that the confined /
+        % state-change flags come from. The MSD panel above gives one D for the whole track; this
+        % shows how it varies along the track, which is the point of computing it per localization.
+        cla(axDtrace);
+        Dt = fieldOr(s,'Dt');
+        if isempty(Dt) || ~any(isfinite(Dt))
+            title(axDtrace,'stepwise D(t) — not in this TrackStruct'); xlabel(axDtrace,''); ylabel(axDtrace,'');
+        else
+            tt = (0:numel(Dt)-1)' * dtk;                  % elapsed time along the track
+            if ~isempty(s.F) && numel(s.F)==numel(Dt), tt = (s.F - s.F(1)) * dtk; end   % honour real frame gaps
+            cf = fieldOr(s,'conf'); if isempty(cf), cf = Dt <= diffConfineD; end
+            cf = logical(cf(:)) & isfinite(Dt(:));
+            hold(axDtrace,'on');
+            plot(axDtrace, tt, Dt, '-','Color',[0.45 0.5 0.62],'LineWidth',0.9);
+            plot(axDtrace, tt(~cf), Dt(~cf), '.','Color',[0.20 0.45 0.75],'MarkerSize',7);   % mobile
+            plot(axDtrace, tt(cf),  Dt(cf),  '.','Color',[0.85 0.30 0.20],'MarkerSize',9);   % confined
+            yline(axDtrace, diffConfineD, '--','Color',[0.85 0.3 0.2],'LineWidth',1.1);
+            scv = fieldOr(s,'sc');
+            if ~isempty(scv)
+                z = find(logical(scv(:)));                                                   % fast -> slow entries
+                for q = z(:)', xline(axDtrace, tt(q), '-','Color',[0.95 0.6 0.1],'LineWidth',1.1,'Alpha',0.85); end
+            end
+            hold(axDtrace,'off');
+            xlabel(axDtrace,'time along track (s)'); ylabel(axDtrace,'D (µm²/s)');
+            if ~isempty(tt) && tt(end) > tt(1), xlim(axDtrace, [tt(1) tt(end)]); end
+            nsc = 0; if ~isempty(scv), nsc = nnz(scv); end
+            title(axDtrace, sprintf('stepwise D(t) · med %.3g · %.0f%% confined · %d state-change%s', ...
+                median(Dt(isfinite(Dt))), 100*mean(cf), nsc, plural_(nsc)), 'FontSize',9);
+        end
 
         % D & R² vs fit window — the sensitivity of this track's D to how many MSD lags are fit
         sw = spt_msd_sweep(s.MSD, dtk, 1.0);
@@ -2264,6 +2338,20 @@ end
 
 function v = finiteCol(M, c)
 v = colOr(M, c); v = v(isfinite(v));
+end
+
+function s = plural_(n), if n == 1, s = ''; else, s = 's'; end, end
+
+function s = kfmt_(n)   % compact count for a narrow panel title: 73994 -> 74.0k
+if n >= 1000, s = sprintf('%.1fk', n/1000); else, s = sprintf('%d', n); end
+end
+
+function v = maskCol(M, c, ok)
+% Column c of a per-localization [nF x nT] field, restricted to this track's real localizations, so
+% it lines up 1:1 with X/Y/F. [] when the field is absent (a build that predates the diffusion pass).
+v = colOr(M, c);
+if isempty(v), return; end
+v = v(ok);
 end
 
 % fitTrackD was extracted to drivers/spt_fit_msd.m (unit-testable) — the QC calls that now.
