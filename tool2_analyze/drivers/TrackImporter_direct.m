@@ -210,6 +210,20 @@ for i = 1:nFiles
         [intens, allSpots, mitoDist, erDist] = attach_intensities(inputDir, base, trkCols, spotIDs, m, n, useFrame, frameInt);
     end
 
+    % ---- padded-layout size guard ----
+    % Every per-localization field is [nF x nT] with nF set by the SINGLE longest track, so one
+    % outlier track inflates every column of this cell. Size is ~200*nF*nT bytes; at 23% occupancy
+    % that is already 70 MB for 838 tracks, and a 5981-frame track would make one cell ~1 GB at 1.5%
+    % occupancy. Warn before that lands silently in a hundreds-of-cells run. See docs/DATA_STRUCTURE.md.
+    occ = sum(RealLengths) / max(m*n, 1);
+    estMB = 200 * m * n / 1048576;
+    if estMB > 250 || (occ < 0.10 && estMB > 60)
+        warning('TrackImporter_direct:paddedSize', ...
+            ['%s: padded layout is ~%.0f MB in memory at %.1f%% occupancy (nF=%d set by the longest ' ...
+             'track, nT=%d). Hundreds of cells at this size will not fit in RAM — see ' ...
+             'docs/DATA_STRUCTURE.md (per-cell files / CSR).'], base, estMB, 100*occ, m, n);
+    end
+
     % ---- store ----
     k = numel(Tracks) + 1;
     Tracks(k).file     = [base opt.FileSuffix];
