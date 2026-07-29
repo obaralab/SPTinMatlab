@@ -188,6 +188,14 @@ to link.
 4. **`train_step.py` kit** (real STEP) — no pretrained weights exist; STEP must be trained on
    simulated AnDi trajectories. Local blocker: the only py3.10 here is x86_64/Rosetta (no MPS) →
    train on arm64+MPS or Colab. Then `run_step.py --weights step_D.pt` upgrades D with no code change.
+5. **Unravelling VAPB trajectories on the ER network** — `docs/IDEA_unravelling.md`. **Idea only,
+   deliberately not started.** Sun et al. PRResearch 4, 023182 (2022): network confinement makes
+   Brownian motion look subdiffusive, so raw MSD both underestimates D and depresses α. Their MATLAB
+   code is public and their segmentation route is identical to ours. Measured blocker: our `er_seg`
+   skeletonises to a median edge length of 0.43 µm at 60% area coverage (theirs: 1.2 µm, sparse), so
+   the `Δt ≲ 0.1ℓ²/D` validity condition fails at 50 Hz — a segmentation/region-selection problem,
+   not a frame-rate one. Read that doc before touching this; it also flags that Tool 3's
+   "Confined (low D)" channel may partly be flagging ER geometry rather than binding.
 
 ## Open design questions (user's call — current behaviour noted)
 
