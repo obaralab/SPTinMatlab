@@ -19,28 +19,64 @@ All numbers below are **measured** on the real WithER cell (`250408_WT_012`, 838
 At **one** cell none of this matters — 51 ms to load, 0.11 ms for a full `isfinite` scan. The padded
 layout is not costing measurable time today.
 
-## Why hundreds of cells changes the answer
+## How much this actually grows
 
 `Tracks` is a struct **array over cells**, all cells in one `.mat`, each cell carrying its own
-`[nF_k × nT_k]` padded planes. Size follows
+`[nF_k × nT_k]` padded planes:
 
 ```
 bytes ≈ 200 × nF × nT     per cell     (25 double planes + 2 logical)
 ```
 
-| scenario | RAM |
-|---|---|
-| 1 cell (today) | 70.7 MB |
-| **200 cells** | **~14 GB** — and `load` needs two live copies, so ~28 GB peak |
-| one 5,981-frame track in any cell | that cell alone becomes **1.0 GB** at 1.5% occupancy |
+**`nF` does not run away.** It is set by the longest track, and photobleaching bounds that — measured
+here, lengths run 50…381 with a mean of 88, so occupancy is `mean/max` = 23% and stays there. An
+earlier draft of this document warned about a 5,981-frame track inflating a cell to 1 GB; that is not
+a realistic failure mode for bleaching-limited SPT, and the padding is better understood as a
+**constant ~4× overhead**, not an explosion risk. The size guard in `TrackImporter_direct` is a
+backstop for pathological input, not an expected event.
 
-Two independent walls. The first is the aggregate; the second is that **`nF` is set by the single
-longest track**, so one outlier track inflates every column of its cell by 130×. Your movie is 5,981
-frames — this is currently held off only by curation.
+So the growth term is **cells per project folder**, and it is linear:
 
-Meanwhile the real access pattern is **per cell**: Tool 3's picker works one cell at a time
-(`onCell()` caches its flat arrays), and the `cs_*` drivers iterate cells. Nothing needs all cells
-resident at once.
+| cells in one project folder | resident | with the Contact-sites tab open (see below) |
+|---|---|---|
+| 1 (today) | 70.7 MB | ~141 MB |
+| 20 | 1.4 GB | 2.8 GB |
+| 50 | 3.5 GB | 7.0 GB |
+| 200 | 14 GB | 28 GB |
+
+## How Tool 3 actually loads it — and the one real waste
+
+`ensureTracksLoaded()` (`spt_analyze_app.m:251`) loads **the whole `<project>/analysis/TrackStruct.mat`**
+— every cell of that project — into `buildTracks`. Then the Contact-sites tab calls
+`cs_window_picker(pnCS, anaDir, …)`, and the picker **loads the same file again** independently
+(`cs_window_picker.m:37-42`) and keeps it as `st.Tracks`.
+
+Two independent `load` calls, two full copies resident at once. That is the right-hand column above,
+and it is the cheapest thing to fix in this whole document: pass the already-loaded struct into the
+picker instead of re-reading it. Halves Tool 3's footprint for a few lines of change.
+
+Within the picker the access pattern is already correct: `onCell()` flattens **one** cell (1.8 ms) and
+caches the flat arrays; everything after that works columnar.
+
+## Comparing cells across conditions — the scaling layer already exists
+
+There are two paths, and only one of them scales.
+
+**Use the Experiment + Compare tabs.** The manifest **references** each day/batch folder and
+*never merges the TrackStructs* (`spt_analyze_app.m:1580-1581` says so in as many words: "This is the
+scaling layer for many cells/conditions"). `cs_experiment_aggregate` reads each folder's
+`CSW_final.mat` and `cs_window_dwell.mat`, tags every site and event with that cell's `condition` and
+source folder, and concatenates the **results** — which are small. Compare then groups by condition
+across the whole dataset. No raw track data is ever merged, so this is flat in memory no matter how
+many cells the experiment contains.
+
+**Avoid `combine_trackstructs` at scale.** It merges N TrackStructs into one struct array so the
+contact-site pipeline runs over everything at once. That is exactly how you land in the bottom row of
+the table above. It remains fine for combining a handful of cells that must be analysed as one unit.
+
+The practical consequence: **keep project folders per day/condition with a manageable number of
+cells, and compare across them through the Experiment manifest.** Tool 3 is a per-project tool, so the
+number that matters is cells-per-folder, not cells in the study.
 
 ## The blocker on any layout change
 
@@ -62,7 +98,16 @@ Only three fields are frozen by the robust/pristine suite: `file`, `matrix`, `ve
 
 ## Staged plan
 
-### Stage 1 — one file per cell *(do this first; solves the RAM wall, zero format risk)*
+Ordered by payoff per unit of risk, after the corrections above. Stages 0 and 1 are worth doing;
+2–4 are only worth it if cells-per-folder grows past what the manifest workflow keeps it at.
+
+### Stage 0 — stop loading the same file twice *(do this first: −50% of Tool 3's RAM, a few lines)*
+
+Pass the app's already-loaded `buildTracks` into `cs_window_picker` instead of having it re-`load`
+the same `TrackStruct.mat`. Keep the current `load` as the fallback for when the picker is used
+standalone. No format change, no consumer affected.
+
+### Stage 1 — one file per cell *(worth it once a folder holds tens of cells)*
 
 ```
 analysis/cells/<base>.mat        % one scalar-struct Tracks per cell, fields unchanged
