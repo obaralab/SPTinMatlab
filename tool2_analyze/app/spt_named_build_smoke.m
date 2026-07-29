@@ -62,6 +62,22 @@ d1 = dir(fullfile(proj,'analysis','Day1_WT.mat'));
 assert(~isempty(d1) && d1.bytes > 0, 'Day1_WT.mat disappeared');
 fprintf('named builds coexist: %s\n', strjoin({'Day1_WT.mat','Day1_KO.mat'},', '));
 
+%% the Experiment tab's "built" lamp must see a NAMED build --------------
+% This folder deliberately has NO TrackStruct.mat — only Day1_WT.mat / Day1_KO.mat + the pointer.
+rec = struct('file','250408_WT_012_spt1', 'analysis',fullfile(proj,'analysis'), 'tracks',fullfile(proj,'tracks'));
+stt = cs_experiment_status(rec);
+assert(stt.built, 'experiment status lamp missed a named build (it only looked for TrackStruct.mat)');
+[ap, an] = cs_active_trackstruct(fullfile(proj,'analysis'));
+assert(strcmp(an,'Day1_KO.mat'), 'cs_active_trackstruct resolved "%s", wanted Day1_KO.mat', an);
+assert(isfile(ap), 'resolved active build does not exist');
+% and with no pointer at all it must still find a named build
+delete(fullfile(proj,'analysis','active_trackstruct.txt'));
+[~, an2] = cs_active_trackstruct(fullfile(proj,'analysis'));
+assert(~isempty(an2), 'no pointer + named build -> resolved nothing');
+assert(cs_experiment_status(rec).built, 'lamp dark for a named build with no pointer');
+fprintf('experiment lamp sees named builds (pointer: %s · no pointer: %s)\n', an, an2);
+fid = fopen(fullfile(proj,'analysis','active_trackstruct.txt'),'w'); fprintf(fid,'Day1_KO.mat\n'); fclose(fid);
+
 %% the picker takes a handed-over struct instead of re-loading -----------
 anaDir = fullfile(proj,'analysis');
 L = load(fullfile(anaDir,'Day1_WT.mat')); WT = L.Tracks;

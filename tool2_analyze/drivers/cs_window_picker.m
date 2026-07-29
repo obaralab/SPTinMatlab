@@ -41,8 +41,7 @@ if isempty(L)
     cand = {};
     tsf = getf(opts,'tsFile','');                       % the caller's active build, if it named one
     if ~isempty(tsf), cand{end+1} = tsf; end
-    a = activeTsFile_(anaDir); if ~isempty(a), cand{end+1} = a; end   % analysis/active_trackstruct.txt
-    cand = [cand, {fullfile(anaDir,'Tracks.mat'), fullfile(anaDir,'TrackStruct.mat')}];
+    a = cs_active_trackstruct(anaDir); if ~isempty(a), cand{end+1} = a; end   % the folder's ACTIVE build
     for f = cand
         if isfile(f{1}), Lt = load(f{1}); if isfield(Lt,'Tracks'), L = Lt.Tracks; break; end, end
     end
@@ -801,18 +800,6 @@ end
 % -------------------------------------------------------------------------
 function v=getf(s,f,d), if isstruct(s)&&isfield(s,f)&&~isempty(s.(f)), v=s.(f); else, v=d; end, end
 
-function p = activeTsFile_(anaDir)
-% The named build in force for this project, per analysis/active_trackstruct.txt (written by the
-% Curate & Build tool). Empty when there is no pointer or it names a file that is not there.
-p = '';
-try
-    q = fullfile(anaDir,'active_trackstruct.txt');
-    if ~isfile(q), return; end
-    s = strtrim(fileread(q));
-    if ~isempty(s) && isfile(fullfile(anaDir,s)), p = fullfile(anaDir,s); end
-catch
-end
-end
 function y=tern(c,a,b), if c, y=a; else, y=b; end, end
 function q=cs_quantile_(x,p)
 x=sort(x(:)); n=numel(x);

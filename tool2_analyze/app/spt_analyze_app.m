@@ -266,13 +266,11 @@ end
     % (run_analyze) opens the same build the Curate tool last wrote or loaded. Absent pointer =
     % TrackStruct.mat, which is what every previous project already has.
     function n = activeTsName(anaDir)
-        n = 'TrackStruct.mat';
+        n = 'TrackStruct.mat';                       % default for a project with nothing built yet
         if nargin < 1 || isempty(anaDir), return; end
-        p = fullfile(anaDir,'active_trackstruct.txt');
-        if ~isfile(p), return; end
         try
-            s = strtrim(fileread(p));
-            if ~isempty(s) && isfile(fullfile(anaDir,s)), n = s; end
+            [~, nm] = cs_active_trackstruct(anaDir); % SINGLE definition, shared with the picker + lamp
+            if ~isempty(nm), n = nm; end
         catch
         end
     end

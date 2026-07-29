@@ -7,7 +7,8 @@ function st = cs_experiment_status(rec)
 % st is a struct of logicals across the pipeline stages:
 %   .tracked  a <base>_tracks(_filtered).xml exists in the tracks folder
 %   .curated  a <base>_tracks_curated.xml exists
-%   .built    the folder's analysis/TrackStruct.mat exists           (folder-level)
+%   .built    the folder has a TrackStruct build — the ACTIVE one, which may be a named build
+%             such as Day1_WT.mat, resolved by cs_active_trackstruct   (folder-level)
 %   .picked   analysis/csIDs/<base>_CSsites.txt exists
 %   .mapped   analysis/CSW_final.mat exists                          (folder-level)
 %   .dwelled  analysis/cs_window_dwell.mat exists                    (folder-level)
@@ -20,7 +21,7 @@ if ~isempty(tr) && isfolder(tr) && ~isempty(base)
     st.curated = ~isempty(dir(fullfile(tr,[base '_tracks_curated.xml'])));
 end
 if ~isempty(ana)
-    st.built   = isfile(fullfile(ana,'TrackStruct.mat'));
+    st.built   = ~isempty(cs_active_trackstruct(ana));   % any build, incl. a NAMED one (Day1_WT.mat)
     st.picked  = ~isempty(base) && isfile(fullfile(ana,'csIDs',[base '_CSsites.txt']));
     st.mapped  = isfile(fullfile(ana,'CSW_final.mat'));
     st.dwelled = isfile(fullfile(ana,'cs_window_dwell.mat'));
