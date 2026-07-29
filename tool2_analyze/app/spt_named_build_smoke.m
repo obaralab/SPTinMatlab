@@ -18,8 +18,21 @@ assert(isfile(src), 'test data missing: %s', src);
 proj = fullfile(tempdir, sprintf('spt_named_%d', feature('getpid')));
 if isfolder(proj), rmdir(proj,'s'); end
 mkdir(proj); mkdir(fullfile(proj,'analysis'));
-for d = {'spt','er_seg','mito_seg','tracks'}                 % symlink the inputs, never copy
-    system(sprintf('ln -s "%s" "%s"', fullfile(W,d{1}), fullfile(proj,d{1})));
+% Symlink the individual FILES into real directories — never symlink the directory itself. Setting
+% a project runs onCalAuto -> writeCalib, which saves cs_calib.mat into the tracks folder; through a
+% directory symlink that write follows into WithER and modifies the pristine test data (it did:
+% WithER/tracks/cs_calib.mat, 2026-07-28 23:43). With per-file links the new file lands here instead.
+for d = {'spt','er_seg','mito_seg','tracks'}
+    sdir = fullfile(W,d{1}); dst = fullfile(proj,d{1}); mkdir(dst);
+    ff = dir(fullfile(sdir,'*'));
+    for q = 1:numel(ff)
+        if ff(q).isdir, continue; end
+        % Skip .mat: setting a project writes tracks/cs_calib.mat, and save() FOLLOWS a symlink, so
+        % linking that name would put the write straight back into WithER. The inputs the app reads
+        % (.tif/.tiff/.xml/.csv/.txt) are safe to link because nothing writes over them.
+        [~,~,ex] = fileparts(ff(q).name); if strcmpi(ex,'.mat'), continue; end
+        system(sprintf('ln -s "%s" "%s"', fullfile(sdir,ff(q).name), fullfile(dst,ff(q).name)));
+    end
 end
 cleanup = onCleanup(@() rmdir(proj,'s'));
 

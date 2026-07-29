@@ -24,5 +24,14 @@ for t = probe
 end
 nz = vals(vals > 0);
 fg = 1; if ~isempty(nz), fg = min(nz); end
+% A stack with a SINGLE distinct value has no foreground/background distinction: every pixel either
+% matches fg (the whole field becomes "ER", and an ER-aware mode silently stops constraining
+% anything) or none does. Neither is a usable segmentation — say so rather than failing quietly.
+if numel(vals) == 1
+    warning('spt_seg_fg_label:uniformStack', ...
+        ['%s: every sampled pixel has the same value (%g), so there is no foreground/background ' ...
+         'distinction. ER-aware linking against this mask is meaningless — check the segmentation.'], ...
+        segPath, double(vals(1)));
+end
 cKey = key; cVal = fg;
 end

@@ -47,8 +47,9 @@ rob  = fullfile(here,'..','ContactSites_robust');
 if isfolder(rob), addpath(rob); end
 
 % ---- load TrackStruct ----
-tsPath = fullfile(anaDir,'TrackStruct.mat');
-assert(isfile(tsPath), 'cs_window_mapper:noTrackStruct', 'Missing %s', tsPath);
+tsPath = cs_active_trackstruct(anaDir);        % the ACTIVE build, which may be named (Day1_WT.mat)
+assert(~isempty(tsPath) && isfile(tsPath), 'cs_window_mapper:noTrackStruct', ...
+    'No TrackStruct build in %s', anaDir);
 S = load(tsPath); fn = fieldnames(S); Tracks = S.(fn{1});
 nCells = numel(Tracks);
 

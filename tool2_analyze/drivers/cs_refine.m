@@ -923,7 +923,13 @@ end
 
 % -------------------------------------------------------------------------
 function Tracks = local_load_tracks(analysisDir)
-cands = {'Tracks_final.mat','Tracks.mat','TrackStruct.mat'};
+% Tracks_final.mat first (it carries the MitoCSindex the legacy stages add), then the ACTIVE build —
+% which may be a named one — before the fixed legacy names.
+cands = {'Tracks_final.mat'};
+if exist('cs_active_trackstruct','file')==2
+    try, a = cs_active_trackstruct(analysisDir); if ~isempty(a), [~,n,e] = fileparts(a); cands{end+1} = [n e]; end, catch, end
+end
+cands = [cands, {'Tracks.mat','TrackStruct.mat'}];
 for k = 1:numel(cands)
     p = fullfile(analysisDir,cands{k});
     if isfile(p)

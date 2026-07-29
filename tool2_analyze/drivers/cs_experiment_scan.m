@@ -28,7 +28,7 @@ for i = 1:numel(folders)
         if isKey(seg, base), s = seg(base); sp = s.spt; er = s.erSeg; mi = s.mitoSeg; end
         rec = struct('file',base,'day',P.day,'condition','','exclude',false,'reason','','notes','', ...
             'project',P.project,'analysis',P.analysis,'tracks',P.tracks,'spt',sp,'erSeg',er,'mitoSeg',mi, ...
-            'trackstruct',fullfile(P.analysis,'TrackStruct.mat'),'nTracks',0, ...
+            'trackstruct',tsOrDefault_(P.analysis),'nTracks',0, ...
             'status',struct(),'folder',P.analysis,'hasCSW',false,'hasDwell',false);
         rec.status  = cs_experiment_status(rec);
         rec.hasCSW  = rec.status.mapped;
@@ -42,7 +42,7 @@ end
 % ------------------------------------------------------------------------------------------------
 function P = resolvePaths(folder)
 % Resolve an input folder (project root OR its analysis/) to the standard sub-paths.
-if isfile(fullfile(folder,'TrackStruct.mat')) && ~isfolder(fullfile(folder,'analysis'))
+if ~isempty(cs_active_trackstruct(folder)) && ~isfolder(fullfile(folder,'analysis'))
     ana = folder; proj = fileparts(folder);                 % given an analysis/ folder
 else
     proj = folder; ana = fullfile(folder,'analysis');       % given a project root
@@ -66,8 +66,8 @@ if isfolder(P.spt) && exist('spt_match','file')==2
     catch
     end
 end
-ts = fullfile(P.analysis,'TrackStruct.mat');
-if isfile(ts)
+ts = cs_active_trackstruct(P.analysis);        % the ACTIVE build, which may be named (Day1_WT.mat)
+if ~isempty(ts) && isfile(ts)
     try, S = load(ts); fn = fieldnames(S); Tr = S.(fn{1});
         for c = 1:numel(Tr), bases{end+1} = regexprep(char(Tr(c).file),'\.[^.]*$',''); end %#ok<AGROW>
     catch
@@ -76,9 +76,16 @@ end
 bases = unique(bases,'stable');
 end
 
+function p = tsOrDefault_(anaDir)
+% Path of the folder's ACTIVE build; the conventional default when it has none yet, so the record
+% still names where a build WOULD go.
+p = cs_active_trackstruct(anaDir);
+if isempty(p), p = fullfile(anaDir,'TrackStruct.mat'); end
+end
+
 function n = nTracksFor(anaDir, base)
 n = 0;
-ts = fullfile(anaDir,'TrackStruct.mat'); if ~isfile(ts), return; end
+ts = cs_active_trackstruct(anaDir); if isempty(ts) || ~isfile(ts), return; end   % ACTIVE build
 try
     S = load(ts); fn = fieldnames(S); Tr = S.(fn{1});
     for c = 1:numel(Tr)

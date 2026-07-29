@@ -187,6 +187,10 @@ end
         tracksDir = firstExisting({fullfile(d,'tracks'), d});   % tracks/ subfolder, else the folder itself
         matched = [];                                            % pair spt <-> er_seg <-> mito_seg for the overlay
         buildTracks = [];                                        % drop the previous project's tracks so the new one is reloaded
+        tsName = activeTsName(fullfile(d,'analysis'));            % ...and its ACTIVE BUILD NAME: carrying
+        if ~isempty(eTsName) && isgraphics(eTsName)               % Day1_KO.mat into the next project would
+            [~,stem] = fileparts(tsName); eTsName.Value = stem;   % open the wrong build, or none at all
+        end
         densCache = struct('base',{},'occ',{});                  % occupancy cache is per-project
         resetDownstream();                                       % clear Refine/Sites/Dwell/Compare state + caches (prevents cross-project leakage)
         if ~isempty(ddQCcell)   && isgraphics(ddQCcell),   ddQCcell.Items   = {'(build first)'}; ddQCcell.Value   = '(build first)'; end
@@ -1892,7 +1896,10 @@ end
             buildTracks(k).confined = conf; buildTracks(k).stateChange = sc;
             if isfield(buildTracks,'diffOpts') && isstruct(buildTracks(k).diffOpts), buildTracks(k).diffOpts.confineD = diffConfineD; end
         end
-        try, Tracks = buildTracks; save(fullfile(projectDir,'analysis','TrackStruct.mat'),'Tracks','-v7.3'); catch, end %#ok<NASGU>
+        % Re-save to the ACTIVE build. Writing TrackStruct.mat unconditionally discarded the edit
+        % for a named build and left a divergent shadow file behind.
+        p = activeTsPath();
+        try, if ~isempty(p), Tracks = buildTracks; save(p,'Tracks','-v7.3'); end, catch, end %#ok<NASGU>
         if ~isempty(ddQCcell) && isgraphics(ddQCcell), drawQC(ddQCcell.Value); end
     end
 
@@ -1929,13 +1936,22 @@ end
     end
 
     function onLoadTracks()
-        % Load an existing TrackStruct.mat and populate the QC WITHOUT recomputing MSD.
-        % Prefer <project>/analysis/TrackStruct.mat; otherwise browse. If no project is set and the
-        % file lives in an analysis/ folder, infer the project from its path (and embed curation).
+        % Load a built TrackStruct and populate the QC WITHOUT recomputing MSD. When the project
+        % holds MORE THAN ONE build, always ask which — otherwise the shortcut to the active one
+        % made every other named build unreachable, contradicting the button's own tooltip.
         f = '';
         if ~isempty(projectDir)
             a = fullfile(projectDir,'analysis');
-            c = fullfile(a, activeTsName(a)); if isfile(c), f = c; end
+            nBuilds = 0;
+            d = dir(fullfile(a,'*.mat'));
+            skip = {'cs_calib.mat','CSW_final.mat','cs_window_dwell.mat','cs_footprints.mat','experiment_manifest.mat'};
+            for q = 1:numel(d)
+                if any(strcmpi(d(q).name,skip)), continue; end
+                try, w = whos('-file', fullfile(a,d(q).name)); if any(strcmp({w.name},'Tracks')), nBuilds = nBuilds + 1; end, catch, end
+            end
+            if nBuilds <= 1
+                c = fullfile(a, activeTsName(a)); if isfile(c), f = c; end
+            end
         end
         if isempty(f)
             start = pwd; if ~isempty(projectDir) && isfolder(projectDir), start = projectDir; end
@@ -1998,8 +2014,8 @@ end
         ddQCcell.Value = 'All (pooled)';
         drawQC('All (pooled)');
         logBuild(sprintf('Built %d cell(s), %d tracks -> %s  [%s tracks, mito=%s ER=%s]', ...
-            n, tot, fullfile(aDir,'TrackStruct.mat'), src, tern(anyM,'yes','no'), tern(anyE,'yes','no')));
-        setBuild(sprintf('Done — %d cell(s), %d tracks. TrackStruct.mat in analysis/. QC below.', n, tot),[0.2 0.5 0.2]);
+            n, tot, fullfile(aDir,tsName), src, tern(anyM,'yes','no'), tern(anyE,'yes','no')));
+        setBuild(sprintf('Done — %d cell(s), %d tracks. %s in analysis/ (active). QC below.', n, tot, tsName),[0.2 0.5 0.2]);
     end
 
     function onQCcell()
@@ -2070,10 +2086,13 @@ end
         xlabel(axDdist,'D (µm²/s)'); ylabel(axDdist,'tracks');
         title(axDdist, sprintf('D distribution — median %.3g µm²/s  ·  %s', median0_(Dv), fitTag));
         % per-localization confinement (from the stored diffusion) — the low-D cutoff Tool 3 uses
-        if isfield(buildTracks,'Dt')
+        % confined/stateChange may be absent even when Dt is present (a struct written before those
+        % fields existed, or one merged by combine_trackstructs where a source lacked them) — reading
+        % them unguarded threw 'Unrecognized field name "confined"' and blanked the whole QC tab.
+        if isfield(buildTracks,'Dt') && isfield(buildTracks,'confined') && isfield(buildTracks,'stateChange')
             nConf=0; nLoc=0; nSC=0;
             for k=ks
-                if isfield(buildTracks(k),'Dt') && ~isempty(buildTracks(k).Dt)
+                if ~isempty(buildTracks(k).Dt) && ~isempty(buildTracks(k).confined) && ~isempty(buildTracks(k).stateChange)
                     fin=isfinite(buildTracks(k).Dt); nLoc=nLoc+nnz(fin);
                     nConf=nConf+nnz(buildTracks(k).confined & fin); nSC=nSC+nnz(buildTracks(k).stateChange);
                 end
@@ -2131,19 +2150,27 @@ end
             Call{end+1} = cv(:); %#ok<AGROW>
         end
         if nC == 0
-            title(axCSD,'CSD — not in this TrackStruct'); xlabel(axCSD,''); ylabel(axCSD,'');
+            if isfield(buildTracks,'CSD'), msg = 'CSD — no track long enough to plot';
+            else,                          msg = 'CSD — not in this TrackStruct'; end
+            title(axCSD, msg); xlabel(axCSD,''); ylabel(axCSD,'');
         else
             plot(axCSD, Cx, Cy, '-','Color',[0.85 0.55 0.15 0.13],'LineWidth',0.5,'HitTest','off');
             hold(axCSD,'on');
             nmax = max(cellfun(@numel, Call));
             P = nan(nmax, nC);
             for i = 1:nC, P(1:numel(Call{i}), i) = Call{i}; end
-            med = median(P, 2, 'omitnan');
-            plot(axCSD, (1:nmax)', med, '-','Color',[0.55 0.30 0.05],'LineWidth',1.6,'HitTest','off');
+            % The median at step k is over only the tracks still alive at step k, so past the bulk of
+            % the length distribution it is a handful of long tracks and drifts upward. Draw it only
+            % while enough tracks contribute, and say how far that is.
+            nAlive = sum(isfinite(P), 2);
+            kMax = find(nAlive >= max(5, 0.10*nC), 1, 'last'); if isempty(kMax), kMax = 1; end
+            med = median(P(1:kMax,:), 2, 'omitnan');
+            plot(axCSD, (1:kMax)', med, '-','Color',[0.55 0.30 0.05],'LineWidth',1.6,'HitTest','off');
             hold(axCSD,'off');
             tot = cellfun(@(v) v(end), Call);
             xlabel(axCSD,'step #'); ylabel(axCSD,'path length (µm)');
-            title(axCSD, sprintf('CSD — %d tracks · median total %.2f µm', nC, median(tot)), 'FontSize',8.5);
+            title(axCSD, sprintf('CSD — %d tracks · median total %.2f µm · median to step %d', ...
+                nC, median(tot), kMax), 'FontSize',8.5);
         end
 
         if ~isempty(playerCtl) && isstruct(playerCtl), playerCtl.load([], 0); end   % clear the player until a track is clicked
@@ -2210,8 +2237,14 @@ end
         if isempty(Dt) || ~any(isfinite(Dt))
             title(axDtrace,'stepwise D(t) — not in this TrackStruct'); xlabel(axDtrace,''); ylabel(axDtrace,'');
         else
-            tt = (0:numel(Dt)-1)' * dtk;                  % elapsed time along the track
-            if ~isempty(s.F) && numel(s.F)==numel(Dt), tt = (s.F - s.F(1)) * dtk; end   % honour real frame gaps
+            % Elapsed time along the track, honouring real frame gaps. matrix(:,:,1) is a FRAME
+            % index under TimeUnit='frame' but already SECONDS under 'seconds' — scaling the latter
+            % by dt again would compress the axis by a factor of dt. Integer-valued means frames.
+            tt = (0:numel(Dt)-1)' * dtk;
+            if ~isempty(s.F) && numel(s.F)==numel(Dt)
+                F0 = s.F - s.F(1);
+                if all(abs(F0 - round(F0)) < 1e-6), tt = F0 * dtk; else, tt = F0; end
+            end
             cf = fieldOr(s,'conf'); if isempty(cf), cf = Dt <= diffConfineD; end
             cf = logical(cf(:)) & isfinite(Dt(:));
             hold(axDtrace,'on');
