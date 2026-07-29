@@ -27,7 +27,8 @@ function st = cs_experiment_status(rec, tsPath)
 %   .nTracksCurated  tracks left after Tool 2's curation              (_tracks_curated.xml, else KEEP in _track_metrics.csv)
 %   .nTracksMetrics  rows in <base>_track_metrics.csv — the pool curation chose FROM
 %   .nTracksKept     rows with KEEP=1 in that file
-%   .nSpotsInTracks  detections belonging to those pooled tracks      (sum of n_spots)
+%   .nSpotsInTracks  detections belonging to those pooled tracks      (sum of n_spots, else
+%                    curation.n_spots_in_kept_tracks from _settings.txt)
 %   .nSpotsKept      detections belonging to the KEPT tracks          (sum of n_spots over KEEP=1)
 %   .nTracksBuilt    this cell's tracks in the ACTIVE build           (size(Tracks(k).matrix,2))
 %   .nSpotsBuilt     this cell's localisations in that build          (sum of Tracks(k).lengths)
@@ -60,10 +61,10 @@ if ~isempty(tr) && isfolder(tr) && ~isempty(base)
     st.curated = isfile(fCur);
 
     % 1. _settings.txt (<1 KB) — the run's own record of what it produced, and of Tool 1's filter.
-    fSet = fullfile(tr,[base '_settings.txt']);
+    fSet = fullfile(tr,[base '_settings.txt']); setTxt = '';
     if isfile(fSet)
         try
-            txt = fileread(fSet);
+            setTxt = fileread(fSet); txt = setTxt;
             st.nSpotsRaw       = settingsVal_(txt,'result.n_spots');
             st.nTracksRaw      = settingsVal_(txt,'result.n_tracks');
             st.nTracksFiltered = settingsVal_(txt,'curation.tracks_after');
@@ -84,6 +85,13 @@ if ~isempty(tr) && isfolder(tr) && ~isempty(base)
     st.nTracksMetrics = m.nTracks; st.nTracksKept   = m.nKept;
     st.nSpotsInTracks = m.nSpots;  st.nSpotsKept    = m.nSpotsKept;
     if isnan(st.nTracksCurated) && st.curated, st.nTracksCurated = m.nKept; end
+    % Cheaper fallback when there is no _track_metrics.csv: Tool 1 stamps the detections belonging to
+    % the tracks ITS filter kept, which is the same quantity as nSpotsInTracks (the pool curation
+    % then chose from). Only usable since that key exists — the old `curation.n_spots_kept` carried
+    % every WRITTEN detection, i.e. the raw count, so reading it here would have been wrong.
+    if isnan(st.nSpotsInTracks) && ~isempty(setTxt)
+        st.nSpotsInTracks = settingsVal_(setTxt,'curation.n_spots_in_kept_tracks');
+    end
 end
 
 if ~isempty(ana)

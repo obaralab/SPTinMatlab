@@ -9,7 +9,8 @@ function stat = spt_curate_write(C, keptMask, tracksDir, base)
 %   <base>_spots_filtered.csv  — ALL detections (unchanged), TRACK_ID renumbered 0..K-1 for kept
 %                                tracks and BLANK for spots in dropped tracks / never tracked.
 %   <base>_tracks_filtered.xml — the kept tracks only (SPOT_IDs shared with the CSV).
-% Returns stat.before / .after (track counts) and .nSpots.
+% Returns stat.before / .after (track counts), .nSpots (ALL detections written — the cloud is
+% preserved, so this equals the raw detection count) and .nSpotsKept (detections in the kept tracks).
 if ~isfolder(tracksDir), mkdir(tracksDir); end
 S = C.spots; N = height(S);
 keptIdx = find(keptMask);
@@ -54,7 +55,11 @@ for kk = 1:numel(keptIdx)
 end
 fprintf(fid, '</Tracks>\n');
 
-stat = struct('before', numel(C.trackId), 'after', numel(keptIdx), 'nSpots', N);
+% nSpots is every detection WRITTEN (the whole cloud is preserved by design, so it equals the raw
+% count and says nothing about the filter); nSpotsKept is the detections belonging to the tracks that
+% actually survived — the number you want when asking "how much data came through this stage?".
+stat = struct('before', numel(C.trackId), 'after', numel(keptIdx), ...
+              'nSpots', N, 'nSpotsKept', sum(C.len(keptIdx)));
 end
 
 function v = col_(S, name)

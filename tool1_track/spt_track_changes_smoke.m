@@ -76,12 +76,19 @@ assert(contains(csv{1},'link_mode'),'summary header missing link_mode column');
 assert(any(startsWith(csv,'cellA,top-percentile,6,')),   'cellA row missing/incorrect');
 assert(any(contains(csv,',geodesic,')),'cellA link_mode geodesic missing from summary');
 assert(any(contains(csv,',euclid,')),  'cellB link_mode euclid missing from summary');
-% curation stamp: exporting _filtered appends the filter params to the SAME settings file (upsert)
-stat = struct('before',9,'after',5,'nSpots',120);
+% curation stamp: exporting _filtered appends the filter params to the SAME settings file (upsert).
+% The two spot counts are deliberately DIFFERENT: every detection is written (the cloud is preserved,
+% so n_spots_written equals the raw count), while only some belong to the tracks that survived. The
+% old single key was named "n_spots_kept" and carried the WRITTEN count, so it read as though the
+% filter had dropped 93% of tracks but kept every spot.
+stat = struct('before',9,'after',5,'nSpots',120,'nSpotsKept',37);
 spt_append_curation_settings(td,'cellA',50,0.2,stat);
 sA2 = fileread(fullfile(td,'cellA_settings.txt'));
 assert(contains(sA2,'curation.min_track_len  = 50'),'curation min_track_len not stamped');
 assert(contains(sA2,'tracking.method         = ER-geodesic'),'curation stamp clobbered the tracking method');
+assert(~contains(sA2,'n_spots_kept'), 'the misleading curation.n_spots_kept key is back');
+assert(contains(sA2,'curation.n_spots_written= 120'), 'written-spot count not stamped');
+assert(contains(sA2,'curation.n_spots_in_kept_tracks = 37'), 'kept-track spot count not stamped');
 spt_append_curation_settings(td,'cellA',20,0.2,stat);   % re-curate -> upsert, not duplicate
 sA3 = fileread(fullfile(td,'cellA_settings.txt'));
 assert(numel(strfind(sA3,'curation.min_track_len'))==1,'curation block duplicated on re-export');
