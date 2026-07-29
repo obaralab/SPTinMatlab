@@ -55,6 +55,7 @@ tRefine=[]; tSites=[]; tDwell=[]; tExpt=[]; tCompare=[];              % downstre
 ddTimeUnit=[]; lblBuild=[]; tblBuild=[]; txtBuild=[];                 % Build handles
 buildTracks=[]; ddQCcell=[]; axLen=[]; axMSD=[]; axCov=[]; axDist=[]; axDdist=[]; lblQCm=[]; eMsdFrac=[];   % QC handles
 axDloc=[]; axDtrace=[];   % stepwise-diffusion QC: pooled per-localization D, and D(t) for the clicked track
+axCSD=[]; csdHi=[];       % cumulative-displacement panel + the highlight of the clicked track
 eConfineD=[]; diffConfineD=0.15;   % per-localization diffusion: confinement threshold (µm²/s) computed at Build
 ddFitMode=[]; axSweep=[];   % MSD fit-window mode (fixed % / adaptive R²) + the per-track D-vs-fit-window sweep
 qcTracks={}; qcSelIdx=0; qcHi=[]; playerCtl=[];   % click-to-inspect: flat track list, selection, highlight, embedded player
@@ -230,12 +231,13 @@ end
         lblQCm = uilabel(r2,'Text','Build, then click a track in the tracks panel to inspect it (it plays here).','FontColor',[0.2 0.4 0.5]);
         % row 3 — main: [ left pooled | middle clickable tracks | right: embedded player + small MSD ]
         mn = uigridlayout(g,[1 3],'ColumnWidth',{'0.78x','1.15x','1.05x'},'Padding',[0 0 0 0],'ColumnSpacing',8);
-        lp = uigridlayout(mn,[5 1],'RowHeight',{'0.72x','1x','1x','1x','1x'},'Padding',[0 0 0 0],'RowSpacing',6);
+        lp = uigridlayout(mn,[6 1],'RowHeight',{92,'1x','1x','1x','1x','1x'},'Padding',[0 0 0 0],'RowSpacing',6);
         tblBuild = uitable(lp,'ColumnName',{'cell','tracks','med len','mito','ER'},'ColumnWidth',{'auto',52,64,44,44});
         axLen   = uiaxes(lp); title(axLen,'track length');
         axDist  = uiaxes(lp); title(axDist,'ER / mito distance');
         axDdist = uiaxes(lp); title(axDdist,'D distribution');
         axDloc  = uiaxes(lp); title(axDloc,'stepwise D (per localization)');   % pooled Dt — one value per loc
+        axCSD   = uiaxes(lp); title(axCSD,'CSD — cumulative displacement');    % every track faint, clicked one bold
         axCov  = uiaxes(mn); axCov.Toolbar.Visible='off'; title(axCov,'tracks (click one)'); axCov.ButtonDownFcn=@(s,e) onCovClick(e);
         rp = uigridlayout(mn,[4 1],'RowHeight',{'1.35x','1x','1x','1x'},'Padding',[0 0 0 0],'RowSpacing',6);
         pc = uigridlayout(rp,[1 1],'Padding',[0 0 0 0]);   % embedded selected-track player
@@ -1955,7 +1957,8 @@ end
                     'dt', dtk, ...                                       % stepwise (per-localization) diffusion, aligned to X/Y/F:
                     'Dt',   maskCol(fieldOr(T,'Dt'),          c, ok), ...
                     'conf', maskCol(fieldOr(T,'confined'),    c, ok), ...
-                    'sc',   maskCol(fieldOr(T,'stateChange'), c, ok));
+                    'sc',   maskCol(fieldOr(T,'stateChange'), c, ok), ...
+                    'CSD',  trimCol(fieldOr(T,'CSD'), c, nnz(ok)-1));    % path length through each step (µm)
                 qcTracks{end+1} = s; L(end+1)=s.len; ER=[ER; s.ER]; MI=[MI; s.MI]; %#ok<AGROW>
             end
         end
@@ -2047,6 +2050,32 @@ end
                 median(Dl), pctC, kfmt_(numel(Dl))), 'FontSize',8.5);
         end
 
+        % ---- CSD: cumulative path length per track (µm). Every track faint, median bold; the
+        % clicked track is highlighted on top, the same way the tracks panel behaves.
+        cla(axCSD); csdHi = [];
+        Cx = []; Cy = []; nC = 0; Call = {};
+        for i = 1:numel(qcTracks)
+            cv = fieldOr(qcTracks{i},'CSD'); cv = cv(isfinite(cv));
+            if numel(cv) < 2, continue; end
+            Cx = [Cx; (1:numel(cv))'; NaN]; Cy = [Cy; cv(:); NaN]; nC = nC + 1; %#ok<AGROW>
+            Call{end+1} = cv(:); %#ok<AGROW>
+        end
+        if nC == 0
+            title(axCSD,'CSD — not in this TrackStruct'); xlabel(axCSD,''); ylabel(axCSD,'');
+        else
+            plot(axCSD, Cx, Cy, '-','Color',[0.85 0.55 0.15 0.13],'LineWidth',0.5,'HitTest','off');
+            hold(axCSD,'on');
+            nmax = max(cellfun(@numel, Call));
+            P = nan(nmax, nC);
+            for i = 1:nC, P(1:numel(Call{i}), i) = Call{i}; end
+            med = median(P, 2, 'omitnan');
+            plot(axCSD, (1:nmax)', med, '-','Color',[0.55 0.30 0.05],'LineWidth',1.6,'HitTest','off');
+            hold(axCSD,'off');
+            tot = cellfun(@(v) v(end), Call);
+            xlabel(axCSD,'step #'); ylabel(axCSD,'path length (µm)');
+            title(axCSD, sprintf('CSD — %d tracks · median total %.2f µm', nC, median(tot)), 'FontSize',8.5);
+        end
+
         if ~isempty(playerCtl) && isstruct(playerCtl), playerCtl.load([], 0); end   % clear the player until a track is clicked
         cla(axMSD); title(axMSD,'MSD + D fit (click a track)');
         cla(axDtrace); title(axDtrace,'stepwise D(t) (click a track)');
@@ -2091,6 +2120,17 @@ end
         end
         xlabel(axMSD,'lag (s)'); ylabel(axMSD,'MSD (µm²)');
         title(axMSD, sprintf('D = %.4g µm²/s · R² = %.3f · fit %d lags (%.0f%%)', r.D, r.R2, r.nPts, r.fracUsed));
+
+        % highlight this track's cumulative displacement against the population
+        if ~isempty(axCSD) && isgraphics(axCSD)
+            if ~isempty(csdHi) && isgraphics(csdHi), delete(csdHi); end
+            cv = fieldOr(s,'CSD'); cv = cv(isfinite(cv));
+            if numel(cv) >= 2
+                hold(axCSD,'on');
+                csdHi = plot(axCSD, (1:numel(cv))', cv(:), '-','Color',[1 0.55 0],'LineWidth',2,'HitTest','off');
+                hold(axCSD,'off');
+            end
+        end
 
         % stepwise D(t) for THIS track — the per-localization rolling D that the confined /
         % state-change flags come from. The MSD panel above gives one D for the whole track; this
@@ -2344,6 +2384,14 @@ function s = plural_(n), if n == 1, s = ''; else, s = 's'; end, end
 
 function s = kfmt_(n)   % compact count for a narrow panel title: 73994 -> 74.0k
 if n >= 1000, s = sprintf('%.1fk', n/1000); else, s = sprintf('%d', n); end
+end
+
+function v = trimCol(M, c, nStep)
+% First nStep rows of column c — a per-STEP field ([nF-1 x nT]) has L-1 real rows for a track of
+% length L; everything past that is padding.
+v = colOr(M, c);
+if isempty(v) || nStep < 1, v = []; return; end
+v = v(1:min(nStep, numel(v)));
 end
 
 function v = maskCol(M, c, ok)

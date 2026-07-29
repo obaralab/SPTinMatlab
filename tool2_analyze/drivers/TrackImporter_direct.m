@@ -126,8 +126,14 @@ for i = 1:nFiles
     rawSteps = NaN(m-1, n, 2);
     rawSteps(:,:,1) = dT1;
     rawSteps(:,:,2) = dS1;
-    steps = dS1 ./ dT1;
-    CSD   = cumsum(steps, 1);          % CSD(j,:) = sum(steps(1:j,:)) (NaN past a track's end)
+    steps = dS1 ./ dT1;                % per-FRAME speed (µm/frame) — a rate, not a distance
+    % CSD = cumulative path length in µm: sum the ACTUAL step distances, not the frame-normalized
+    % speeds. Summing dS1./dT1 charges a gap-closed step only its per-frame average, so a 2-frame
+    % gap contributes half the distance the molecule actually covered — and the result is not even
+    % in µm unless every dT is 1. Measured on the WithER cell (86.6% of tracks contain a 2-frame
+    % gap): total path length was understated by a median of 2.0% and up to 11.5% per track.
+    % Consumers read this as µm (spt_pipeline_app: "cumulative displacement (\mum)").
+    CSD   = cumsum(dS1, 1);            % CSD(j,:) = path length through step j (NaN past track end)
 
     % data-integrity guard (the legacy "doubleLag" check): sorted frames must be
     % strictly increasing within a track, else a (start,lag) pair is ambiguous.
@@ -172,8 +178,13 @@ for i = 1:nFiles
     MSDstdev = sqrt(MSDvar);
     noPair   = (cntSD == 0);
     MSD(noPair) = NaN; MSDstdev(noPair) = NaN;
-    N        = sum(isfinite(MSD), 2);
-    MSDerror = bsxfun(@rdivide, MSDstdev, sqrt(N));
+    % Standard error of THIS track's MSD at THIS lag = its own spread over its own pair count.
+    % It was previously divided by sum(isfinite(MSD),2) — the number of TRACKS that happen to have
+    % a finite MSD at that lag (2..838 here) — so a track with 374 pairs and a track with 1 pair
+    % got the same divisor, and the error bars came out a median 4x too small (range 10x too small
+    % to 3.7x too large). cntSD is the pair count that actually went into MSD(lag,track).
+    MSDerror = MSDstdev ./ sqrt(cntSD);
+    MSDerror(noPair) = NaN;
     MSDdata  = [];                                 % legacy 3-D array — unused (Part1 nulls it)
 
     % CSDnorm — normalize each track to its total cumulative step
