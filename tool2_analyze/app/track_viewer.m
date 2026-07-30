@@ -33,6 +33,15 @@ S.loaded         = false;
 S.kept_ids       = [];
 S.manual_keep    = [];   % tracks the user forced KEEP (survive a filter re-apply)
 S.manual_reject  = [];   % tracks the user forced REJECT (survive a filter re-apply)
+% ---- link cuts (mislinkage repair) ----------------------------------------------------------
+% A cut severs the link LEAVING one spot, splitting that chain in two. Cuts are stored as spot ids,
+% not as track ids: SPOT_ID is stable for the life of a cell, whereas fragment track ids are derived.
+% Each cut carries the id it minted, so ids never shift when a later cut is made elsewhere — an
+% override or a selection on an existing fragment stays pointing at the same spots.
+S.cuts          = struct('afterSpotId',{},'newId',{},'origId',{});
+S.cuts_by_cell  = containers.Map('KeyType','char','ValueType','any');   % base -> cuts + the counter
+S.nextFragId    = [];    % per-cell monotonic counter for minted fragment ids (never reused)
+S.strip         = struct('spotId',[],'t0',[],'t1',[],'step',[],'gap',[]);   % edges currently drawn
 S.manual_by_cell = containers.Map('KeyType','char','ValueType','any');  % base -> the two lists,
                          % so manual decisions survive switching cells AND a batch run
 S.selected_id    = [];
@@ -206,6 +215,19 @@ c.toggle_btn = uibutton(lg,'Text','Toggle keep/reject','FontSize',12,'FontWeight
     'Tooltip','Flip the selected track between KEEP and REJECT. Manual decisions survive re-filtering, batch runs and switching cells.', ...
     'ButtonPushedFcn',@(~,~) do_toggle());
 c.toggle_btn.Layout.Row=[row-1 row]; c.toggle_btn.Layout.Column=[1 2];
+% -- Mislinkage repair. A bad link costs you the WHOLE track today: the jump gate rejects any track
+% containing a step over the gap-close distance. Cutting the link instead splits the chain and both
+% halves go back through the filters, so the good part survives.
+row=row+1; sec_lbl(lg,row,'MISLINKAGE (selected track)');
+row=row+1;
+c.next_link = half_btn(lg,row,1,'⚠ Next link',[0.80 0.25 0.10],'white');
+c.next_link.Tooltip = ['Jump to the next KEPT track holding a step longer than the gap-close distance — ' ...
+    'the links most likely to be a mislinkage. Then click the link in the strip or the spike below it to cut.'];
+c.next_link.ButtonPushedFcn = @(~,~) next_suspicious();
+c.undo_cut = half_btn(lg,row,2,'↩ Undo cut',[0.45 0.45 0.50],'white');
+c.undo_cut.Tooltip = 'Undo the most recent cut on this cell. Cuts are remembered per cell and survive re-filtering, batch runs and switching cells.';
+c.undo_cut.ButtonPushedFcn = @(~,~) undo_cut();
+
 row=row+1; row=row+1; row=row+1;                             % 3 rows so the detail never clips
 c.sel_lbl = uilabel(lg,'Text','Click a track in the Overview panel to select it.','FontSize',8.5,...
     'WordWrap','on','FontColor',[0.2 0.2 0.2],'VerticalAlignment','top');
@@ -347,8 +369,8 @@ ax_hdn.Title.String='Local density distribution';
 % ============================================================
 rp = uipanel(gl,'Title','Selected track');
 rp.Layout.Column = 3;
-rg = uigridlayout(rp,[3 1],...
-    'RowHeight',{'2x','1x','1x'},...
+rg = uigridlayout(rp,[4 1],...
+    'RowHeight',{'2x','0.75x','1x','1x'},...
     'Padding',[4 4 4 4],'RowSpacing',4);
 
 ax_tr = uiaxes(rg); ax_tr.Layout.Row=1;
@@ -361,11 +383,26 @@ ax_tr.FontSize=8; hold(ax_tr,'on'); box(ax_tr,'on');
 disableDefaultInteractivity(ax_tr);
 ax_tr.Toolbar.Visible = 'off';
 
-ax_dv2 = uiaxes(rg); ax_dv2.Layout.Row=2;
+% ---- link strip: the selected track as nodes + connections, laid out along TIME ----
+% Our tracks are strictly linear chains — spt_track links frame-to-frame with matchpairs (one-to-one)
+% and consumes each gap-close start once — so there are no split/merge events and a track is a simple
+% path. That is why this is a horizontal strip rather than TrackMate's 2D TrackScheme: with no
+% branching, the second dimension would carry nothing. Sharing the time axis with the step plot below
+% is what makes it useful — the spike there IS the suspicious edge here.
+ax_gr = uiaxes(rg); ax_gr.Layout.Row=2;
+ax_gr.YLabel.String='links'; ax_gr.FontSize=8; hold(ax_gr,'on'); box(ax_gr,'on');
+ax_gr.YTick=[]; ax_gr.YLim=[-1 1];
+ax_gr.XTickLabel={};                     % the step plot directly below carries the shared time axis
+disableDefaultInteractivity(ax_gr);      % same reason as ax_tr: interaction modes break in a uifigure
+ax_gr.Toolbar.Visible='off';
+ax_gr.ButtonDownFcn = @(s,e) on_strip_click(e);
+
+ax_dv2 = uiaxes(rg); ax_dv2.Layout.Row=3;
 ax_dv2.XLabel.String='Time (s)'; ax_dv2.YLabel.String='Step (um)';
 ax_dv2.FontSize=8; hold(ax_dv2,'on');
+ax_dv2.ButtonDownFcn = @(s,e) on_strip_click(e);   % clicking the spike cuts the same edge
 
-ax_in = uiaxes(rg); ax_in.Layout.Row=3;
+ax_in = uiaxes(rg); ax_in.Layout.Row=4;
 ax_in.XLabel.String='Time (s)'; ax_in.YLabel.String='Intensity';
 ax_in.FontSize=8; hold(ax_in,'on');
 
@@ -490,12 +527,120 @@ end
             'base',base, 'nAll',nAll, 'nKept',numel(S.kept_ids), 'nRej',nAll-numel(S.kept_ids), ...
             'kept',S.kept_ids(:)', 'shown',S.shown_ids(:)', 'nShown',numel(S.shown_ids), ...
             'sel',S.selected_id, 'mkeep',S.manual_keep(:)', 'mrej',S.manual_reject(:)', ...
-            'playing',S.playing));
+            'playing',S.playing, 'nCuts',numel(S.cuts)));
+        % Link-cut hooks (spt_linkcut_smoke). The spot table is the only place the split is visible
+        % before export, and do_cut is what a click on the strip ends up calling — a headless test has
+        % no way to click an axes, so it invokes the same entry point the UI does.
+        setappdata(fig,'tv_spots', S.spots_t);
+        setappdata(fig,'tv_cuts',  S.cuts);
+        setappdata(fig,'tv_docut', @do_cut);
     end
 
     function s = hms_(sec)
         if sec < 60, s = sprintf('%.1f s', sec);
         else, s = sprintf('%d m %02.0f s', floor(sec/60), mod(sec,60)); end
+    end
+
+    % ---- link cuts, remembered PER CELL ----------------------
+    % Same durability contract as the manual keep/reject below: a cut is the user's judgement about
+    % the data and must survive a filter re-apply, a cell round trip and a batch run.
+    function cuts_store()
+        if isempty(S.file_list) || S.current_file < 1, return; end
+        k = man_key(S.file_list{S.current_file}{3});
+        S.cuts_by_cell(k) = struct('cuts', S.cuts, 'nextId', S.nextFragId);
+    end
+
+    function cuts_restore(base)
+        k = man_key(base);
+        if isKey(S.cuts_by_cell, k)
+            r = S.cuts_by_cell(k); S.cuts = r.cuts; S.nextFragId = r.nextId;
+        else
+            S.cuts = struct('afterSpotId',{},'newId',{},'origId',{}); S.nextFragId = [];
+        end
+    end
+
+    function apply_cuts()
+        if ~ismember('ORIG_TRACK_ID', S.spots_t.Properties.VariableNames), return; end
+        S.spots_t = apply_cuts_to(S.spots_t, S.cuts);
+        S.spots_t = sortrows(S.spots_t, {'TRACK_ID','FRAME'});
+        S.track_metrics = compute_metrics_from_spots(S.spots_t);
+    end
+
+    function T = apply_cuts_to(T, cuts)
+        % Rebuild TRACK_ID from the ORIGINAL ids plus a cut list. Walk each original chain in frame
+        % order and switch to the minted id every time we leave a cut spot; a fragment that is itself
+        % cut again simply switches twice, so nested cuts need no special case. An uncut track keeps
+        % its original id exactly, which is what lets a manual override on it survive a cut made
+        % elsewhere in the cell.
+        % Shared by the interactive path and the batch so the two cannot drift apart — the batch
+        % re-derives its table from the XML on disk and would otherwise re-introduce the mislinkage.
+        if ~ismember('ORIG_TRACK_ID', T.Properties.VariableNames)
+            T.ORIG_TRACK_ID = T.TRACK_ID;         % batch tables arrive with only the tracker's ids
+        end
+        if isempty(cuts), T.TRACK_ID = T.ORIG_TRACK_ID; return; end
+        T = sortrows(T, {'ORIG_TRACK_ID','FRAME'});
+        cutAfter = [cuts.afterSpotId]; cutNew = [cuts.newId];
+        % Read the chain boundary from ORIG (untouched) and write into a SEPARATE vector. Testing
+        % out(i)~=out(i-1) instead would compare against a value this loop had already overwritten:
+        % one spot past a cut the two look equal, and one spot after that the original id reappears
+        % and resets cur — so exactly one localization moved to the new fragment.
+        orig = T.ORIG_TRACK_ID; sid = T.SPOT_ID;
+        out = orig; cur = orig(1);
+        for i = 1:numel(orig)
+            if i > 1 && orig(i) ~= orig(i-1), cur = orig(i); end  % new original chain
+            out(i) = cur;
+            j = find(cutAfter == sid(i), 1);
+            if ~isempty(j), cur = cutNew(j); end                  % the link LEAVING this spot is cut
+        end
+        T.TRACK_ID = out;
+    end
+
+    function ok = do_cut(afterSpotId)
+        % Sever the link leaving afterSpotId. Both halves go back through the filters, per the design:
+        % a fragment that no longer clears min length is not silently privileged just because it came
+        % from a cut. Any manual keep/reject on the track being cut is dropped — it was a judgement
+        % about a chain that no longer exists.
+        ok = false;
+        if ~S.loaded || isempty(afterSpotId) || isnan(afterSpotId), return; end
+        row = find(S.spots_t.SPOT_ID == afterSpotId, 1);
+        if isempty(row), clog('CUT: spot %g is not in this cell.', afterSpotId); return; end
+        tid = S.spots_t.TRACK_ID(row);
+        chain = sortrows(S.spots_t(S.spots_t.TRACK_ID==tid,:), 'FRAME');
+        if chain.SPOT_ID(end) == afterSpotId
+            clog('CUT: that is the last spot of track %g — no link leaves it.', tid); return;
+        end
+        if any([S.cuts.afterSpotId] == afterSpotId)
+            clog('CUT: that link is already cut.'); return;
+        end
+        if isempty(S.nextFragId)
+            S.nextFragId = max(S.spots_t.ORIG_TRACK_ID) + 1;   % mint above every original id
+        end
+        newId = S.nextFragId; S.nextFragId = S.nextFragId + 1;
+        origId = S.spots_t.ORIG_TRACK_ID(row);
+        S.cuts(end+1) = struct('afterSpotId',afterSpotId,'newId',newId,'origId',origId);
+        % the chain the user judged is gone; do not carry its verdict onto either half
+        S.manual_keep   = setdiff(S.manual_keep,   tid);
+        S.manual_reject = setdiff(S.manual_reject, tid);
+        apply_cuts();
+        nHead = sum(S.spots_t.TRACK_ID==tid); nTail = sum(S.spots_t.TRACK_ID==newId);
+        clog('✂ CUT track %g after spot %g → %g (%d locs) + %g (%d locs)%s', ...
+            tid, afterSpotId, tid, nHead, newId, nTail, ...
+            tern_(origId~=tid, sprintf(' [from original %g]', origId), ''));
+        cuts_store(); man_store();
+        do_apply_filter();                  % both halves re-enter the filters, per the design
+        S.selected_id = tid; select_track(tid);
+        ok = true;
+    end
+
+    function undo_cut()
+        if isempty(S.cuts), clog('UNDO: no cuts on this cell.'); return; end
+        last = S.cuts(end); S.cuts(end) = [];
+        apply_cuts();
+        clog('↩ UNDO cut on track %g (spot %g) — %d cut(s) left on this cell.', ...
+            last.origId, last.afterSpotId, numel(S.cuts));
+        cuts_store();
+        do_apply_filter();
+        S.selected_id = last.origId; select_track(last.origId);
     end
 
     % ---- manual keep/reject, remembered PER CELL -------------
@@ -582,14 +727,21 @@ end
         % the LINKING radius, so a track is flagged when spots fell inside the window the linker
         % actually searched. Shared with
         % the batch filter + recomputed when the tracking-parameter fields change.
+        % Keep the XML's own ids as ORIG_TRACK_ID. Everything downstream reads TRACK_ID, which is a
+        % DERIVED column: original id for an uncut chain, a minted id for each fragment after a cut.
+        spots_t.ORIG_TRACK_ID = spots_t.TRACK_ID;
         S.spots_t       = spots_t;
-        tm              = compute_metrics_from_spots(spots_t);
+        cuts_restore(base_name);  % this cell's own link cuts, if it has been edited before
+        apply_cuts();             % rebuild TRACK_ID + metrics from ORIG_TRACK_ID + those cuts
+        tm              = S.track_metrics;
         track_ids       = tm.TRACK_ID;
         n_t             = height(tm);
-        S.track_metrics = tm;
         S.xml_doc       = xdoc;
         S.kept_ids      = track_ids;
         man_restore(base_name);   % this cell's own manual decisions, if it has been reviewed before
+        if ~isempty(S.cuts)
+            clog('   %d link cut(s) restored for this cell.', numel(S.cuts));
+        end
         S.kept_ids      = union(setdiff(S.kept_ids, S.manual_reject), S.manual_keep);
         S.selected_id   = [];
         S.loaded        = true;
@@ -1199,6 +1351,7 @@ end
         update_spatial();
         update_trajectory(S.current_frame);
         update_disp_plot();
+        update_link_strip();     % after the step plot: it locks both time axes together
         update_intensity_plot();
     end
 
@@ -1292,6 +1445,100 @@ end
         rectangle(args{:});
     end
 
+    function update_link_strip()
+        % The selected chain as nodes + connections along time. Every edge is one link the tracker
+        % made; its colour is the step it represents, so the mislinkage is the hot segment. A link
+        % that spans a frame gap is drawn dashed — gap-closed links are structurally the likeliest
+        % mislinkages, and that is the one thing the step plot below cannot show you.
+        cla(ax_gr);
+        S.strip = struct('spotId',[],'t0',[],'t1',[],'step',[],'gap',[]);
+        if ~S.loaded || isempty(S.selected_id), title(ax_gr,''); return; end
+        sel = sortrows(S.spots_t(S.spots_t.TRACK_ID==S.selected_id,:),'FRAME');
+        if height(sel) < 2
+            title(ax_gr,sprintf('track %g — %d spot, no links', S.selected_id, height(sel)),'FontSize',8);
+            return;
+        end
+        t  = sel.FRAME * S.frame_interval;
+        d  = sqrt(diff(sel.X_um).^2 + diff(sel.Y_um).^2);
+        gp = diff(sel.FRAME) > 1;
+        thr = suspicious_thr();
+        dmax = max(d); if ~(dmax>0), dmax = 1; end
+        for i = 1:numel(d)
+            hot = d(i) > thr;
+            col = [0.55 0.60 0.66];
+            if hot, col = [0.85 0.15 0.15]; else, col = [0.20 0.60 0.86]*(0.45+0.55*d(i)/dmax); end
+            plot(ax_gr, [t(i) t(i+1)], [0 0], '-', 'Color', col, ...
+                'LineWidth', tern_(hot,3.2,1.6), 'LineStyle', tern_(gp(i),'--','-'), ...
+                'HitTest','off','PickableParts','none');
+            S.strip.spotId(end+1,1) = sel.SPOT_ID(i);     % the link LEAVING this spot
+            S.strip.t0(end+1,1) = t(i); S.strip.t1(end+1,1) = t(i+1);
+            S.strip.step(end+1,1) = d(i); S.strip.gap(end+1,1) = gp(i);
+        end
+        plot(ax_gr, t, zeros(size(t)), 'o', 'MarkerSize',3.5, ...
+            'MarkerFaceColor',[0.15 0.20 0.26],'MarkerEdgeColor','none', ...
+            'HitTest','off','PickableParts','none');
+        nHot = sum(d > thr); nGap = sum(gp);
+        title(ax_gr, sprintf('track %g · %d links%s%s  —  click a link to CUT', S.selected_id, numel(d), ...
+            tern_(nHot>0, sprintf(' · %d over %.2f µm', nHot, thr), ''), ...
+            tern_(nGap>0, sprintf(' · %d gap-closed', nGap), '')), 'FontSize',8);
+        xl = [min(t) max(t)]; if diff(xl)<=0, xl = xl + [-1 1]*0.5; end
+        pad = 0.02*diff(xl);
+        ax_gr.XLim = xl + [-pad pad]; ax_dv2.XLim = ax_gr.XLim;   % the two time axes stay in step
+    end
+
+    function thr = suspicious_thr()
+        % A link is "suspicious" when it is longer than the distance the linker was allowed to close
+        % a gap over — the same number the whole-track jump gate uses. Above that, the tracker was
+        % reaching, which is exactly when it grabs the wrong molecule.
+        thr = 1.0;
+        if isfield(c,'gap_dist') && isgraphics(c.gap_dist), thr = c.gap_dist.Value; end
+    end
+
+    function on_strip_click(e)
+        % Both the strip and the step plot below map a click to the same edge: nearest by time. The
+        % step plot draws step i at the time of the spot it ARRIVES at, so nearest-midpoint works for
+        % the strip and nearest-endpoint for the plot; taking the enclosing interval handles both.
+        if ~S.loaded || isempty(S.selected_id) || isempty(S.strip.spotId)
+            clog('CUT: select a track first.'); return;
+        end
+        x = e.IntersectionPoint(1);
+        k = find(S.strip.t0 <= x & S.strip.t1 >= x, 1);
+        if isempty(k)
+            [~,k] = min(abs((S.strip.t0 + S.strip.t1)/2 - x));    % outside every span: nearest edge
+        end
+        d = S.strip.step(k);
+        clog('   picked link after spot %g (step %.3f µm%s)', S.strip.spotId(k), d, ...
+             tern_(S.strip.gap(k),', gap-closed',''));
+        do_cut(S.strip.spotId(k));
+    end
+
+    function next_suspicious()
+        % Walk to the next link anywhere in the cell whose step exceeds the gate, in track order then
+        % time order, wrapping around. Only KEPT tracks are offered: a track already rejected is not
+        % worth repairing, and this is meant to rescue tracks the jump gate would otherwise bin whole.
+        if ~S.loaded, clog('NEXT LINK: nothing loaded.'); return; end
+        thr = suspicious_thr();
+        ids = S.kept_ids(:)';
+        if isempty(ids), clog('NEXT LINK: no kept tracks to scan.'); return; end
+        start = 0; if ~isempty(S.selected_id), start = find(ids==S.selected_id,1); if isempty(start), start=0; end, end
+        order = [ids(start+1:end) ids(1:start)];    % resume after the current track, then wrap
+        for tid = order
+            sel = sortrows(S.spots_t(S.spots_t.TRACK_ID==tid,:),'FRAME');
+            if height(sel) < 2, continue; end
+            d = sqrt(diff(sel.X_um).^2 + diff(sel.Y_um).^2);
+            if ~any(d > thr), continue; end
+            S.selected_id = tid; select_track(tid);
+            j = find(d > thr);
+            clog('⚠ track %g has %d link(s) over %.2f µm (largest %.3f µm) — click one to cut.', ...
+                tid, numel(j), thr, max(d));
+            c.status.Text = sprintf('Suspicious link in track %g: %d over %.2f µm (largest %.3f µm)', ...
+                tid, numel(j), thr, max(d));
+            return;
+        end
+        clog('NEXT LINK: no kept track has a step over %.2f µm.', thr);
+        c.status.Text = sprintf('No suspicious links above %.2f µm.', thr);
+    end
+
     function update_disp_plot()
         if ~S.loaded||isempty(S.selected_id), return, end
         cla(ax_dv2); hold(ax_dv2,'on');
@@ -1300,9 +1547,16 @@ end
         dx=diff(sel.X_um); dy=diff(sel.Y_um); d=sqrt(dx.^2+dy.^2);
         t_s=sel.FRAME(2:end)*S.frame_interval;
         plot(ax_dv2,t_s,d,'-o','Color',[0.20 0.60 0.86],...
-            'MarkerSize',2,'LineWidth',0.8);
+            'MarkerSize',2,'LineWidth',0.8,'HitTest','off','PickableParts','none');
         yline(ax_dv2,mean(d),'--r','LineWidth',0.8);
-        title(ax_dv2,'Step displacements','FontSize',9);
+        % Mark the same links the strip above flags, so the spike and the edge read as one object.
+        thr = suspicious_thr(); hot = d > thr;
+        if any(hot)
+            plot(ax_dv2,t_s(hot),d(hot),'o','MarkerSize',6,'LineWidth',1.4, ...
+                'MarkerEdgeColor',[0.85 0.15 0.15],'HitTest','off','PickableParts','none');
+        end
+        yline(ax_dv2,thr,':','Color',[0.85 0.15 0.15],'LineWidth',0.8);
+        title(ax_dv2,'Step displacements — click a spike to cut that link','FontSize',9);
         drawnow limitrate;
     end
 
@@ -1474,6 +1728,9 @@ end
         fclose(fid_log);
 
         % 4. Custom filtered XML (with SPOT_ID)
+        % Emitted from S.spots_t, NOT from the parsed input DOM. The DOM only knows the tracks the
+        % tracker produced; after a link cut the kept ids include minted fragment ids that match no
+        % <Track> node, so walking the DOM would silently drop every repaired track.
         xdoc = S.xml_doc; root = xdoc.getDocumentElement();
         fid = fopen(fullfile(out_dir,[base_name '_tracks_' S.exportSuffix '.xml']),'w');
         fprintf(fid,'<?xml version="1.0" encoding="UTF-8"?>\n');
@@ -1482,20 +1739,13 @@ end
             char(root.getAttribute('frameInterval')),...
             char(root.getAttribute('spaceUnit')),...
             char(root.getAttribute('timeUnit')));
-        tnodes = xdoc.getElementsByTagName('Track');
-        for ti=0:tnodes.getLength()-1
-            tn=tnodes.item(ti);
-            tid=str2double(tn.getAttribute('TRACK_ID'));
-            if ~ismember(tid,good_ids), continue, end
-            fprintf(fid,'  <Track TRACK_ID="%d" N_SPOTS="%s">\n',...
-                tid,char(tn.getAttribute('N_SPOTS')));
-            sn=tn.getElementsByTagName('Spot');
-            for si=0:sn.getLength()-1
-                s=sn.item(si);
-                fprintf(fid,'    <Spot SPOT_ID="%s" FRAME="%s" T="%s" X="%s" Y="%s" Z="%s"/>\n',...
-                    char(s.getAttribute('SPOT_ID')),char(s.getAttribute('FRAME')),...
-                    char(s.getAttribute('T')),char(s.getAttribute('X')),...
-                    char(s.getAttribute('Y')),char(s.getAttribute('Z')));
+        for gi = 1:numel(good_ids)
+            tr = sortrows(S.spots_t(S.spots_t.TRACK_ID==good_ids(gi),:),'FRAME');
+            if height(tr)==0, continue, end
+            fprintf(fid,'  <Track TRACK_ID="%d" N_SPOTS="%d">\n', good_ids(gi), height(tr));
+            for si = 1:height(tr)
+                fprintf(fid,'    <Spot SPOT_ID="%d" FRAME="%d" T="%.6f" X="%.6f" Y="%.6f" Z="0.0"/>\n',...
+                    tr.SPOT_ID(si), tr.FRAME(si), tr.FRAME(si)*S.frame_interval, tr.X_um(si), tr.Y_um(si));
             end
             fprintf(fid,'  </Track>\n');
         end
@@ -1504,7 +1754,13 @@ end
         % 5. Builtin TrackMate XML — filter particles matching good TRACK_IDs
         % The builtin XML uses <particle> nodes in order matching track indices.
         % We match by position: sort all_ids, find which positions are kept.
-        if ~isempty(S.builtin_xml_doc)
+        % That positional mapping only holds while the track set is the tracker's own. A link cut
+        % splits one chain into two, so the i-th kept id no longer names the i-th particle and the
+        % file would be silently mis-assigned. Skip it rather than write a wrong one — the custom XML
+        % above is what the importer reads.
+        if ~isempty(S.builtin_xml_doc) && ~isempty(S.cuts)
+            clog('   builtin XML skipped — %d link cut(s) mean its particle order no longer matches.', numel(S.cuts));
+        elseif ~isempty(S.builtin_xml_doc)
             broot    = S.builtin_xml_doc.getDocumentElement();
             particles = S.builtin_xml_doc.getElementsByTagName('particle');
             n_part    = particles.getLength();
@@ -1550,8 +1806,9 @@ end
         n_removed = numel(removed_ids);
         nman = numel(S.manual_keep) + numel(S.manual_reject);
         clog('▶ EXPORT %s · %s', base_name, hms_(toc(tExp)));
-        clog('   %d kept / %d rejected of %d%s', numel(good_ids), n_removed, numel(all_ids), ...
-            tern_(nman>0, sprintf(' · %d manual override%s honoured', nman, tern_(nman==1,'','s')), ''));
+        clog('   %d kept / %d rejected of %d%s%s', numel(good_ids), n_removed, numel(all_ids), ...
+            tern_(nman>0, sprintf(' · %d manual override%s honoured', nman, tern_(nman==1,'','s')), ''), ...
+            tern_(~isempty(S.cuts), sprintf(' · %d link cut%s applied', numel(S.cuts), tern_(numel(S.cuts)==1,'','s')), ''));
         clog('   thresholds: disp var <= %.4f · density <= %.0f%s', c.max_dv.Value, c.max_dn.Value, ...
             tern_(isfield(c,'reject_jumps') && isgraphics(c.reject_jumps) && c.reject_jumps.Value, ...
                   sprintf(' · jump gate > %.3g µm', c.gap_dist.Value), ''));
@@ -1606,12 +1863,16 @@ end
         setBusy(true, c.batch_btn, '⏳ batch running…');
         bGuard = onCleanup(@() setBusy(false, c.batch_btn)); %#ok<NASGU>
         man_store();          % flush the open cell's decisions so the batch honours them too
+        cuts_store();         % ...and its link cuts, for the same reason
         tBatch = tic;
         nman_all = 0; ks = S.manual_by_cell.keys;
         for q = 1:numel(ks), mm = S.manual_by_cell(ks{q}); nman_all = nman_all + numel(mm.keep) + numel(mm.reject); end
-        clog('▶ BATCH %d cell(s) · disp var <= %.4f · density <= %.0f%s%s', n_files, thr_dv, thr_dn, ...
+        ncut_all = 0; kc = S.cuts_by_cell.keys;
+        for q = 1:numel(kc), ncut_all = ncut_all + numel(S.cuts_by_cell(kc{q}).cuts); end
+        clog('▶ BATCH %d cell(s) · disp var <= %.4f · density <= %.0f%s%s%s', n_files, thr_dv, thr_dn, ...
             tern_(jump_on, sprintf(' · jump > %.3g µm', thr_jump), ''), ...
-            tern_(nman_all>0, sprintf(' · %d manual override(s) preserved', nman_all), ''));
+            tern_(nman_all>0, sprintf(' · %d manual override(s) preserved', nman_all), ''), ...
+            tern_(ncut_all>0, sprintf(' · %d link cut(s) applied', ncut_all), ''));
         c.status.Text = sprintf('Batch filtering %d files...', n_files);
         drawnow;
 
@@ -1679,6 +1940,18 @@ end
                 spots_t_b = spots_t_b(~isnan(spots_t_b.FRAME),:);
                 spots_t_b = sortrows(spots_t_b,{'TRACK_ID','FRAME'});
 
+                % Re-apply this cell's link cuts BEFORE the metrics, so the batch measures the repaired
+                % chains — not the mislinked ones the tracker wrote. Without this a cut made by hand
+                % would be silently undone by any batch run, the way manual keeps once were.
+                ncut_b = 0;
+                if isKey(S.cuts_by_cell, man_key(base_nm))
+                    rc = S.cuts_by_cell(man_key(base_nm)); ncut_b = numel(rc.cuts);
+                    if ncut_b > 0
+                        spots_t_b = apply_cuts_to(spots_t_b, rc.cuts);
+                        spots_t_b = sortrows(spots_t_b,{'TRACK_ID','FRAME'});
+                    end
+                end
+
                 % Crowding + motion metrics — SAME function as the interactive filter, so the
                 % batch measures density(max) at your linking radius identically.
                 tm_b        = compute_metrics_from_spots(spots_t_b);
@@ -1721,26 +1994,27 @@ end
                     numel(good_ids_b), fi_val,...
                     char(root_b.getAttribute('spaceUnit')),...
                     char(root_b.getAttribute('timeUnit')));
-                for ti=0:tnodes_b.getLength()-1
-                    tn_b = tnodes_b.item(ti);
-                    tid_b= str2double(tn_b.getAttribute('TRACK_ID'));
-                    if ~ismember(tid_b,good_ids_b), continue, end
-                    fprintf(fid_x,'  <Track TRACK_ID="%d" N_SPOTS="%s">\n',...
-                        tid_b, char(tn_b.getAttribute('N_SPOTS')));
-                    sn_b = tn_b.getElementsByTagName('Spot');
-                    for si=0:sn_b.getLength()-1
-                        s_b=sn_b.item(si);
-                        fprintf(fid_x,'    <Spot SPOT_ID="%s" FRAME="%s" T="%s" X="%s" Y="%s" Z="%s"/>\n',...
-                            char(s_b.getAttribute('SPOT_ID')),char(s_b.getAttribute('FRAME')),...
-                            char(s_b.getAttribute('T')),char(s_b.getAttribute('X')),...
-                            char(s_b.getAttribute('Y')),char(s_b.getAttribute('Z')));
+                % Emitted from the (cut-aware) spot table, not from the input DOM: after a link cut the
+                % kept ids include minted fragment ids that match no <Track> node, so walking the DOM
+                % would drop every repaired track without a word.
+                for gi = 1:numel(good_ids_b)
+                    trb = sortrows(spots_t_b(spots_t_b.TRACK_ID==good_ids_b(gi),:),'FRAME');
+                    if height(trb)==0, continue, end
+                    fprintf(fid_x,'  <Track TRACK_ID="%d" N_SPOTS="%d">\n', good_ids_b(gi), height(trb));
+                    for si = 1:height(trb)
+                        fprintf(fid_x,'    <Spot SPOT_ID="%d" FRAME="%d" T="%.6f" X="%.6f" Y="%.6f" Z="0.0"/>\n',...
+                            trb.SPOT_ID(si), trb.FRAME(si), trb.FRAME(si)*fi_val, trb.X_um(si), trb.Y_um(si));
                     end
                     fprintf(fid_x,'  </Track>\n');
                 end
                 fprintf(fid_x,'</Tracks>\n'); fclose(fid_x);
 
-                % Export builtin XML if available
-                if ~isempty(blt_path) && isfile(blt_path)
+                % Export builtin XML if available. Its <particle> nodes are matched to tracks BY
+                % POSITION, so a link cut (which changes the track count) invalidates the mapping —
+                % skip rather than write a mis-assigned file.
+                if ncut_b > 0 && ~isempty(blt_path) && isfile(blt_path)
+                    clog('   %s: builtin XML skipped — %d link cut(s) change the particle order.', base_nm, ncut_b);
+                elseif ~isempty(blt_path) && isfile(blt_path)
                     blt_doc   = xmlread(blt_path);
                     blt_root  = blt_doc.getDocumentElement();
                     parts_b   = blt_doc.getElementsByTagName('particle');
@@ -1817,8 +2091,9 @@ end
                 r_struct.removed_ids = removed_ids_b';
                 batch_results(end+1)  = r_struct; %#ok
 
-                clog('   %s · %d -> %d kept (%d rejected)%s', base_nm, n_tb, numel(good_ids_b), ...
-                    numel(removed_ids_b), tern_(nman_b>0, sprintf(' · %d manual', nman_b), ''));
+                clog('   %s · %d -> %d kept (%d rejected)%s%s', base_nm, n_tb, numel(good_ids_b), ...
+                    numel(removed_ids_b), tern_(nman_b>0, sprintf(' · %d manual', nman_b), ''), ...
+                    tern_(ncut_b>0, sprintf(' · %d cut', ncut_b), ''));
             catch ME
                 clog('   %s: ERROR — %s', base_nm, ME.message);
                 warning('Batch filter failed on %s: %s', base_nm, ME.message);

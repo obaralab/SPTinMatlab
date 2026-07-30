@@ -79,7 +79,8 @@
   <a href="#t2trackparams">&nbsp;&nbsp;Tracking parameters — the fields that define the crowding metric</a>
   <a href="#t2filterctl">&nbsp;&nbsp;The filter controls, control by control</a>
   <a href="#t2review">&nbsp;&nbsp;REVIEW — the point of the tab</a>
-  <a href="#t2detail">&nbsp;&nbsp;The three "Selected track" panels</a>
+  <a href="#t2detail">&nbsp;&nbsp;The four "Selected track" panels</a>
+  <a href="#t2cut">&nbsp;&nbsp;Mislinkage repair — cutting a bad link</a>
   <a href="#t2playback">&nbsp;&nbsp;Playback</a>
   <a href="#t2overlay">&nbsp;&nbsp;Overlay (ER / mito) and the raw-SPT background</a>
   <a href="#t2export">&nbsp;&nbsp;Export — exactly which files are written</a>
@@ -679,7 +680,7 @@ n_spots,n_tracks,er_aware,run_time</code></pre>
   <tr><th>Column</th><th>Panel title</th><th>Holds</th></tr>
   <tr><td>Left (322 px)</td><td><b>Controls</b></td><td>Every control, in a scrollable strip: <em>Cell · Tracking parameters · Filter (sliders) · Filter (percentile) · Review · Export · Playback · Overlay · Batch filter</em> — plus the <a href="#t2log">activity log</a> pinned below it, outside the scroll.</td></tr>
   <tr><td>Centre</td><td><b>Overview</b></td><td>The whole-cell map of drawn tracks (¾ of the height) over the ER/mito overlay, and beneath it the two filter histograms.</td></tr>
-  <tr><td>Right (340 px)</td><td><b>Selected track</b></td><td>Three stacked plots for the one track you clicked: <a href="#t2detail">trajectory over the raw movie, step displacements, integrated intensity</a>.</td></tr>
+  <tr><td>Right (340 px)</td><td><b>Selected track</b></td><td>Four stacked plots for the one track you clicked: <a href="#t2detail">trajectory over the raw movie, step displacements, integrated intensity</a>, plus the <a href="#t2cut">link strip</a> for cutting mislinkages.</td></tr>
 </table>
 <div class="note">Every readout quoted in this section is shown in the <em>format the app prints it in</em>; the numbers inside those examples are placeholders. Track counts, thresholds and metric values are all per cell, so yours will differ.</div>
 <div class="note">Both the Overview and the trajectory axes use <code>YDir = 'reverse'</code>, i.e. <b>Y increases downward</b>, to match ImageJ. Do not be surprised that the map looks vertically mirrored relative to a normal MATLAB plot.</div>
@@ -800,8 +801,8 @@ max density 14  (max 12)</code></pre>
 </ul>
 <p>Toggling a track also clears the opposite override, so a track is never on both lists. The overrides live in the running app only — they are not written to disk except as the KEEP flags inside an export.</p>
 
-<h3 id="t2detail">The three "Selected track" panels</h3>
-<p>The right-hand column is the evidence for the decision. All three redraw when you select a track; the top one also redraws on every playback frame.</p>
+<h3 id="t2detail">The four "Selected track" panels</h3>
+<p>The right-hand column is the evidence for the decision. All four redraw when you select a track; the top one also redraws on every playback frame. The middle two — the link strip and the step plot — share one time axis, so a spike in the lower panel sits directly under the link that produced it.</p>
 
 <div class="card">
 <b>1 · Trajectory over the raw movie</b> (top, double height; axes labelled <code>X (um)</code> / <code>Y (um)</code>)
@@ -853,6 +854,31 @@ No ER/mito found for this cell (set folders on the Experiment tab, or Pick manua
   <tr><td><b>Kept colour</b> / <b>Excluded colour</b></td><td>blue / red</td><td>The same ten choices; these two colour the kept and rejected tracks in the Overview, not the overlay.</td></tr>
 </table>
 <p>The overlay is composited as an RGB image with <b>per-pixel opacity 0.5 on the organelle and 0 elsewhere</b>, and pushed to the bottom of the axes — so the white background shows through where there is no organelle, and the tracks always stay legible on top. Each channel is contrast-normalised to its own min/max before tinting. If the ER and mito images differ in size, one channel is skipped and the label warns you: <code>Overlay: ER and mito sizes differ — one channel skipped. Use same-size (same-camera) images.</code></p>
+
+<h3 id="t2cut">Mislinkage repair — cutting a bad link <span class="tag you">new</span></h3>
+<p>The tracker sometimes joins two different molecules: one link in a chain jumps much further than the rest. Before this, the only remedy was the whole-track <b>jump gate</b>, which rejects the entire track for containing one bad step — so a 200-localization chain with a single mislinkage was thrown away whole. Now you can cut the link instead, and both halves are kept and judged on their own.</p>
+
+<div class="good"><b>Why a horizontal strip and not TrackMate's TrackScheme.</b> TrackMate needs a two-dimensional node graph because its tracks can branch — it models split and merge events. Ours cannot: <code>spt_track</code> links frame to frame with <code>matchpairs</code>, a one-to-one assignment, and gap closing consumes each candidate start once, so every track is a simple path. With no branching there is nothing for the second axis to show, and a strip along time can share the step plot's axis instead — which is what makes the spike and the link the same object.</div>
+
+<div class="card">
+<b>The link strip</b> (second panel, axis label <code>links</code>)
+<p>One node per localization, one segment per link the tracker made, laid out along time. Segment colour tracks the step length, so the mislinkage is the hot red one. A link that spans a <b>frame gap</b> is drawn <b>dashed</b> — those are gap-closed links, structurally the likeliest mislinkages, and the one thing the step plot below cannot show you. The title counts both: <code>track 288 · 213 links · 2 over 1.00 µm · 7 gap-closed — click a link to CUT</code>.</p>
+<p>The threshold for "hot" is the <b>gap-close distance</b> spinner — the same number the jump gate uses. Above it the tracker was reaching beyond the distance it was allowed to close a gap over, which is exactly when it grabs the wrong molecule.</p>
+</div>
+
+<table>
+  <tr><th>Control</th><th>What it does</th></tr>
+  <tr><td>click a segment in the <b>link strip</b></td><td>Cuts that link. The chain splits in two at that point.</td></tr>
+  <tr><td>click a spike in the <b>step plot</b></td><td>The same cut — the two panels share a time axis and map a click to the same link, so use whichever reads more clearly.</td></tr>
+  <tr><td><kbd>⚠ Next link</kbd></td><td>Jumps to the next <em>kept</em> track holding a step over the gap-close distance, wrapping around the cell. Rejected tracks are skipped: the point is to rescue tracks the jump gate would otherwise bin whole.</td></tr>
+  <tr><td><kbd>↩ Undo cut</kbd></td><td>Undoes the most recent cut on this cell, restoring the original chain.</td></tr>
+</table>
+
+<p><b>What a cut does to the two halves.</b> Both go straight back through the filters — min length, density, step variance. A 60-frame track cut 45/15 will lose the 15 if min length is 50, and that is deliberate: a fragment is not privileged just because it came from a cut, and the length gate exists because short tracks give unusable MSD fits. Any manual keep/reject on the parent is <b>dropped</b>, because it was a judgement about a chain that no longer exists — decide again on each half.</p>
+
+<p><b>Durability.</b> Cuts are stored per cell, exactly like manual keep/reject: they survive a filter re-apply, navigating to another cell and back, and a batch run. The batch re-applies each cell's cuts to the XML it re-reads from disk, so a repair made by hand is not silently undone by a later batch. Reloading a cell reports them — <code>3 link cut(s) restored for this cell.</code></p>
+
+<div class="warn"><b>Two consequences worth knowing.</b> A cut is recorded against <code>SPOT_ID</code>, not track id, so it stays attached to the right link no matter what else you cut; fragments get fresh ids minted above every original id, and those ids never shift when you cut somewhere else. But the <b>builtin TrackMate XML is skipped</b> for any cell with cuts: its <code>&lt;particle&gt;</code> nodes are matched to tracks by position, and splitting a chain changes the track count, so the file would be silently mis-assigned. The custom XML — the one the importer actually reads — is written normally.</div>
 
 <h3 id="t2export">Export — exactly which files are written</h3>
 <p>Header: <b>EXPORT (current file)</b>. The text box above the buttons is the destination and is pre-filled with the project's <code>tracks/</code> folder; leave it and the curated pair lands exactly where <b>Build &amp; QC</b> looks for it. Empty it and you get a folder picker; a non-existent folder is created.</p>
