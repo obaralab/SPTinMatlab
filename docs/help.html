@@ -860,19 +860,31 @@ No ER/mito found for this cell (set folders on the Experiment tab, or Pick manua
 
 <div class="good"><b>Why a horizontal strip and not TrackMate's TrackScheme.</b> TrackMate needs a two-dimensional node graph because its tracks can branch — it models split and merge events. Ours cannot: <code>spt_track</code> links frame to frame with <code>matchpairs</code>, a one-to-one assignment, and gap closing consumes each candidate start once, so every track is a simple path. With no branching there is nothing for the second axis to show, and a strip along time can share the step plot's axis instead — which is what makes the spike and the link the same object.</div>
 
+<div class="warn"><b>Why the flag is relative, not an absolute distance.</b> The obvious detector — "step longer than the gap-close distance" — does not work on real data. On the <code>WithER</code> cell the steps run 0.2–0.8 µm against a 1.40 µm gap-close setting, so it flags <b>0 links in 0 tracks</b>: a track that visibly joins two separate clusters is never offered to you. What marks a mislinkage is that the step is an <em>outlier for its own track</em> — a molecule stepping 0.16 µm at a time does not take one 0.9 µm stride. So a link is flagged when its step is <b>≥ N × that track's own median step</b> (N is yours to set, default 5) <em>and</em> at least half the linking distance, or when it simply exceeds the gap-close distance.</div>
+
+<p>Both halves of that rule matter. Ratio alone at 3× flags <b>649 of 838 tracks</b> on the reference cell — not triage, just noise, because a nearly stationary track has a median step near the localization precision and every jitter is a large multiple of nothing. The absolute floor is tied to the linking radius rather than fixed in µm, so it travels between datasets. At the defaults the same cell yields <b>116 links across 99 tracks</b>, which is a session's work rather than a hopeless list.</p>
+
 <div class="card">
 <b>The link strip</b> (second panel, axis label <code>links</code>)
-<p>One node per localization, one segment per link the tracker made, laid out along time. Segment colour tracks the step length, so the mislinkage is the hot red one. A link that spans a <b>frame gap</b> is drawn <b>dashed</b> — those are gap-closed links, structurally the likeliest mislinkages, and the one thing the step plot below cannot show you. The title counts both: <code>track 288 · 213 links · 2 over 1.00 µm · 7 gap-closed — click a link to CUT</code>.</p>
-<p>The threshold for "hot" is the <b>gap-close distance</b> spinner — the same number the jump gate uses. Above it the tracker was reaching beyond the distance it was allowed to close a gap over, which is exactly when it grabs the wrong molecule.</p>
+<p>One node per localization and one segment per link, laid along time. Each link carries a <b>vertical bar whose height is its ratio to this track's median step</b> (clipped at 6×), so an outlier stands up out of the baseline instead of hiding in a flat row of identical marks. Flagged links are red, the dotted line is your ratio threshold, and a link spanning a <b>frame gap</b> is drawn <b>dashed</b> — gap-closed links are structurally the likeliest mislinkages and are the one thing the step plot cannot show. The link on the cursor is under a <b>yellow band</b>.</p>
+<p>Title: <code>track 606 · 58 links · 3 flagged · 7 gap-closed  (bar = × median step)</code>.</p>
 </div>
+
+<p><b>The panel that actually decides it is the trajectory.</b> The link on the cursor is drawn on the track map in <b>thick red with both endpoints ringed</b>. A genuine mislinkage looks like one long stride bridging two otherwise separate clouds of localizations — and no amount of staring at a step-versus-time trace shows you that. Walk the links and watch the red segment move over the map.</p>
 
 <table>
   <tr><th>Control</th><th>What it does</th></tr>
-  <tr><td>click a segment in the <b>link strip</b></td><td>Cuts that link. The chain splits in two at that point.</td></tr>
-  <tr><td>click a spike in the <b>step plot</b></td><td>The same cut — the two panels share a time axis and map a click to the same link, so use whichever reads more clearly.</td></tr>
-  <tr><td><kbd>⚠ Next link</kbd></td><td>Jumps to the next <em>kept</em> track holding a step over the gap-close distance, wrapping around the cell. Rejected tracks are skipped: the point is to rescue tracks the jump gate would otherwise bin whole.</td></tr>
+  <tr><td><b>Flag step ≥ ×median</b></td><td>The ratio threshold, default <b>5</b>. The label underneath re-counts as you turn it — <code>116 link(s) in 99 of 838 kept track(s) — 12%</code> — and turns orange past 40 % of tracks, which means you have opened the net wider than you can review. Tune it to a workload, then walk it.</td></tr>
+  <tr><td><kbd>◀ link</kbd> / <kbd>link ▶</kbd></td><td>Step through this track's links one at a time, wrapping. With no cursor yet, the first press lands on the <em>worst</em> link rather than link 1 — on a 58-link track that is the whole point.</td></tr>
+  <tr><td><kbd>▲ Worst</kbd></td><td>Jump straight to this track's largest step relative to its own median.</td></tr>
+  <tr><td><kbd>⚠ Next flagged</kbd></td><td>Next flagged link <em>within</em> this track, skipping the ordinary ones.</td></tr>
+  <tr><td><kbd>✂ Cut link N</kbd></td><td>Cuts the link on the cursor — the button names the link and its length. Disabled until a link is selected.</td></tr>
+  <tr><td>click the strip or a spike</td><td><b>Selects</b> that link; it does not cut. Cutting is a separate, deliberate press, because a mis-aimed click on a 58-link strip used to be an irreversible edit.</td></tr>
+  <tr><td><kbd>⚠ Next track</kbd></td><td>Next kept track holding a flagged link, <b>ranked worst-first</b> across the cell, landing on that track's worst link. The status line reports your position: <code>Track 419 (1 of 99 flagged)</code>.</td></tr>
   <tr><td><kbd>↩ Undo cut</kbd></td><td>Undoes the most recent cut on this cell, restoring the original chain.</td></tr>
 </table>
+
+<p>The readout under the buttons names what you are about to do: <code>link 15 of 58 · 0.940 µm = 8.3× this track's median (0.113 µm) · ⚠ FLAGGED · frames 4155 → 4156</code>, in red when the link is flagged.</p>
 
 <p><b>What a cut does to the two halves.</b> Both go straight back through the filters — min length, density, step variance. A 60-frame track cut 45/15 will lose the 15 if min length is 50, and that is deliberate: a fragment is not privileged just because it came from a cut, and the length gate exists because short tracks give unusable MSD fits. Any manual keep/reject on the parent is <b>dropped</b>, because it was a judgement about a chain that no longer exists — decide again on each half.</p>
 

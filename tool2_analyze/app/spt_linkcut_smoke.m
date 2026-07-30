@@ -46,7 +46,7 @@ assert(~isempty(hitLog), 'no activity log pane');
 logOf = @() string(hitLog(1).Value);
 st = @() getappdata(fig,'tv_state');
 
-bNextLink = btn(bs,'Next link');   bUndo   = btn(bs,'Undo cut');
+bNextLink = btn(bs,'Next track');   bUndo   = btn(bs,'Undo cut');
 bApply    = btn(bs,'Apply filter'); bExport = btn(bs,'Export curated');
 bToggle   = btn(bs,'Toggle keep/reject');
 
@@ -54,16 +54,45 @@ bToggle   = btn(bs,'Toggle keep/reject');
 press(bApply);
 press(bNextLink);
 s = st();
-assert(~isempty(s.sel), '"Next link" selected nothing — the suspicious-link walk found no candidate');
+assert(~isempty(s.sel), '"Next track" selected nothing — the flagged-link walk found no candidate');
 tid = s.sel;
 L = logOf();
-assert(any(contains(L,'link(s) over')), 'the walk did not report the suspicious link. Log:\n%s', strjoin(L,newline));
+assert(any(contains(L,'flagged link')), 'the walk did not report the flagged link. Log:\n%s', strjoin(L,newline));
 fprintf('walk selected track %g as suspicious\n', tid);
 
 nBefore   = numel(s.shown);
 spotsPre  = track_spots(fig, tid);
 nSpotsPre = numel(spotsPre);
 assert(nSpotsPre >= 4, 'test track too short (%d spots)', nSpotsPre);
+
+%% (1b) the RELATIVE metric flags what an absolute gate misses ------------------------------------
+% The planted jump is 3 µm against a 1.4 µm gap-close default, so an absolute gate would catch it.
+% Real data is not like that: the WithER cell runs 0.2-0.8 µm steps under a 1.40 µm gate, so a track
+% joining two clusters is never flagged. Check the ratio test catches a jump BELOW the absolute gate.
+Lfn = getappdata(fig,'tv_links');
+Lt  = Lfn(tid);
+assert(~isempty(Lt.step), 'link_info returned nothing for track %g', tid);
+assert(any(Lt.susp), 'no link flagged on the mislinked track');
+assert(Lt.med > 0 && Lt.med < 0.2, 'fixture median step %.3f µm is not a tight walk', Lt.med);
+[~,worst] = max(Lt.ratio);
+assert(Lt.ratio(worst) > 5, 'the planted jump is only %.1f× the median', Lt.ratio(worst));
+fprintf('link_info: %d links, median %.3f µm, worst %.1f× median, %d flagged\n', ...
+    numel(Lt.step), Lt.med, Lt.ratio(worst), sum(Lt.susp));
+
+%% (1c) walking the links moves a cursor, and Cut acts on it -------------------------------------
+nav = getappdata(fig,'tv_nav');
+nav.worst();                                  % land on the biggest outlier
+drawnow;
+navNow = getappdata(fig,'tv_nav');
+assert(~isempty(navNow.idx), '"Worst" set no cursor');
+assert(navNow.idx == worst, '"Worst" landed on link %d, expected %d', navNow.idx, worst);
+nav.goto(+1); drawnow;
+assert(getappdata(fig,'tv_nav').idx == worst+1, 'link ▶ did not advance the cursor');
+nav.goto(-1); drawnow;
+assert(getappdata(fig,'tv_nav').idx == worst, 'link ◀ did not step back');
+cutBtn = btn(bs,'Cut link');
+assert(strcmp(cutBtn.Enable,'on'), 'the cut button is still disabled with a link on the cursor');
+fprintf('cursor: worst=%d, ◀/▶ move it, cut button armed\n', worst);
 
 %% (2) cut the link, and check the split geometry ------------------------------------------------
 % Cut at the spot before the planted jump: find the largest step and cut the link leaving its source.
@@ -74,8 +103,9 @@ assert(bigStep > 0.9*JUMP_UM, 'planted jump not found (largest step %.3f µm)', 
 cutAfter = SID(k);
 nTracksPre = numel(unique(all_ids(fig)));
 
-ok = feval(getappdata(fig,'tv_docut'), cutAfter);
-assert(ok, 'do_cut refused the cut on spot %g', cutAfter);
+assert(SID(k) == Lt.spotId(worst), ...
+    'the worst-ratio link (spot %g) is not the planted jump (spot %g)', Lt.spotId(worst), SID(k));
+press(cutBtn);                                 % cut via the BUTTON, on the cursor — the real path
 drawnow;
 
 ids = all_ids(fig);

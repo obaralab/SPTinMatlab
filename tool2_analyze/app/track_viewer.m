@@ -42,6 +42,7 @@ S.cuts          = struct('afterSpotId',{},'newId',{},'origId',{});
 S.cuts_by_cell  = containers.Map('KeyType','char','ValueType','any');   % base -> cuts + the counter
 S.nextFragId    = [];    % per-cell monotonic counter for minted fragment ids (never reused)
 S.strip         = struct('spotId',[],'t0',[],'t1',[],'step',[],'gap',[]);   % edges currently drawn
+S.linkIdx       = [];    % which link of the selected track the cursor sits on
 S.manual_by_cell = containers.Map('KeyType','char','ValueType','any');  % base -> the two lists,
                          % so manual decisions survive switching cells AND a batch run
 S.selected_id    = [];
@@ -220,9 +221,47 @@ c.toggle_btn.Layout.Row=[row-1 row]; c.toggle_btn.Layout.Column=[1 2];
 % halves go back through the filters, so the good part survives.
 row=row+1; sec_lbl(lg,row,'MISLINKAGE (selected track)');
 row=row+1;
-c.next_link = half_btn(lg,row,1,'⚠ Next link',[0.80 0.25 0.10],'white');
-c.next_link.Tooltip = ['Jump to the next KEPT track holding a step longer than the gap-close distance — ' ...
-    'the links most likely to be a mislinkage. Then click the link in the strip or the spike below it to cut.'];
+lbl2(lg,row,'Flag step ≥ ×median');
+c.link_ratio = uispinner(lg,'Limits',[1.5 20],'Value',5,'Step',0.5,'FontSize',9, ...
+    'Tooltip',['A link is flagged when its step is this many times the SELECTED track''s own median ' ...
+               'step (or longer than the gap-close distance). Relative, because a mislinkage in a ' ...
+               'confined track is a 0.8 µm stride among 0.2 µm ones — far below any absolute gate.'], ...
+    'ValueChangedFcn',@(~,~) refresh_links());
+c.link_ratio.Layout.Row=row; c.link_ratio.Layout.Column=2;
+row=row+1;
+c.flag_lbl = uilabel(lg,'Text','—','FontSize',8.5,'FontColor',[0.25 0.45 0.25],'WordWrap','on');
+c.flag_lbl.Layout.Row=row; c.flag_lbl.Layout.Column=[1 2];
+
+row=row+1;
+c.link_prev = half_btn(lg,row,1,'◀ link',[0.30 0.40 0.55],'white');
+c.link_prev.Tooltip = 'Step to the previous link of this track. Nothing selected yet → jumps to the worst link.';
+c.link_prev.ButtonPushedFcn = @(~,~) link_goto(-1);
+c.link_next = half_btn(lg,row,2,'link ▶',[0.30 0.40 0.55],'white');
+c.link_next.Tooltip = 'Step to the next link of this track. Nothing selected yet → jumps to the worst link.';
+c.link_next.ButtonPushedFcn = @(~,~) link_goto(+1);
+
+row=row+1;
+c.link_worst = half_btn(lg,row,1,'▲ Worst',[0.55 0.35 0.10],'white');
+c.link_worst.Tooltip = 'Jump straight to this track''s largest step relative to its own median.';
+c.link_worst.ButtonPushedFcn = @(~,~) link_goto_worst();
+c.link_flag = half_btn(lg,row,2,'⚠ Next flagged',[0.80 0.25 0.10],'white');
+c.link_flag.Tooltip = 'Next flagged link WITHIN this track, wrapping around — skips the ordinary ones.';
+c.link_flag.ButtonPushedFcn = @(~,~) link_next_susp_in_track();
+
+row=row+1;
+c.cut_btn = wide_btn(lg,row,'✂ Cut link',[0.70 0.12 0.12],'white');
+c.cut_btn.Enable = 'off';
+c.cut_btn.Tooltip = 'Cut the link on the cursor. The track splits in two and both halves go back through the filters.';
+c.cut_btn.ButtonPushedFcn = @(~,~) cut_current();
+
+row=row+1; row=row+1;
+c.link_lbl = uilabel(lg,'Text','Select a track, then ◀ / ▶ to walk its links.','FontSize',8.5, ...
+    'WordWrap','on','FontColor',[0.2 0.2 0.2],'VerticalAlignment','top');
+c.link_lbl.Layout.Row=[row-1 row]; c.link_lbl.Layout.Column=[1 2];
+
+row=row+1;
+c.next_link = half_btn(lg,row,1,'⚠ Next track',[0.60 0.30 0.10],'white');
+c.next_link.Tooltip = 'Jump to the next KEPT track that has any flagged link, and land on its worst one.';
 c.next_link.ButtonPushedFcn = @(~,~) next_suspicious();
 c.undo_cut = half_btn(lg,row,2,'↩ Undo cut',[0.45 0.45 0.50],'white');
 c.undo_cut.Tooltip = 'Undo the most recent cut on this cell. Cuts are remembered per cell and survive re-filtering, batch runs and switching cells.';
@@ -534,6 +573,10 @@ end
         setappdata(fig,'tv_spots', S.spots_t);
         setappdata(fig,'tv_cuts',  S.cuts);
         setappdata(fig,'tv_docut', @do_cut);
+        setappdata(fig,'tv_links', @link_info);
+        setappdata(fig,'tv_nav',   struct('goto',@link_goto,'worst',@link_goto_worst, ...
+                                          'flag',@link_next_susp_in_track,'cut',@cut_current, ...
+                                          'idx',S.linkIdx));
     end
 
     function s = hms_(sec)
@@ -622,6 +665,7 @@ end
         S.manual_keep   = setdiff(S.manual_keep,   tid);
         S.manual_reject = setdiff(S.manual_reject, tid);
         apply_cuts();
+        S.linkIdx = [];        % the chain it indexed no longer exists
         nHead = sum(S.spots_t.TRACK_ID==tid); nTail = sum(S.spots_t.TRACK_ID==newId);
         clog('✂ CUT track %g after spot %g → %g (%d locs) + %g (%d locs)%s', ...
             tid, afterSpotId, tid, nHead, newId, nTail, ...
@@ -636,6 +680,7 @@ end
         if isempty(S.cuts), clog('UNDO: no cuts on this cell.'); return; end
         last = S.cuts(end); S.cuts(end) = [];
         apply_cuts();
+        S.linkIdx = [];        % the chain it indexed has just changed length
         clog('↩ UNDO cut on track %g (spot %g) — %d cut(s) left on this cell.', ...
             last.origId, last.afterSpotId, numel(S.cuts));
         cuts_store();
@@ -1052,6 +1097,7 @@ end
         S.kept_ids = union(setdiff(S.kept_ids, S.manual_reject), S.manual_keep);
         n_k=numel(S.kept_ids); n_t=height(S.track_metrics);
         nov = numel(S.manual_keep)+numel(S.manual_reject);
+        refresh_links();     % the kept set changed, so the flagged workload has too
         c.filt_lbl.Text = sprintf('Applied: %d kept, %d rejected (%d manual overrides kept)', ...
             n_k,n_t-n_k,nov);
 
@@ -1321,6 +1367,9 @@ end
         % One selection path for both the click and "Next rejected", so the detail panel, the
         % decision button and the label can never disagree about what is selected.
         if ~S.loaded, return; end
+        % Moving to a different track invalidates the link cursor: index 12 of the old track's list
+        % names a different link here, and cutting it would sever a link the user never looked at.
+        if isempty(S.selected_id) || ~isequal(S.selected_id, tid), S.linkIdx = []; end
         S.selected_id = tid;
         tm_sel = S.track_metrics(S.track_metrics.TRACK_ID==tid,:);
         if isempty(tm_sel), return; end
@@ -1353,6 +1402,20 @@ end
         update_disp_plot();
         update_link_strip();     % after the step plot: it locks both time axes together
         update_intensity_plot();
+        % A cursor from the previously selected track indexes a different link list — drop it, and
+        % leave the cut button disabled until the user picks a link on THIS track.
+        if isempty(S.linkIdx)
+            c.cut_btn.Enable = 'off'; c.cut_btn.Text = '✂ Cut link';
+            L = link_info(tid);
+            if isempty(L.step)
+                c.link_lbl.Text = 'This track is too short to have links.';
+            else
+                c.link_lbl.Text = sprintf(['%d links · %d flagged · median step %.3f µm\n' ...
+                    '◀ / ▶ to walk them, ▲ Worst for the biggest outlier.'], ...
+                    numel(L.step), sum(L.susp), L.med);
+            end
+            c.link_lbl.FontColor = [0.2 0.2 0.2];
+        end
     end
 
     % ---- Trajectory -----------------------------------------
@@ -1415,10 +1478,27 @@ end
             'Color',[0.18 0.80 0.44],'MarkerFaceColor',[0.18 0.80 0.44],...
             'MarkerSize',7,'HitTest','off');
 
+        % The link on the cursor, drawn IN SPACE. This is the panel that actually answers the
+        % question: a genuine mislinkage looks like one long stride bridging two separate clouds,
+        % and no amount of staring at a step-vs-time trace shows you that.
+        cutTxt = '';
+        if ~isempty(S.linkIdx)
+            Lc = link_info(S.selected_id);
+            if ~isempty(Lc.step) && S.linkIdx>=1 && S.linkIdx<=numel(Lc.step)
+                k = S.linkIdx;
+                plot(ax_tr,[Lc.x0(k) Lc.x1(k)],[Lc.y0(k) Lc.y1(k)],'-', ...
+                    'Color',[0.90 0.10 0.10],'LineWidth',2.6,'HitTest','off');
+                plot(ax_tr,[Lc.x0(k) Lc.x1(k)],[Lc.y0(k) Lc.y1(k)],'o', ...
+                    'MarkerSize',8,'LineWidth',1.6,'MarkerEdgeColor',[0.90 0.10 0.10], ...
+                    'MarkerFaceColor','none','HitTest','off');
+                cutTxt = sprintf('   link %d/%d: %.2f µm (%.1f×)', k, numel(Lc.step), Lc.step(k), Lc.ratio(k));
+            end
+        end
+
         axis(ax_tr,'equal');          % keep circles round (X and Y both in um)
         xlim(ax_tr,xl); ylim(ax_tr,yl);
-        title(ax_tr,sprintf('Track %d  t=%.3fs  f=%d   [emitter r=%.2f, ring=%.2f um]',...
-            S.selected_id,f*S.frame_interval,f,er,ring),'FontSize',9);
+        title(ax_tr,sprintf('Track %d  t=%.3fs  f=%d   [emitter r=%.2f, ring=%.2f um]%s',...
+            S.selected_id,f*S.frame_interval,f,er,ring,cutTxt),'FontSize',9);
         drawnow limitrate;
     end
 
@@ -1453,45 +1533,162 @@ end
         cla(ax_gr);
         S.strip = struct('spotId',[],'t0',[],'t1',[],'step',[],'gap',[]);
         if ~S.loaded || isempty(S.selected_id), title(ax_gr,''); return; end
-        sel = sortrows(S.spots_t(S.spots_t.TRACK_ID==S.selected_id,:),'FRAME');
-        if height(sel) < 2
-            title(ax_gr,sprintf('track %g — %d spot, no links', S.selected_id, height(sel)),'FontSize',8);
+        L = link_info(S.selected_id);
+        if isempty(L.step)
+            title(ax_gr,sprintf('track %g — too short to have links', S.selected_id),'FontSize',8);
             return;
         end
-        t  = sel.FRAME * S.frame_interval;
-        d  = sqrt(diff(sel.X_um).^2 + diff(sel.Y_um).^2);
-        gp = diff(sel.FRAME) > 1;
-        thr = suspicious_thr();
-        dmax = max(d); if ~(dmax>0), dmax = 1; end
-        for i = 1:numel(d)
-            hot = d(i) > thr;
-            col = [0.55 0.60 0.66];
-            if hot, col = [0.85 0.15 0.15]; else, col = [0.20 0.60 0.86]*(0.45+0.55*d(i)/dmax); end
-            plot(ax_gr, [t(i) t(i+1)], [0 0], '-', 'Color', col, ...
-                'LineWidth', tern_(hot,3.2,1.6), 'LineStyle', tern_(gp(i),'--','-'), ...
+        n = numel(L.step);
+        S.strip = struct('spotId',L.spotId,'t0',L.t0,'t1',L.t1,'step',L.step,'gap',L.gap);
+        % Height carries the RATIO to this track's median step, so an outlier stands up out of the
+        % baseline instead of hiding in a flat row of identical dots. Clipped at 6x: past that the
+        % exact value stops mattering and the tall ones would flatten everything else.
+        h = min(L.ratio, 6) / 6;
+        for i = 1:n
+            if L.susp(i), col = [0.85 0.12 0.12]; lw = 2.2;
+            else,         col = [0.35 0.55 0.75]; lw = 1.2; end
+            plot(ax_gr, [L.t0(i) L.t1(i)], [0 0], '-', 'Color',[0.55 0.60 0.66], ...
+                'LineWidth', 1.0, 'LineStyle', tern_(L.gap(i),'--','-'), ...
                 'HitTest','off','PickableParts','none');
-            S.strip.spotId(end+1,1) = sel.SPOT_ID(i);     % the link LEAVING this spot
-            S.strip.t0(end+1,1) = t(i); S.strip.t1(end+1,1) = t(i+1);
-            S.strip.step(end+1,1) = d(i); S.strip.gap(end+1,1) = gp(i);
+            plot(ax_gr, [1 1]*(L.t0(i)+L.t1(i))/2, [0 h(i)], '-', 'Color',col, ...
+                'LineWidth',lw,'HitTest','off','PickableParts','none');
         end
-        plot(ax_gr, t, zeros(size(t)), 'o', 'MarkerSize',3.5, ...
+        plot(ax_gr, [L.t0(1); L.t1], zeros(n+1,1), 'o', 'MarkerSize',2.5, ...
             'MarkerFaceColor',[0.15 0.20 0.26],'MarkerEdgeColor','none', ...
             'HitTest','off','PickableParts','none');
-        nHot = sum(d > thr); nGap = sum(gp);
-        title(ax_gr, sprintf('track %g · %d links%s%s  —  click a link to CUT', S.selected_id, numel(d), ...
-            tern_(nHot>0, sprintf(' · %d over %.2f µm', nHot, thr), ''), ...
-            tern_(nGap>0, sprintf(' · %d gap-closed', nGap), '')), 'FontSize',8);
-        xl = [min(t) max(t)]; if diff(xl)<=0, xl = xl + [-1 1]*0.5; end
+        yline(ax_gr, min(ratio_thr(),6)/6, ':', 'Color',[0.85 0.12 0.12], 'LineWidth',0.8);
+        % the cursor: a wide translucent band, so it reads at a glance on a 58-link track
+        if ~isempty(S.linkIdx) && S.linkIdx>=1 && S.linkIdx<=n
+            k = S.linkIdx;
+            patch(ax_gr, [L.t0(k) L.t1(k) L.t1(k) L.t0(k)], [-1 -1 1 1], [1 0.85 0.2], ...
+                'FaceAlpha',0.45,'EdgeColor',[0.85 0.55 0],'LineWidth',1.2, ...
+                'HitTest','off','PickableParts','none');
+        end
+        ax_gr.YLim = [-0.25 1.15];
+        nHot = sum(L.susp); nGap = sum(L.gap);
+        title(ax_gr, sprintf('track %g · %d links · %d flagged · %d gap-closed   (bar = × median step)', ...
+            S.selected_id, n, nHot, nGap), 'FontSize',8);
+        xl = [min(L.t0) max(L.t1)]; if diff(xl)<=0, xl = xl + [-1 1]*0.5; end
         pad = 0.02*diff(xl);
         ax_gr.XLim = xl + [-pad pad]; ax_dv2.XLim = ax_gr.XLim;   % the two time axes stay in step
     end
 
     function thr = suspicious_thr()
-        % A link is "suspicious" when it is longer than the distance the linker was allowed to close
-        % a gap over — the same number the whole-track jump gate uses. Above that, the tracker was
-        % reaching, which is exactly when it grabs the wrong molecule.
+        % Absolute ceiling: a step longer than the gap-close distance is a link the tracker was never
+        % allowed to make in one hop. Kept, but it is NOT the main detector — see link_info.
         thr = 1.0;
         if isfield(c,'gap_dist') && isgraphics(c.gap_dist), thr = c.gap_dist.Value; end
+    end
+
+    function L = link_info(tid)
+        % Every link of one track, with the numbers needed to judge and to navigate it.
+        %
+        % The absolute gap-close gate alone is a poor mislinkage detector, and the WithER cell shows
+        % why: its steps run 0.2–0.8 µm against a 1.40 µm gate, so a track that visibly joins two
+        % separate clusters is never flagged. What marks a mislinkage is that the step is an OUTLIER
+        % FOR THIS TRACK — a molecule diffusing with a 0.2 µm median step does not take one 0.8 µm
+        % stride. So the primary test is the ratio to this track's own median step, with a small
+        % absolute floor so that a nearly stationary track (median ≈ localization noise) does not
+        % flag every jitter as a 3× outlier.
+        L = struct('spotId',[],'t0',[],'t1',[],'step',[],'ratio',[],'gap',[],'susp',[], ...
+                   'x0',[],'y0',[],'x1',[],'y1',[],'med',0);
+        if ~S.loaded || isempty(tid), return; end
+        sel = sortrows(S.spots_t(S.spots_t.TRACK_ID==tid,:),'FRAME');
+        if height(sel) < 2, return; end
+        d  = sqrt(diff(sel.X_um).^2 + diff(sel.Y_um).^2);
+        med = median(d); if ~(med>0), med = eps; end
+        L.spotId = sel.SPOT_ID(1:end-1);
+        L.t0 = sel.FRAME(1:end-1)*S.frame_interval;  L.t1 = sel.FRAME(2:end)*S.frame_interval;
+        L.x0 = sel.X_um(1:end-1); L.y0 = sel.Y_um(1:end-1);
+        L.x1 = sel.X_um(2:end);   L.y1 = sel.Y_um(2:end);
+        L.step = d; L.ratio = d/med; L.gap = diff(sel.FRAME) > 1; L.med = med;
+        L.susp = (d > suspicious_thr()) | (L.ratio >= ratio_thr() & d >= step_floor());
+    end
+
+    function r = ratio_thr()
+        r = 5;
+        if isfield(c,'link_ratio') && isgraphics(c.link_ratio), r = c.link_ratio.Value; end
+    end
+
+    function f = step_floor()
+        % Absolute floor under the ratio test, at half the LINKING distance. Without it a nearly
+        % stationary track (median step ≈ localization noise) flags every ordinary jitter as a huge
+        % multiple of nothing: on the WithER cell, ratio alone at 3x flagged 649 of 838 tracks, which
+        % is not triage. Tied to the linking radius rather than a fixed µm so it travels between
+        % datasets — a step approaching that radius is the tracker at the limit of what it may link.
+        f = 0.4;
+        if isfield(c,'link_dist') && isgraphics(c.link_dist) && c.link_dist.Value>0
+            f = c.link_dist.Value/2;
+        end
+    end
+
+    function link_goto(delta)
+        % Walk the links of the SELECTED track. With nothing on the cursor yet, land on the most
+        % suspicious link rather than link 1 — on a 58-link track that is the whole point.
+        L = link_info(S.selected_id);
+        if isempty(L.step), clog('LINK: select a track with at least 2 localizations.'); return; end
+        n = numel(L.step);
+        if isempty(S.linkIdx)
+            [~, S.linkIdx] = max(L.ratio);
+        else
+            S.linkIdx = S.linkIdx + delta;
+            if S.linkIdx < 1, S.linkIdx = n; elseif S.linkIdx > n, S.linkIdx = 1; end   % wrap
+        end
+        show_link_cursor(L);
+    end
+
+    function link_goto_worst()
+        L = link_info(S.selected_id);
+        if isempty(L.step), return; end
+        [~, S.linkIdx] = max(L.ratio);
+        show_link_cursor(L);
+    end
+
+    function link_next_susp_in_track()
+        % Next FLAGGED link inside this track, wrapping. Walking all 58 links one by one is exactly
+        % the tedium the screenshot showed; usually only a handful are worth looking at.
+        L = link_info(S.selected_id);
+        if isempty(L.step), clog('LINK: select a track first.'); return; end
+        idx = find(L.susp);
+        if isempty(idx)
+            clog('LINK: no flagged link in track %g (max %.3f µm = %.1f× median %.3f µm).', ...
+                S.selected_id, max(L.step), max(L.ratio), L.med);
+            return;
+        end
+        cur = S.linkIdx; if isempty(cur), cur = 0; end
+        nxt = idx(find(idx > cur, 1)); if isempty(nxt), nxt = idx(1); end
+        S.linkIdx = nxt; show_link_cursor(L);
+    end
+
+    function show_link_cursor(L)
+        if nargin < 1, L = link_info(S.selected_id); end
+        if isempty(L.step) || isempty(S.linkIdx), return; end
+        % A cut shortens the chain the cursor was indexing, so the index can outlive its list.
+        % Drop it rather than reading past the end.
+        if S.linkIdx < 1 || S.linkIdx > numel(L.step)
+            S.linkIdx = [];
+            c.cut_btn.Enable = 'off'; c.cut_btn.Text = '✂ Cut link';
+            c.link_lbl.Text = 'Track changed — pick a link again with ◀ / ▶ or ▲ Worst.';
+            c.link_lbl.FontColor = [0.2 0.2 0.2];
+            return;
+        end
+        k = S.linkIdx;
+        c.link_lbl.Text = sprintf(['link %d of %d   ·   %.3f µm  =  %.1f× this track''s median (%.3f µm)%s%s\n' ...
+            'frames %d → %d   ·   cut removes the link, keeping both halves'], ...
+            k, numel(L.step), L.step(k), L.ratio(k), L.med, ...
+            tern_(L.gap(k), '  ·  GAP-CLOSED', ''), tern_(L.susp(k), '  ·  ⚠ FLAGGED', ''), ...
+            round(L.t0(k)/S.frame_interval), round(L.t1(k)/S.frame_interval));
+        if L.susp(k), c.link_lbl.FontColor = [0.75 0.15 0.10]; else, c.link_lbl.FontColor = [0.2 0.2 0.2]; end
+        c.cut_btn.Enable = 'on';
+        c.cut_btn.Text   = sprintf('✂ Cut link %d  (%.2f µm)', k, L.step(k));
+        update_link_strip(); update_disp_plot(); update_trajectory(S.current_frame);
+        publish_state();     % so the cursor is visible to the headless test hooks
+    end
+
+    function cut_current()
+        L = link_info(S.selected_id);
+        if isempty(L.step) || isempty(S.linkIdx), clog('CUT: no link on the cursor.'); return; end
+        do_cut(L.spotId(S.linkIdx));
     end
 
     function on_strip_click(e)
@@ -1506,37 +1703,60 @@ end
         if isempty(k)
             [~,k] = min(abs((S.strip.t0 + S.strip.t1)/2 - x));    % outside every span: nearest edge
         end
-        d = S.strip.step(k);
-        clog('   picked link after spot %g (step %.3f µm%s)', S.strip.spotId(k), d, ...
-             tern_(S.strip.gap(k),', gap-closed',''));
-        do_cut(S.strip.spotId(k));
+        % A click SELECTS the link; the cut is a separate, deliberate press. Cutting straight from a
+        % click made an irreversible edit out of a mis-aimed click on a strip 58 links wide.
+        S.linkIdx = k;
+        show_link_cursor();
+    end
+
+    function [ids, nLinks] = flagged_tracks()
+        % Every KEPT track holding a flagged link, ranked worst-first by how far its biggest step
+        % stands out from its own median. With ~100 candidates in a real cell, visiting them in
+        % track-id order buries the egregious ones; severity order puts the decision first.
+        ids = []; nLinks = 0; sc = [];
+        if ~S.loaded, return; end
+        for tid = S.kept_ids(:)'
+            L = link_info(tid);
+            if isempty(L.step) || ~any(L.susp), continue; end
+            ids(end+1,1) = tid; sc(end+1,1) = max(L.ratio); nLinks = nLinks + sum(L.susp); %#ok<AGROW>
+        end
+        [~,o] = sort(sc,'descend'); ids = ids(o);
+    end
+
+    function refresh_links()
+        % The flag ratio changed: re-colour, re-label, and re-count the workload it implies.
+        if ~S.loaded, return; end
+        [ids, nLinks] = flagged_tracks();
+        nk = numel(S.kept_ids);
+        c.flag_lbl.Text = sprintf('%d link(s) in %d of %d kept track(s) — %.0f%%', ...
+            nLinks, numel(ids), nk, 100*numel(ids)/max(nk,1));
+        if numel(ids) > 0.4*nk, c.flag_lbl.FontColor = [0.75 0.35 0.05];   % too many to review
+        else, c.flag_lbl.FontColor = [0.25 0.45 0.25]; end
+        if isempty(S.selected_id), return; end
+        update_link_strip(); update_disp_plot();
+        if ~isempty(S.linkIdx), show_link_cursor(); end
     end
 
     function next_suspicious()
-        % Walk to the next link anywhere in the cell whose step exceeds the gate, in track order then
-        % time order, wrapping around. Only KEPT tracks are offered: a track already rejected is not
-        % worth repairing, and this is meant to rescue tracks the jump gate would otherwise bin whole.
-        if ~S.loaded, clog('NEXT LINK: nothing loaded.'); return; end
-        thr = suspicious_thr();
-        ids = S.kept_ids(:)';
-        if isempty(ids), clog('NEXT LINK: no kept tracks to scan.'); return; end
-        start = 0; if ~isempty(S.selected_id), start = find(ids==S.selected_id,1); if isempty(start), start=0; end, end
-        order = [ids(start+1:end) ids(1:start)];    % resume after the current track, then wrap
-        for tid = order
-            sel = sortrows(S.spots_t(S.spots_t.TRACK_ID==tid,:),'FRAME');
-            if height(sel) < 2, continue; end
-            d = sqrt(diff(sel.X_um).^2 + diff(sel.Y_um).^2);
-            if ~any(d > thr), continue; end
-            S.selected_id = tid; select_track(tid);
-            j = find(d > thr);
-            clog('⚠ track %g has %d link(s) over %.2f µm (largest %.3f µm) — click one to cut.', ...
-                tid, numel(j), thr, max(d));
-            c.status.Text = sprintf('Suspicious link in track %g: %d over %.2f µm (largest %.3f µm)', ...
-                tid, numel(j), thr, max(d));
+        % Next KEPT track holding a flagged link, resuming after the current one and wrapping. Lands
+        % ON that track's worst link, so a press puts the cursor where the decision is.
+        if ~S.loaded, clog('NEXT TRACK: nothing loaded.'); return; end
+        [ids, nLinks] = flagged_tracks();
+        if isempty(ids)
+            clog('NEXT TRACK: no kept track has a link ≥ %.1f× its own median and ≥ %.2f µm.', ...
+                ratio_thr(), step_floor());
+            c.status.Text = sprintf('Nothing flagged at ≥ %.1f× median — lower the ratio to widen the net.', ratio_thr());
             return;
         end
-        clog('NEXT LINK: no kept track has a step over %.2f µm.', thr);
-        c.status.Text = sprintf('No suspicious links above %.2f µm.', thr);
+        at = 0; if ~isempty(S.selected_id), at = find(ids==S.selected_id,1); if isempty(at), at = 0; end, end
+        nxt = ids(mod(at, numel(ids)) + 1);          % advance down the ranked list, wrapping
+        S.selected_id = nxt; S.linkIdx = []; select_track(nxt);
+        link_goto_worst();
+        L = link_info(nxt);
+        clog('⚠ [%d/%d worst-first] track %g: %d flagged link(s), worst %.3f µm = %.1f× its median %.3f µm.', ...
+            mod(at,numel(ids))+1, numel(ids), nxt, sum(L.susp), max(L.step), max(L.ratio), L.med);
+        c.status.Text = sprintf('Track %g (%d of %d flagged) — worst link %.2f µm = %.1f× median · %d links total flagged', ...
+            nxt, mod(at,numel(ids))+1, numel(ids), max(L.step), max(L.ratio), nLinks);
     end
 
     function update_disp_plot()
@@ -1550,13 +1770,19 @@ end
             'MarkerSize',2,'LineWidth',0.8,'HitTest','off','PickableParts','none');
         yline(ax_dv2,mean(d),'--r','LineWidth',0.8);
         % Mark the same links the strip above flags, so the spike and the edge read as one object.
-        thr = suspicious_thr(); hot = d > thr;
-        if any(hot)
-            plot(ax_dv2,t_s(hot),d(hot),'o','MarkerSize',6,'LineWidth',1.4, ...
+        L = link_info(S.selected_id);
+        if ~isempty(L.step) && any(L.susp)
+            plot(ax_dv2,t_s(L.susp),d(L.susp),'o','MarkerSize',6,'LineWidth',1.4, ...
                 'MarkerEdgeColor',[0.85 0.15 0.15],'HitTest','off','PickableParts','none');
         end
-        yline(ax_dv2,thr,':','Color',[0.85 0.15 0.15],'LineWidth',0.8);
-        title(ax_dv2,'Step displacements — click a spike to cut that link','FontSize',9);
+        % the relative gate is what flags a mislinkage in a confined track; draw it, not the absolute one
+        yline(ax_dv2, ratio_thr()*median(d), ':', 'Color',[0.85 0.15 0.15],'LineWidth',0.8);
+        if ~isempty(S.linkIdx) && ~isempty(L.step) && S.linkIdx>=1 && S.linkIdx<=numel(d)
+            xline(ax_dv2, t_s(S.linkIdx), '-', 'Color',[0.85 0.55 0], 'LineWidth',1.6);
+            plot(ax_dv2, t_s(S.linkIdx), d(S.linkIdx), 'o','MarkerSize',9,'LineWidth',2, ...
+                'MarkerEdgeColor',[0.85 0.55 0],'HitTest','off','PickableParts','none');
+        end
+        title(ax_dv2,'Step displacements — click to select that link','FontSize',9);
         drawnow limitrate;
     end
 
