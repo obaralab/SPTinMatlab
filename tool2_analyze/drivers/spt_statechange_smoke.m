@@ -160,6 +160,49 @@ assert(isequal(cf, built.confined) && isequal(sc, built.stateChange), ...
     'spt_track_diffusion and spt_confine_flags disagree — they are supposed to be the same code path');
 fprintf('builder and re-derive agree exactly (one shared implementation)\n');
 
+%% (9) the rolling D weights each step by the TIME IT SPANS ---------------------------------------
+% diff() runs over localizations, not frames, so a gap-closed step covers more than one frame
+% interval. Dividing it by a single dt attributes all of that displacement to one frame and inflates
+% D by the gap factor. Two things must hold: no change at all when there are no gaps, and no bias
+% when there are.
+rng(7); nrep = 60; nn = 200; Dtrue = 0.5; hw = 3;
+uOK = 0; oldBias = zeros(nrep,1); newBias = zeros(nrep,1);
+for q = 1:nrep
+    sd = sqrt(2*Dtrue*dt);
+    xq = cumsum([0; sd*randn(nn-1,1)]) + sig*randn(nn,1);
+    yq = cumsum([0; sd*randn(nn-1,1)]) + sig*randn(nn,1);
+
+    % ungapped: must reproduce the previous formula exactly
+    Mu = nan(nn,1,3); Mu(:,1,1) = (0:nn-1)'; Mu(:,1,2) = xq; Mu(:,1,3) = yq;
+    Du = spt_track_diffusion(struct('matrix',Mu,'frameInterval',dt), struct('dt',dt,'sigmaUm',sig)).Dt;
+    s2u = sum(diff([xq yq],1,1).^2, 2); ref = nan(nn,1);
+    for i = 1:nn
+        lo = max(1,i-hw); hi = min(nn-1,i+hw);
+        ref(i) = max(mean(s2u(lo:hi))/(4*dt) - sig^2/dt, 0);
+    end
+    if max(abs(Du(:) - ref)) < 1e-9, uOK = uOK + 1; end
+
+    % gapped: every 10th frame dropped, so 1 step in 10 spans two frames
+    kp = true(nn,1); kp(10:10:end) = false;
+    Mg = nan(sum(kp),1,3); Mg(:,1,1) = find(kp)-1; Mg(:,1,2) = xq(kp); Mg(:,1,3) = yq(kp);
+    Dg = spt_track_diffusion(struct('matrix',Mg,'frameInterval',dt), struct('dt',dt,'sigmaUm',sig)).Dt;
+    newBias(q) = mean(Dg(isfinite(Dg)));
+    xg = xq(kp); yg = yq(kp); ng = numel(xg);
+    s2g = sum(diff([xg yg],1,1).^2, 2); dd = nan(ng,1);
+    for i = 1:ng
+        lo = max(1,i-hw); hi = min(ng-1,i+hw);
+        dd(i) = max(mean(s2g(lo:hi))/(4*dt) - sig^2/dt, 0);      % the OLD, unweighted formula
+    end
+    oldBias(q) = mean(dd);
+end
+fprintf('ungapped tracks identical to the old formula: %d of %d\n', uOK, nrep);
+assert(uOK == nrep, 'the estimator changed on %d ungapped track(s); it must be exactly equivalent there', nrep-uOK);
+bOld = 100*(mean(oldBias)/Dtrue - 1); bNew = 100*(mean(newBias)/Dtrue - 1);
+fprintf('10%% of frames dropped, mean D vs truth: OLD %+.1f%% · NEW %+.1f%%\n', bOld, bNew);
+assert(abs(bNew) < 3, 'the weighted estimator is still %+.1f%% biased on gapped tracks', bNew);
+assert(abs(bNew) < 0.5*abs(bOld), ...
+    'weighting barely helped (%+.1f%% -> %+.1f%%); it is supposed to remove the gap inflation', bOld, bNew);
+
 fprintf('\nSTATE-CHANGE SMOKE PASSED.\n');
 end
 

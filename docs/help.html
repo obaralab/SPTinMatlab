@@ -1139,6 +1139,10 @@ The fourth row is why the default changed. A threshold measured against a track'
 <div class="note">These flags are what Tool 3's <b>confined</b> and <b>state-change</b> density channels read, so the criterion changes what the contact-site picker can find. <b>Builds made before this change carry the old absolute flags and need rebuilding.</b></div>
 
 <h3 id="t2dmath">The two diffusion estimators — what each number means</h3>
+<div class="good"><b>Each step is weighted by the time it actually spans.</b> <code>diff()</code> runs over <em>localizations</em>, not frames, so a gap-closed step covers more than one frame interval. Dividing it by a single <code>dt</code> attributes all of that displacement to one frame and inflates D by the gap factor. The estimator therefore pools numerator and denominator separately —
+<code>D = ( &Sigma;r&sup2; &minus; 4&sigma;&sup2;·n ) / ( 4·&Sigma;&tau; )</code>, with <code>&tau;</code> the real elapsed time of each step — so every step contributes in proportion to the time it observed. With no gaps this is identical to the old <code>&lt;r&sup2;&gt;/(4dt) &minus; &sigma;&sup2;/dt</code> to floating-point precision.
+<p>Measured: on synthetic tracks with 10 % of frames dropped the unweighted form ran <b>+11 %</b> high, the weighted one <b>+0.7 %</b>. On the reference cell, where 3.2 % of steps span two frames (2,193 of 69,009), median stepwise D fell <b>2.8 %</b> and the maximum <b>22 %</b>; 19 % of localizations moved by more than 10 %, all of them gap-adjacent. <b>Builds made before this need rebuilding to pick it up.</b></p></div>
+
 <p>The tab shows <b>two different D</b>, and confusing them is the easiest mistake to make here. One is a single number per track from an MSD fit; the other is one number per localization from a rolling step estimator. They are computed differently, they answer different questions, and only the second one feeds the downstream flags.</p>
 
 <div class="card">

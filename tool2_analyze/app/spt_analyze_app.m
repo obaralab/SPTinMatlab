@@ -2185,18 +2185,21 @@ end
             title(axDloc,'stepwise D (per localization) — not in this TrackStruct');
             xlabel(axDloc,''); ylabel(axDloc,'');
         else
-            % Drop the top 0.5% rather than clamping it into the last bin — clamping builds a false
-            % spike at the right edge that reads as a real population.
-            hi = prctile(Dl, 99.5); if ~(hi > 0), hi = max(Dl); end
-            shown = Dl(Dl <= hi); nHid = numel(Dl) - numel(shown);
-            histogram(axDloc, shown, linspace(0, max(hi,eps), 60), 'FaceColor',[0.45 0.35 0.65],'EdgeColor','none');
+            % Show the WHOLE range. This used to drop the top 0.5%, which hid exactly the fast
+            % localizations you would go looking for — 349 of them on the reference cell. The
+            % original problem was CLAMPING the tail into the last bin, which builds a false spike
+            % that reads as a real population; simply plotting the full range has no such artefact,
+            % and with the log y-axis below a sparse tail stays perfectly legible. The cost is axis
+            % width, and it is small: on that cell the max is 5.94 against a 99.5th percentile of
+            % 2.92, so the bulk still occupies half the axis.
+            hi = max(Dl); if ~(hi > 0), hi = eps; end
+            histogram(axDloc, Dl, linspace(0, hi, 60), 'FaceColor',[0.45 0.35 0.65],'EdgeColor','none');
             hold(axDloc,'on');
             xline(axDloc, diffConfineD, '-','Color',[0.85 0.3 0.2],'LineWidth',1.4);
             hold(axDloc,'off');
             try, set(axDloc,'YScale','log'); catch, end                   % the confined peak is orders below the bulk
             xlim(axDloc, [0 max(hi, eps)]);
-            tail = ''; if nHid > 0, tail = sprintf('  ·  %d >%.2g hidden', nHid, hi); end
-            xlabel(axDloc, sprintf('stepwise D (µm²/s)/loc%s', tail));
+            xlabel(axDloc, sprintf('stepwise D (µm²/s)/loc  ·  full range, max %.2g', hi));
             ylabel(axDloc,'localizations');
             pctC = 100*mean(Dl <= diffConfineD); if ~isempty(Cl), pctC = 100*mean(Cl); end
             title(axDloc, sprintf('stepwise D · med %.3g · %.0f%% confined · n=%s', ...
