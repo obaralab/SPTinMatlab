@@ -1,6 +1,7 @@
 # SPTinMatlab — Session Handoff
 
-**Status:** everything below is **verified present in source** and the **full smoke suite passes — 19/19**.
+**Status:** everything below is **verified present in source** and the **full smoke suite passes — 22/22**
+(each test run in its own MATLAB process — see below, this matters).
 MATLAB apps do **not** hot-reload — **close and relaunch** `run_track` (Tool 1) and
 `run_curate` / `run_analyze` (Tools 2 & 3) to see any of this.
 
@@ -11,24 +12,35 @@ legacy one-window app and is **not** what `run_*` launches.
 
 ## Quick re-verification
 
+**Run each test in a SEPARATE MATLAB process.** One session cannot run the whole suite: it dies partway
+through — leaked timers and accumulated graphics state from the app tests, not a product fault, since
+every test passes on its own. The old single-session loop that used to be documented here was worse
+than useless, because the crash takes the process down *before* its closing `exit(nf>0)` runs, so it
+terminated with status 0 after actually running two tests. It read as a clean pass.
+
 ```bash
-# full suite — 19 *_smoke.m across tool1_track/, tool2_analyze/app/, tool2_analyze/drivers/
 cd /Users/safal-mac/Desktop/IntegratedPipeline/SPTinMatlab
-/Applications/MATLAB_R2024b.app/bin/matlab -batch "
-addpath(genpath(pwd));
-t = dir('**/*_smoke.m'); t = t(~contains({t.folder},'ContactSites_original'));
-nf = 0;
-for k = 1:numel(t)
-    [~,n] = fileparts(t(k).name);
-    try, feval(n); fprintf('PASS %s\n',n);
-    catch ME, nf = nf+1; fprintf(2,'FAIL %s : %s\n',n,ME.message); end
-    close all force;
-end
-fprintf('%d/%d passed\n', numel(t)-nf, numel(t)); exit(nf>0);"
+fail=0
+for f in $(find . -name "*_smoke.m" -not -path "*ContactSites_original*" | sort); do
+  n=$(basename "$f" .m)
+  out=$(/Applications/MATLAB_R2024b.app/bin/matlab -batch \
+        "addpath(genpath(pwd)); try, evalc('$n'); disp('__PASS__'); \
+         catch ME, fprintf('__FAIL__ %s\n', ME.message); end" 2>&1)
+  if   printf '%s' "$out" | grep -q '__PASS__'; then echo "PASS  $n"
+  elif printf '%s' "$out" | grep -q '__FAIL__'; then echo "FAIL  $n"; fail=1
+  else echo "CRASH $n  (matlab produced no verdict)"; fail=1; fi
+done
+exit $fail
 ```
-There is **no runner file checked in** — the loop above is the runner. It must find **19** tests
-(6 in `tool1_track/`, 2 in `tool2_analyze/app/`, 11 in `tool2_analyze/drivers/`); a lower count means
-`genpath` missed a folder, not that a test was deleted.
+
+Note the third outcome. A test that neither passes nor fails but leaves no verdict has taken MATLAB
+down with it, and any runner that only distinguishes pass from fail will score that as a pass. Treat a
+missing verdict as a failure.
+
+There is **no runner file checked in** — the loop above is the runner. It must find **22** tests
+(7 in `tool1_track/`, 4 in `tool2_analyze/app/`, 11 in `tool2_analyze/drivers/`); a lower count means
+`find` missed a folder, not that a test was deleted. Budget roughly 20 s per test for MATLAB startup —
+about 8 minutes for the suite.
 
 ```bash
 # marker greps — any 0 means the change was reverted/lost
