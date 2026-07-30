@@ -1,6 +1,6 @@
 # SPTinMatlab — Session Handoff
 
-**Status:** everything below is **verified present in source** and the **full smoke suite passes — 23/23**
+**Status:** everything below is **verified present in source** and the **full smoke suite passes — 25/25**
 (each test run in its own MATLAB process — see below, this matters).
 MATLAB apps do **not** hot-reload — **close and relaunch** `run_track` (Tool 1) and
 `run_curate` / `run_analyze` (Tools 2 & 3) to see any of this.
@@ -37,8 +37,8 @@ Note the third outcome. A test that neither passes nor fails but leaves no verdi
 down with it, and any runner that only distinguishes pass from fail will score that as a pass. Treat a
 missing verdict as a failure.
 
-There is **no runner file checked in** — the loop above is the runner. It must find **23** tests
-(7 in `tool1_track/`, 5 in `tool2_analyze/app/`, 11 in `tool2_analyze/drivers/`); a lower count means
+There is **no runner file checked in** — the loop above is the runner. It must find **25** tests
+(7 in `tool1_track/`, 6 in `tool2_analyze/app/`, 12 in `tool2_analyze/drivers/`); a lower count means
 `find` missed a folder, not that a test was deleted. Budget roughly 20 s per test for MATLAB startup —
 about 8 minutes for the suite.
 

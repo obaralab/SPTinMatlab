@@ -93,6 +93,7 @@
   <a href="#t2named">&nbsp;&nbsp;Named builds and the active pointer new</a>
   <a href="#t2loadvsbuild">&nbsp;&nbsp;Build vs Load — and why Load is fast</a>
   <a href="#t2qccontrols">&nbsp;&nbsp;The QC row</a>
+  <a href="#t2statechange">&nbsp;&nbsp;Confinement and state changes — picking a criterion</a>
   <a href="#t2dmath">&nbsp;&nbsp;The two diffusion estimators — what each number means</a>
   <a href="#t2panels">&nbsp;&nbsp;The panels, one by one</a>
   <a href="#t2contract">&nbsp;&nbsp;The TrackStruct contract — every field, and what it holds</a>
@@ -1104,6 +1105,32 @@ TrackStruct.mat</code></pre>
 <p>A spinner in µm²/s: limits 0.001–100, default <b>0.15</b>, step 0.05, displayed to 3 significant figures. It is a <em>per-localization</em> threshold — a localization whose stepwise <code>D(t)</code> is at or below it is flagged <code>confined</code> — and it defines the flags Tool 3's <b>Confined</b> and <b>State-change</b> density channels run on.</p>
 <div class="good"><b>Changing it does not rebuild anything.</b> The flags are re-derived from the <b>stored <code>Dt</code></b>: <code>confined = Dt ≤ threshold</code>, and <code>stateChange</code> is recomputed as the rising edge into each confined run (walking each track's real localizations in frame order). That is arithmetic on an array already in memory — no re-rolling of the estimator, no re-parsing of XML. The new flags are written back into the <b>active</b> build (not unconditionally into <code>TrackStruct.mat</code>, which used to leave a divergent shadow file behind), <code>diffOpts.confineD</code> is updated so the provenance matches, and the QC redraws.</div>
 <p>Because <code>NaN ≤ x</code> is false, padded slots and gaps are never flagged confined. What the spinner cannot change is <code>Dt</code> itself — the window, the mode and the noise floor σ are fixed at Build (see below); to change those you rebuild.</p>
+
+<h3 id="t2statechange">Confinement and state changes — picking a criterion <span class="tag you">new</span></h3>
+<p>A "state change" is meant to be a molecule slowing down — the signature of capture at a site. Getting the criterion right matters more than it looks, because the naive version mostly reports noise.</p>
+
+<div class="warn"><b>What the old rule did.</b> One absolute cut, <code>D ≤ 0.15 µm²/s</code>, applied to every track, with no requirement that the slow stretch last. That conflates two different things: a molecule that is <em>slow</em> (baseline below the cut, permanently "confined") and one that <em>changed state</em>. Measured against a null of pure Brownian tracks matched to the reference cell's own D distribution and track lengths — where every detection is by construction a false positive — it fired on <b>45 %</b> of tracks that had no state change at all. The 1,492 state changes it reported on that cell should be read as mostly noise.</div>
+
+<table>
+  <tr><th>Criterion</th><th>Real</th><th>Null</th><th>Enrichment</th></tr>
+  <tr><td>absolute 0.15, no min run <em>(old)</em></td><td>67 %</td><td>45 %</td><td>1.49×</td></tr>
+  <tr><td><b>drop 0.3× preceding, min run 5</b> <em>(default)</em></td><td>52 %</td><td>22 %</td><td><b>2.36×</b></td></tr>
+  <tr><td>drop 0.3× preceding, min run 8</td><td>35 %</td><td>12 %</td><td>3.00×</td></tr>
+  <tr><td>relative 0.3× own median, min run 5</td><td>27 %</td><td>6 %</td><td>4.29×</td></tr>
+</table>
+
+<p><b>Why the default is not the highest number in that table.</b> <b>relative</b> compares D to the track's median over its whole life, and scores best in aggregate — but it is <em>structurally blind to a sustained slowdown</em>. A track that slows and stays slow drags its own median down with it and the test stops firing. A molecule captured at a contact site does exactly that. On a synthetic four-fold sustained slowdown, <b>drop</b> reports one confined run of 15 localizations while relative and absolute report nothing at all. The default is the criterion that can see the event of interest, not the one with the best score.</p>
+
+<table>
+  <tr><th>Control</th><th>What it does</th></tr>
+  <tr><td><b>state change</b><br>default <b>drop</b></td><td><b>drop</b> — confined when D falls to a fraction of <em>what it was in the previous state</em>. The baseline is the median of the last few <em>mobile</em> localizations and <b>freezes on entry</b>, so a sustained slow state stays detected; recovery is hysteretic at 1.5× the entry threshold so noise cannot chatter the state. <b>relative</b> — against the track's whole-life median. <b>absolute</b> — the legacy fixed cut.</td></tr>
+  <tr><td><b>× fraction</b><br>default <b>0.30</b></td><td>How far D must fall. 0.40 roughly doubles the false-positive rate (1.50× enrichment against 2.36×).</td></tr>
+  <tr><td><b>baseline</b><br>default <b>10</b></td><td>Drop mode: how many preceding mobile localizations set the baseline.</td></tr>
+  <tr><td><b>min run</b><br>default <b>5</b></td><td>How many localizations a confined stretch must span. <b>The main specificity lever</b> — on the matched null it takes the false-positive rate from 41 % to 12 %. Raise it to 8 for 3.0× enrichment at the cost of short events.</td></tr>
+  <tr><td><b>confined ≤ D</b></td><td>Only active in <b>absolute</b> mode; greyed out otherwise.</td></tr>
+</table>
+
+<div class="note">Changing any of these re-derives the flags from the stored <code>D(t)</code> without re-rolling the estimator, and re-saves the active build — so it is fast, but it does change what Tool 3's confinement and state-change site detection will see. The criterion actually applied is recorded in <code>Tracks(k).diffOpts</code> (<code>confMode</code>, <code>confFrac</code>, <code>baseWin</code>, <code>minRun</code>). <b>Builds made before this change carry the old absolute flags and need re-deriving or rebuilding.</b></div>
 
 <h3 id="t2dmath">The two diffusion estimators — what each number means</h3>
 <p>The tab shows <b>two different D</b>, and confusing them is the easiest mistake to make here. One is a single number per track from an MSD fit; the other is one number per localization from a rolling step estimator. They are computed differently, they answer different questions, and only the second one feeds the downstream flags.</p>

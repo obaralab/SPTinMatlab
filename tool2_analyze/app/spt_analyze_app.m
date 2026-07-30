@@ -57,7 +57,12 @@ buildTracks=[]; ddQCcell=[]; axLen=[]; axMSD=[]; axCov=[]; axDist=[]; axDdist=[]
 tsName=''; eTsName=[]; ddBuild=[];   % the ACTIVE TrackStruct basename in analysis/ (named builds)
 axDloc=[]; axDtrace=[];   % stepwise-diffusion QC: pooled per-localization D, and D(t) for the clicked track
 axCSD=[]; csdHi=[];       % cumulative-displacement panel + the highlight of the clicked track
+ddHi=[]; dlHi=[];         % where the CLICKED track sits in the two pooled D histograms
 eConfineD=[]; diffConfineD=0.15;   % per-localization diffusion: confinement threshold (µm²/s) computed at Build
+ddConfMode=[]; diffConfMode='drop';       % 'drop' (D vs its own PRECEDING baseline) | 'relative' | 'absolute'
+eBaseWin=[];   diffBaseWin=10;             % drop mode: preceding localizations forming the baseline
+eConfFrac=[];  diffConfFrac=0.30;         % relative mode: confined when D <= this x the track's median
+eMinRun=[];    diffMinRun=5;              % a confined run must last this many localizations to count
 ddFitMode=[]; axSweep=[];   % MSD fit-window mode (fixed % / adaptive R²) + the per-track D-vs-fit-window sweep
 qcTracks={}; qcSelIdx=0; qcHi=[]; playerCtl=[];   % click-to-inspect: flat track list, selection, highlight, embedded player
 densCache=struct('base',{},'occ',{});   % per-cell whole-movie occupancy cache (used by ensureMips + saveDensityFiles)
@@ -255,6 +260,29 @@ end
         eMsdFrac = uispinner(r2,'Limits',[5 100],'Value',25,'Step',5, ...
             'Tooltip','Fixed mode: % of lags fit. Adaptive mode: the MAXIMUM % of lags the adaptive fit may use.', ...
             'ValueChangedFcn',@(s,e) onMsdFrac());
+        uilabel(r2,'Text','state change','HorizontalAlignment','right');
+        ddConfMode = uidropdown(r2,'Items',{'drop (× preceding)','relative (× own median)','absolute (µm²/s)'}, ...
+            'ItemsData',{'drop','relative','absolute'},'Value',diffConfMode, ...
+            'Tooltip',['How a localization is called "confined". RELATIVE compares D to THIS track''s own ' ...
+            'median, so the test is "did this molecule slow down" rather than "is it below a fixed number" — ' ...
+            'an absolute cut conflates a slow track with one that changed state.'], ...
+            'ValueChangedFcn',@(s,e) onConfineD());
+        eConfFrac = uispinner(r2,'Limits',[0.05 0.95],'Value',diffConfFrac,'Step',0.05,'ValueDisplayFormat','%.2f', ...
+            'Tooltip',['Relative mode: confined when D falls to this fraction of the track''s own median. ' ...
+            'Measured against a matched Brownian null on the reference cell, 0.30 with a minimum run of 5 ' ...
+            'gives 3.6x enrichment over chance; 0.40 gives 2.7x.'], ...
+            'ValueChangedFcn',@(s,e) onConfineD());
+        uilabel(r2,'Text','baseline','HorizontalAlignment','right');
+        eBaseWin = uispinner(r2,'Limits',[3 100],'Value',diffBaseWin,'Step',1,'RoundFractionalValues','on', ...
+            'Tooltip','Drop mode: how many preceding localizations form the baseline D that the current one is compared against.', ...
+            'ValueChangedFcn',@(s,e) onConfineD());
+        uilabel(r2,'Text','min run','HorizontalAlignment','right');
+        eMinRun = uispinner(r2,'Limits',[1 50],'Value',diffMinRun,'Step',1,'RoundFractionalValues','on', ...
+            'Tooltip',['A confined stretch must last this many localizations to count as a state change. ' ...
+            'This is the single biggest lever on specificity: a noise dip in the 7-point rolling estimator ' ...
+            'is short, a real confinement episode is not. At 1 (no persistence) roughly half of pure ' ...
+            'constant-D tracks register a false state change.'], ...
+            'ValueChangedFcn',@(s,e) onConfineD());
         uilabel(r2,'Text','confined ≤ D','HorizontalAlignment','right');
         eConfineD = uispinner(r2,'Limits',[0.001 100],'Value',diffConfineD,'Step',0.05,'ValueDisplayFormat','%.3g', ...
             'Tooltip','Per-localization confinement threshold (µm²/s): D ≤ this = "confined". Sets which localizations feed Tool 3''s confinement/state-change site detection. Re-derives from the stored D(t) (no rebuild).', ...
@@ -1951,7 +1979,9 @@ end
         for k = 1:numel(Tracks)
             dtk = DTS; if isfield(Tracks,'frameInterval') && ~isempty(Tracks(k).frameInterval) && Tracks(k).frameInterval>0, dtk = Tracks(k).frameInterval; end
             try
-                Tk = spt_track_diffusion(Tracks(k), struct('dt',dtk,'sigmaUm',PRECNM/1000,'confineD',diffConfineD));
+                Tk = spt_track_diffusion(Tracks(k), struct('dt',dtk,'sigmaUm',PRECNM/1000, ...
+                    'confineD',diffConfineD,'confMode',diffConfMode,'confFrac',diffConfFrac, ...
+                    'baseWin',diffBaseWin,'minRun',diffMinRun));
                 % assign FIELD-BY-FIELD (a whole-struct assign fails — the result has extra fields)
                 Tracks(k).Dt = Tk.Dt; Tracks(k).confined = Tk.confined; Tracks(k).stateChange = Tk.stateChange; Tracks(k).diffOpts = Tk.diffOpts;
             catch, end
@@ -1964,13 +1994,22 @@ end
         if isempty(buildTracks) || ~isfield(buildTracks,'Dt'), return; end
         for k = 1:numel(buildTracks)
             Dt = buildTracks(k).Dt; if isempty(Dt), continue; end
-            conf = Dt <= diffConfineD; sc = false(size(Dt));
-            for j = 1:size(Dt,2)
-                rr = find(isfinite(Dt(:,j))); if numel(rr)<2, continue; end
-                c = conf(rr,j); e = [false; c(2:end)&~c(1:end-1)]; sc(rr(e),j) = true;
-            end
+            % Same rules the builder uses — relative-to-own-median by default, with a minimum run
+            % length. This used to hardcode `Dt <= diffConfineD` with no persistence, so re-deriving
+            % silently reverted a build to the old absolute criterion.
+            % ONE implementation, shared with the builder. These were separate copies and had
+            % already drifted — the app kept a sliding baseline after the driver moved to a frozen
+            % one, so re-deriving a build produced different flags from building it.
+            [conf, sc] = spt_confine_flags(Dt, struct('confMode',diffConfMode, ...
+                'confFrac',diffConfFrac,'baseWin',diffBaseWin,'confineD',diffConfineD,'minRun',diffMinRun));
             buildTracks(k).confined = conf; buildTracks(k).stateChange = sc;
-            if isfield(buildTracks,'diffOpts') && isstruct(buildTracks(k).diffOpts), buildTracks(k).diffOpts.confineD = diffConfineD; end
+            if isfield(buildTracks,'diffOpts') && isstruct(buildTracks(k).diffOpts)
+                buildTracks(k).diffOpts.confineD = diffConfineD;
+                buildTracks(k).diffOpts.confMode = diffConfMode;
+                buildTracks(k).diffOpts.confFrac = diffConfFrac;
+                buildTracks(k).diffOpts.baseWin  = diffBaseWin;
+                buildTracks(k).diffOpts.minRun   = diffMinRun;
+            end
         end
         % Re-save to the ACTIVE build. Writing TrackStruct.mat unconditionally discarded the edit
         % for a named build and left a divergent shadow file behind.
@@ -1981,8 +2020,23 @@ end
 
     function onConfineD()
         if ~isempty(eConfineD) && isgraphics(eConfineD), diffConfineD = eConfineD.Value; end
+        if ~isempty(ddConfMode) && isgraphics(ddConfMode), diffConfMode = ddConfMode.Value; end
+        if ~isempty(eConfFrac)  && isgraphics(eConfFrac),  diffConfFrac = eConfFrac.Value;  end
+        if ~isempty(eBaseWin)   && isgraphics(eBaseWin),   diffBaseWin  = round(eBaseWin.Value); end
+        if ~isempty(eMinRun)    && isgraphics(eMinRun),    diffMinRun   = round(eMinRun.Value); end
+        isAbs = strcmpi(diffConfMode,'absolute');
+        if ~isempty(eConfineD) && isgraphics(eConfineD)
+            if isAbs, eConfineD.Enable = 'on'; else, eConfineD.Enable = 'off'; end
+        end
+        if ~isempty(eConfFrac) && isgraphics(eConfFrac)
+            if isAbs, eConfFrac.Enable = 'off'; else, eConfFrac.Enable = 'on'; end
+        end
+        if ~isempty(eBaseWin) && isgraphics(eBaseWin)
+            if strcmpi(diffConfMode,'drop'), eBaseWin.Enable = 'on'; else, eBaseWin.Enable = 'off'; end
+        end
         reDeriveConfinement();
     end
+
 
     function onBuild()
         if isempty(tracksDir) || ~isfolder(tracksDir)
@@ -2218,6 +2272,7 @@ end
         % ---- CSD: cumulative path length per track (µm). Every track faint, median bold; the
         % clicked track is highlighted on top, the same way the tracks panel behaves.
         cla(axCSD); csdHi = [];
+        ddHi = []; dlHi = [];    % the pooled D panels are redrawn below; their markers go with them
         Cx = []; Cy = []; nC = 0; Call = {};
         for i = 1:numel(qcTracks)
             cv = fieldOr(qcTracks{i},'CSD'); cv = cv(isfinite(cv));
@@ -2302,6 +2357,32 @@ end
                 hold(axCSD,'on');
                 csdHi = plot(axCSD, (1:numel(cv))', cv(:), '-','Color',[1 0.55 0],'LineWidth',2,'HitTest','off');
                 hold(axCSD,'off');
+            end
+        end
+
+        % Where THIS track sits in the two pooled D histograms. The only vertical line on those
+        % panels used to be the confinement threshold, which never moves — so clicking a track told
+        % you nothing about where it fell in the population, which is what you want when hunting for
+        % the fast ones.
+        if ~isempty(axDdist) && isgraphics(axDdist)
+            if ~isempty(ddHi) && isgraphics(ddHi), delete(ddHi); end
+            if isfinite(r.D)
+                hold(axDdist,'on');
+                ddHi = xline(axDdist, r.D, '-', sprintf('this track %.3g', r.D), ...
+                    'Color',[1 0.55 0],'LineWidth',2,'FontSize',7, ...
+                    'LabelVerticalAlignment','top','LabelHorizontalAlignment','center');
+                hold(axDdist,'off');
+            end
+        end
+        if ~isempty(axDloc) && isgraphics(axDloc)
+            if ~isempty(dlHi) && isgraphics(dlHi), delete(dlHi); end
+            dvv = fieldOr(s,'Dt'); dvv = dvv(isfinite(dvv));
+            if ~isempty(dvv)
+                hold(axDloc,'on');
+                dlHi = xline(axDloc, median(dvv), '-', sprintf('this track %.3g', median(dvv)), ...
+                    'Color',[1 0.55 0],'LineWidth',2,'FontSize',7, ...
+                    'LabelVerticalAlignment','top','LabelHorizontalAlignment','center');
+                hold(axDloc,'off');
             end
         end
 

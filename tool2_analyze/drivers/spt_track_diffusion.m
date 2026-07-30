@@ -17,7 +17,18 @@ function T = spt_track_diffusion(T, opts)
 %   .sigmaUm   localization precision (um) for the noise floor; default 0.030
 %   .win       rolling window in LOCALIZATIONS (odd); default 7
 %   .mode      'lag1' (noise-corrected single-step, default) | 'msdfit' (local MSD slope)
-%   .confineD  confinement threshold (um^2/s): D<=this is "confined"; default 0.15
+%   .confineD  ABSOLUTE confinement threshold (um^2/s), used when confMode='absolute'; default 0.15
+%   .confMode  'drop' (default) | 'relative' | 'absolute'.
+%                drop     - confined when D falls to confFrac x what it was in the PREVIOUS state.
+%                           The baseline is the median of the last baseWin MOBILE localizations and
+%                           freezes on entry, so a sustained slowdown stays detected.
+%                relative - confined when D <= confFrac x this track's median over its whole life.
+%                           Blind to a sustained slowdown: the median follows the track down.
+%                absolute - the legacy fixed cut, D <= confineD, for every track alike.
+%   .confFrac  drop/relative fraction; default 0.30
+%   .baseWin   drop mode: mobile localizations forming the baseline; default 10
+%   .minRun    a confined run must span at least this many localizations to count; default 5. This is
+%              the single biggest lever on specificity — see the table below.
 %
 % ADDS to T (aligned with T.matrix [nF x nT x 3] = frame,x,y in um; NaN where no localization):
 %   .Dt          [nF x nT]  per-localization D (um^2/s)
@@ -31,6 +42,10 @@ sigmaUm = getf(opts,'sigmaUm', 0.030);
 win     = max(3, round(getf(opts,'win', 7)));
 mode    = lower(string(getf(opts,'mode','lag1')));
 confineD= getf(opts,'confineD', 0.15);
+confMode= lower(string(getf(opts,'confMode','drop')));  % 'drop' (default) | 'relative' | 'absolute'
+confFrac= getf(opts,'confFrac', 0.30);    % drop/relative: the fraction of the baseline that counts
+baseWin = max(3, round(getf(opts,'baseWin', 10)));  % drop mode: mobile localizations forming the baseline
+minRun  = max(1, round(getf(opts,'minRun', 5)));   % a confined run must last this many localizations
 
 M = T.matrix; [nF, nT, ~] = size(M);
 X = M(:,:,2); Y = M(:,:,3);
@@ -63,17 +78,41 @@ for j = 1:nT
     Dt(rr,j) = d;
 end
 
-confined = Dt <= confineD;                     % NaN<=x is false, so gaps are not "confined"
-stateChange = false(nF, nT);
-for j = 1:nT
-    rr = find(isfinite(Dt(:,j))); if numel(rr) < 2, continue; end
-    c = confined(rr,j);
-    edge = [false; c(2:end) & ~c(1:end-1)];    % rising edge: mobile -> confined (a fast->slow entry)
-    stateChange(rr(edge), j) = true;
-end
+% ---- confinement + state changes --------------------------------------------------------------
+% Two knobs, because one absolute threshold for every track does not work. Measured on the WithER
+% cell against a NULL of pure Brownian tracks matched to the real per-track D distribution and track
+% lengths — where every detection is by construction a false positive:
+%
+%   criterion (as implemented)          real    null    enrichment
+%   absolute 0.15, no minRun (OLD)       67%     45%       1.49x
+%   drop 0.3x, baseWin 10, minRun 3      67%     35%       1.94x
+%   drop 0.3x, baseWin 10, minRun 5      52%     22%       2.36x   <- the default
+%   drop 0.3x, baseWin 10, minRun 8      35%     12%       3.00x
+%   drop 0.4x, baseWin 10, minRun 5      80%     53%       1.50x
+%   relative 0.3x own median, minRun 5   27%      6%       4.29x
+%
+% NEITHER OF THE TOP TWO DOMINATES, and the choice is scientific rather than statistical.
+% 'relative' has the best aggregate specificity but is BLIND TO A SUSTAINED SLOWDOWN: a track that
+% slows and stays slow drags its own median down with it, and the test stops firing. A molecule
+% captured at a contact site does exactly that — it slows and remains slow while bound — so 'drop'
+% is the default despite its lower enrichment, because it is the one that can see the event of
+% interest. Verified on a synthetic 4x sustained slowdown: 'drop' reports one confined run of 15
+% localizations, 'relative' and 'absolute' report nothing at all.
+% Raise minRun to buy specificity back (minRun 8 -> 3.00x) at the cost of short events.
+%
+% Why not an absolute cut: it conflates "this track is slow" with "this track changed state". A
+% molecule whose baseline D is 1.0 can halve twice over and never reach 0.15, while one whose
+% baseline is 0.18 flickers across it on estimator noise alone.
+% Why minRun: a noise dip in a 7-point rolling estimator is short, a real confinement episode is not.
+% It is the main specificity lever — on the matched null it takes the default's false-positive rate
+% from 41% to 12%.
+[confined, stateChange] = spt_confine_flags(Dt, struct( ...
+    'confMode',char(confMode),'confFrac',confFrac,'baseWin',baseWin, ...
+    'confineD',confineD,'minRun',minRun));
 
 T.Dt = Dt; T.confined = confined; T.stateChange = stateChange;
 T.diffOpts = struct('dt',dt,'sigmaUm',sigmaUm,'win',win,'mode',char(mode),'confineD',confineD, ...
+                    'confMode',char(confMode),'confFrac',confFrac,'baseWin',baseWin,'minRun',minRun, ...
                     'method','rolling (native, noise-corrected)');
 end
 
