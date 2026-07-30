@@ -94,6 +94,60 @@ cutBtn = btn(bs,'Cut link');
 assert(strcmp(cutBtn.Enable,'on'), 'the cut button is still disabled with a link on the cursor');
 fprintf('cursor: worst=%d, ◀/▶ move it, cut button armed\n', worst);
 
+%% (1d) the movie follows the cursor -------------------------------------------------------------
+% Stepping to a link used to leave the raw frame parked on the track's first frame, so the segment
+% drawn on the map and the pixels behind it came from different moments. The cursor must move the
+% movie to the frame the link departs from, and scope playback to that link's window.
+Ln = Lfn(tid);
+nav.worst(); drawnow;
+sN = st();
+f0 = round(Ln.t0(worst)/0.02); f1 = round(Ln.t1(worst)/0.02);
+assert(sN.frame == f0, 'movie sits on frame %d, expected the link''s departure frame %d', sN.frame, f0);
+assert(~isempty(sN.playRange), 'no playback window scoped to the link');
+assert(sN.playRange(1) <= f0 && sN.playRange(2) >= f1, ...
+    'play window [%d %d] does not span the link frames %d-%d', sN.playRange(1), sN.playRange(2), f0, f1);
+nav.goto(+1); drawnow;
+sN2 = st();
+assert(sN2.frame ~= sN.frame, 'stepping to the next link did not move the movie');
+nav.goto(-1); drawnow;
+assert(st().frame == f0, 'stepping back did not return the movie to the link');
+fprintf('movie follows the cursor: link %d -> frame %d, window [%d %d]\n', ...
+    worst, f0, sN.playRange(1), sN.playRange(2));
+
+% "Play link" loops that window rather than the whole track
+bPlayLink = btn(bs,'Play link');
+press(bPlayLink);
+sP = st();
+assert(sP.linkLoop, '"Play link" did not enter link-loop mode');
+press(btn(bs,'Pause'));
+% and the ordinary Play button must leave link-loop mode, or it silently loops 5 frames
+press(btn(bs,'Play'));
+assert(~st().linkLoop, 'the whole-track Play button stayed in link-loop mode');
+press(btn(bs,'Pause'));
+fprintf('Play link loops the window; whole-track Play clears it\n');
+
+%% (1e) the loop cannot escape its window ---------------------------------------------------------
+% The KEEP/REJECT button ends by re-selecting the SAME track. That used to reset the movie to the
+% track's first frame WITHOUT leaving link-loop mode, and advance_frame clamped only the upper bound —
+% so playback crept through the entire track inside a link-sized crop, which reads as a hang.
+nav.worst(); drawnow;
+fW = st().frame; rngW = st().playRange;
+press(bPlayLink);
+press(bToggle);                                  % re-selects the same track (do_toggle -> select_track)
+drawnow;
+sT = st();
+assert(sT.frame >= rngW(1) && sT.frame <= rngW(2), ...
+    'after re-selecting the same track the movie sat at frame %d, outside its loop window [%d %d]', ...
+    sT.frame, rngW(1), rngW(2));
+% and the window itself must never reach past the track's own last frame
+tmAll = getappdata(fig,'tv_spots');
+lastF = max(tmAll.FRAME(tmAll.TRACK_ID==tid));
+assert(rngW(2) <= lastF, 'loop window ends at frame %d, past the track''s last frame %d', rngW(2), lastF);
+press(btn(bs,'Pause'));
+press(bToggle);                                  % undo the keep/reject flip
+fprintf('loop stayed inside [%d %d] across a same-track re-select; window within the track\n', ...
+    rngW(1), rngW(2));
+
 %% (2) cut the link, and check the split geometry ------------------------------------------------
 % Cut at the spot before the planted jump: find the largest step and cut the link leaving its source.
 [XY, SID] = track_xy(fig, tid);
@@ -196,6 +250,10 @@ end
 
 % =====================================================================================
 function b = btn(bs, txt)
+% Prefer an EXACT label match. Substring matching alone picks "▶ Play link" for "Play", which made
+% the whole-track Play assertion test the wrong button.
+ex = bs(arrayfun(@(x) strcmp(strtrim(string(x.Text)), txt), bs));
+if ~isempty(ex), b = ex(1); return; end
 b = bs(arrayfun(@(x) contains(string(x.Text), txt), bs));
 assert(~isempty(b), 'button "%s" not found', txt);
 b = b(1);

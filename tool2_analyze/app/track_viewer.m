@@ -43,6 +43,9 @@ S.cuts_by_cell  = containers.Map('KeyType','char','ValueType','any');   % base -
 S.nextFragId    = [];    % per-cell monotonic counter for minted fragment ids (never reused)
 S.strip         = struct('spotId',[],'t0',[],'t1',[],'step',[],'gap',[]);   % edges currently drawn
 S.linkIdx       = [];    % which link of the selected track the cursor sits on
+S.playRange     = [];    % [f0 f1] — when set, playback loops this window instead of the whole track
+S.linkLoop      = false; % true while looping across one link rather than the whole track
+S.linkPad       = 2;     % frames shown either side of a link when playing across it
 
 % Playback timers carry this tag so an instance can find and kill the ones a PREVIOUS instance
 % leaked. A leaked timer is not merely untidy: its TimerFcn closes over that instance's workspace,
@@ -266,6 +269,22 @@ c.link_flag.Tooltip = 'Next flagged link WITHIN this track, wrapping around — 
 c.link_flag.ButtonPushedFcn = @(~,~) link_next_susp_in_track();
 
 row=row+1;
+c.play_link = half_btn(lg,row,1,'▶ Play link',[0.18 0.60 0.44],'white');
+c.play_link.Tooltip = ['Loop the few frames around this link in the raw movie, so you can watch the ' ...
+    'spot cross it. A real step keeps one emitter moving; a mislinkage blinks between two.'];
+c.play_link.ButtonPushedFcn = @(~,~) play_link();
+c.link_pad = uispinner(lg,'Limits',[0 20],'Value',2,'Step',1,'FontSize',9, ...
+    'Tooltip','Frames shown either side of the link when looping it.', ...
+    'ValueChangedFcn',@(~,~) set_link_pad());
+c.link_pad.Layout.Row=row; c.link_pad.Layout.Column=2;
+row=row+1;
+c.zoom_link = uicheckbox(lg,'Text','Zoom map to the selected link','Value',true,'FontSize',9, ...
+    'Tooltip',['Frame the trajectory panel on the link instead of the whole track, so the individual ' ...
+               'emitters and their rings are resolvable. Untick to keep the whole track in view.'], ...
+    'ValueChangedFcn',@(~,~) refreshTraj());
+c.zoom_link.Layout.Row=row; c.zoom_link.Layout.Column=[1 2];
+
+row=row+1;
 c.cut_btn = wide_btn(lg,row,'✂ Cut link',[0.70 0.12 0.12],'white');
 c.cut_btn.Enable = 'off';
 c.cut_btn.Tooltip = 'Cut the link on the cursor. The track splits in two and both halves go back through the filters.';
@@ -319,8 +338,9 @@ c.nearby_rad = uispinner(lg,'Limits',[0.05 5],'Value',0.5,'Step',0.05,...
 c.nearby_rad.Layout.Row=row; c.nearby_rad.Layout.Column=2;
 row=row+1;
 c.play_btn  = half_btn(lg,row,1,'Play', [0.18 0.80 0.44],'white');
+% the full-track Play must leave link-loop mode, or it would silently keep looping 5 frames
 c.pause_btn = half_btn(lg,row,2,'Pause',[0.91 0.30 0.24],'white');
-c.play_btn.ButtonPushedFcn  = @(~,~) do_play();
+c.play_btn.ButtonPushedFcn  = @(~,~) play_whole_track();
 c.pause_btn.ButtonPushedFcn = @(~,~) do_pause();
 
 % -- Structure overlay (ER / mito) --
@@ -583,7 +603,8 @@ end
             'base',base, 'nAll',nAll, 'nKept',numel(S.kept_ids), 'nRej',nAll-numel(S.kept_ids), ...
             'kept',S.kept_ids(:)', 'shown',S.shown_ids(:)', 'nShown',numel(S.shown_ids), ...
             'sel',S.selected_id, 'mkeep',S.manual_keep(:)', 'mrej',S.manual_reject(:)', ...
-            'playing',S.playing, 'nCuts',numel(S.cuts)));
+            'playing',S.playing, 'nCuts',numel(S.cuts), ...
+            'frame',S.current_frame, 'playRange',S.playRange, 'linkLoop',S.linkLoop));
         % Link-cut hooks (spt_linkcut_smoke). The spot table is the only place the split is visible
         % before export, and do_cut is what a click on the strip ends up calling — a headless test has
         % no way to click an axes, so it invokes the same entry point the UI does.
@@ -683,7 +704,7 @@ end
         S.manual_keep   = setdiff(S.manual_keep,   tid);
         S.manual_reject = setdiff(S.manual_reject, tid);
         apply_cuts();
-        S.linkIdx = [];        % the chain it indexed no longer exists
+        S.linkIdx = []; clear_link_playback();   % the chain it indexed no longer exists
         nHead = sum(S.spots_t.TRACK_ID==tid); nTail = sum(S.spots_t.TRACK_ID==newId);
         clog('✂ CUT track %g after spot %g → %g (%d locs) + %g (%d locs)%s', ...
             tid, afterSpotId, tid, nHead, newId, nTail, ...
@@ -698,7 +719,7 @@ end
         if isempty(S.cuts), clog('UNDO: no cuts on this cell.'); return; end
         last = S.cuts(end); S.cuts(end) = [];
         apply_cuts();
-        S.linkIdx = [];        % the chain it indexed has just changed length
+        S.linkIdx = []; clear_link_playback();   % the chain it indexed has just changed length
         clog('↩ UNDO cut on track %g (spot %g) — %d cut(s) left on this cell.', ...
             last.origId, last.afterSpotId, numel(S.cuts));
         cuts_store();
@@ -1387,11 +1408,16 @@ end
         if ~S.loaded, return; end
         % Moving to a different track invalidates the link cursor: index 12 of the old track's list
         % names a different link here, and cutting it would sever a link the user never looked at.
-        if isempty(S.selected_id) || ~isequal(S.selected_id, tid), S.linkIdx = []; end
+        if isempty(S.selected_id) || ~isequal(S.selected_id, tid)
+            S.linkIdx = []; clear_link_playback();
+        end
         S.selected_id = tid;
         tm_sel = S.track_metrics(S.track_metrics.TRACK_ID==tid,:);
         if isempty(tm_sel), return; end
-        S.current_frame = tm_sel.frame_start;
+        % Re-selecting the SAME track (the KEEP/REJECT button does exactly this) must not throw the
+        % movie back to the track's start while a link is under inspection — that is what stranded
+        % playback outside its own loop window.
+        if isempty(S.linkIdx), S.current_frame = tm_sel.frame_start; end
         kept = ismember(tid, S.kept_ids);
         st = 'KEEP'; if ~kept, st = 'REJECT'; end
         why = '';
@@ -1454,6 +1480,27 @@ end
         pad  = max(ring*2, er*4);
         xl=[min(sel.X_um)-pad, max(sel.X_um)+pad];
         yl=[min(sel.Y_um)-pad, max(sel.Y_um)+pad];
+        % With a link selected, frame the LINK rather than the whole track. At whole-track zoom a
+        % 0.9 µm step inside a 3 µm track is a few pixels wide and the emitters are indistinguishable
+        % — which is the whole question. Zoomed in you can see whether one spot moved or the tracker
+        % switched to a different one that was sitting there all along.
+        % ...but not while the whole track is playing: the molecule leaves a link-sized box within a
+        % couple of frames, and the panel then shows an empty crop for the rest of the sweep.
+        wholeTrackPlaying = S.playing && ~S.linkLoop;
+        if zoom_to_link() && isfield(S,'linkIdx') && ~isempty(S.linkIdx) && ~wholeTrackPlaying
+            Lz = link_info(S.selected_id);
+            if ~isempty(Lz.step) && S.linkIdx>=1 && S.linkIdx<=numel(Lz.step)
+                kz = S.linkIdx;
+                zx = [Lz.x0(kz) Lz.x1(kz)]; zy = [Lz.y0(kz) Lz.y1(kz)];
+                zpad = max([ring*2.5, er*6, 0.35*hypot(diff(zx),diff(zy))]);
+                zxl = [min(zx)-zpad, max(zx)+zpad];
+                zyl = [min(zy)-zpad, max(zy)+zpad];
+                % Only adopt it if it actually narrows the view. zpad is unconditionally larger than
+                % the whole-track pad on the same two spinner values, so on a compact track "zoom to
+                % link" would otherwise zoom OUT.
+                if diff(zxl) < diff(xl) || diff(zyl) < diff(yl), xl = zxl; yl = zyl; end
+            end
+        end
 
         all_now=S.spots_t(S.spots_t.FRAME==f & ...
             S.spots_t.X_um>=xl(1) & S.spots_t.X_um<=xl(2) & ...
@@ -1684,7 +1731,7 @@ end
         % A cut shortens the chain the cursor was indexing, so the index can outlive its list.
         % Drop it rather than reading past the end.
         if S.linkIdx < 1 || S.linkIdx > numel(L.step)
-            S.linkIdx = [];
+            S.linkIdx = []; clear_link_playback();
             c.cut_btn.Enable = 'off'; c.cut_btn.Text = '✂ Cut link';
             c.link_lbl.Text = 'Track changed — pick a link again with ◀ / ▶ or ▲ Worst.';
             c.link_lbl.FontColor = [0.2 0.2 0.2];
@@ -1699,7 +1746,19 @@ end
         if L.susp(k), c.link_lbl.FontColor = [0.75 0.15 0.10]; else, c.link_lbl.FontColor = [0.2 0.2 0.2]; end
         c.cut_btn.Enable = 'on';
         c.cut_btn.Text   = sprintf('✂ Cut link %d  (%.2f µm)', k, L.step(k));
-        update_link_strip(); update_disp_plot(); update_trajectory(S.current_frame);
+        % Park the movie on the frame the link DEPARTS from, and scope playback to the link's own
+        % window. Without this the trajectory drew the candidate segment while the raw frame behind it
+        % was still the track's first — you were judging a link against pixels from another moment.
+        f0 = round(L.t0(k)/S.frame_interval); f1 = round(L.t1(k)/S.frame_interval);
+        % Clamp to the track's own span: past frame_end there are no localizations, and overlayImage
+        % silently clamps an out-of-range page, so the loop would sit on a repeated last frame with
+        % nothing on it while the title kept counting.
+        tmk = S.track_metrics(S.track_metrics.TRACK_ID==S.selected_id,:);
+        hiCap = f1 + S.linkPad;
+        if ~isempty(tmk), hiCap = min(hiCap, tmk.frame_end); end
+        if S.spt_nfr > 0, hiCap = min(hiCap, S.spt_nfr-1); end
+        S.playRange = [max(0, f0-S.linkPad), max(hiCap, f1)];
+        update_link_strip(); update_disp_plot(); update_trajectory(f0);
         publish_state();     % so the cursor is visible to the headless test hooks
     end
 
@@ -1768,7 +1827,8 @@ end
         end
         at = 0; if ~isempty(S.selected_id), at = find(ids==S.selected_id,1); if isempty(at), at = 0; end, end
         nxt = ids(mod(at, numel(ids)) + 1);          % advance down the ranked list, wrapping
-        S.selected_id = nxt; S.linkIdx = []; select_track(nxt);
+        S.linkIdx = []; clear_link_playback();   % select_track's guard cannot fire: selected_id is set below
+        S.selected_id = nxt; select_track(nxt);
         link_goto_worst();
         L = link_info(nxt);
         clog('⚠ [%d/%d worst-first] track %g: %d flagged link(s), worst %.3f µm = %.1f× its median %.3f µm.', ...
@@ -1872,6 +1932,7 @@ end
             'Period',round(max(0.033,1/c.fps.Value)*1000)/1000,...   % ms precision (timer requires it)
             'TimerFcn',@(~,~) advance_frame());
         start(S.play_timer);
+        publish_state();   % the playing flag was never republished, so it read stale to any observer
     end
 
     function do_pause()
@@ -1880,14 +1941,69 @@ end
             stop(S.play_timer); delete(S.play_timer);
         end
         S.play_timer = [];
+        publish_state();
     end
 
     function advance_frame()
         if ~S.loaded||~S.playing||isempty(S.selected_id), return, end
-        tm_sel=S.track_metrics(S.track_metrics.TRACK_ID==S.selected_id,:);
-        f_next=S.current_frame+1;
-        if f_next>tm_sel.frame_end, f_next=tm_sel.frame_start; end
+        f_next = S.current_frame + 1;
+        if ~isempty(S.playRange) && S.linkLoop
+            % looping the few frames around one link: the molecule crosses the suspect step over and
+            % over, which is the only way to see whether the spot really moved there or the tracker
+            % jumped to a different one
+            % Clamp BOTH ends. Wrapping only at the top let the frame escape below the window —
+            % re-selecting the same track resets current_frame to the track's first frame, and the
+            % loop then crept through every frame up to playRange(2) inside a link-sized crop, which
+            % reads as a hang.
+            if f_next > S.playRange(2) || f_next < S.playRange(1), f_next = S.playRange(1); end
+        else
+            tm_sel=S.track_metrics(S.track_metrics.TRACK_ID==S.selected_id,:);
+            if f_next>tm_sel.frame_end, f_next=tm_sel.frame_start; end
+        end
         update_trajectory(f_next);
+    end
+
+    function clear_link_playback()
+        % The link window describes a chain that has just changed or gone. Leaving it set would keep
+        % playback looping a handful of frames belonging to nothing, which reads as a frozen movie.
+        S.playRange = [];
+        if S.linkLoop
+            S.linkLoop = false;
+            if S.playing, do_pause(); end     % stop rather than silently switch to whole-track play
+        end
+        if isfield(c,'cut_btn') && isgraphics(c.cut_btn)
+            c.cut_btn.Enable = 'off'; c.cut_btn.Text = '✂ Cut link';
+        end
+    end
+
+    function tf = zoom_to_link()
+        tf = true;
+        if isfield(c,'zoom_link') && isgraphics(c.zoom_link), tf = c.zoom_link.Value; end
+    end
+
+    function set_link_pad()
+        S.linkPad = round(c.link_pad.Value);
+        if ~isempty(S.linkIdx), show_link_cursor(); end   % re-scope the window around the same link
+    end
+
+    function play_whole_track()
+        % The green Play button always means the WHOLE track. Without clearing the flag it would keep
+        % looping the 5-frame link window set by the last cursor move, which looks like a hang.
+        S.linkLoop = false;
+        do_play();
+    end
+
+    function play_link()
+        % Loop the frames spanning the link on the cursor. Stepping the cursor already parks the movie
+        % at the departure frame; this makes the spots actually move across it.
+        if isempty(S.linkIdx) || isempty(S.playRange)
+            clog('PLAY LINK: pick a link first (◀ / ▶ or ▲ Worst).'); return;
+        end
+        S.linkLoop = true;
+        update_trajectory(S.playRange(1));
+        do_play();
+        clog('▶ looping frames %d–%d across link %d (%d fps)', ...
+            S.playRange(1), S.playRange(2), S.linkIdx, c.fps.Value);
     end
 
     function export_cloud(inCsv, good_ids, outCsv)

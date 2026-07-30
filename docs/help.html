@@ -870,7 +870,11 @@ No ER/mito found for this cell (set folders on the Experiment tab, or Pick manua
 <p>Title: <code>track 606 · 58 links · 3 flagged · 7 gap-closed  (bar = × median step)</code>.</p>
 </div>
 
-<p><b>The panel that actually decides it is the trajectory.</b> The link on the cursor is drawn on the track map in <b>thick red with both endpoints ringed</b>. A genuine mislinkage looks like one long stride bridging two otherwise separate clouds of localizations — and no amount of staring at a step-versus-time trace shows you that. Walk the links and watch the red segment move over the map.</p>
+<p><b>The panel that actually decides it is the trajectory.</b> The link on the cursor is drawn on the track map in <b>thick red with both endpoints ringed</b>. A genuine mislinkage looks like one long stride bridging two otherwise separate clouds of localizations — and no amount of staring at a step-versus-time trace shows you that.</p>
+
+<div class="good"><b>The movie follows the cursor.</b> Stepping to a link parks the raw frame on the frame that link <em>departs from</em>, so the pixels behind the red segment are from the moment the tracker made the join — not, as before, from the track's first frame. <kbd>▶ Play link</kbd> then loops just that link's frames (± the <b>frames either side</b> spinner, default 2) so you watch the spot cross the suspect step. That is the test a static picture cannot give you: a real step keeps <em>one</em> emitter moving, while a mislinkage blinks between two positions with a second emitter sitting there the whole time.</div>
+
+<p><b>Zoom map to the selected link</b> (ticked by default) frames the trajectory panel on the link rather than the whole track — a 0.9 µm step inside a 3 µm track is a few pixels wide at whole-track zoom, and the emitters are not resolvable at exactly the moment you need to tell them apart. It only ever narrows the view: on a compact track, where framing the link would be <em>wider</em> than framing the track, the whole-track view is kept. The crop is also dropped while the green <kbd>Play</kbd> button is sweeping the whole track, since the molecule would otherwise leave the box after a couple of frames.</p>
 
 <table>
   <tr><th>Control</th><th>What it does</th></tr>
@@ -878,6 +882,7 @@ No ER/mito found for this cell (set folders on the Experiment tab, or Pick manua
   <tr><td><kbd>◀ link</kbd> / <kbd>link ▶</kbd></td><td>Step through this track's links one at a time, wrapping. With no cursor yet, the first press lands on the <em>worst</em> link rather than link 1 — on a 58-link track that is the whole point.</td></tr>
   <tr><td><kbd>▲ Worst</kbd></td><td>Jump straight to this track's largest step relative to its own median.</td></tr>
   <tr><td><kbd>⚠ Next flagged</kbd></td><td>Next flagged link <em>within</em> this track, skipping the ordinary ones.</td></tr>
+  <tr><td><kbd>▶ Play link</kbd></td><td>Loops the frames spanning this link in the raw movie so the spots move across it. The green <kbd>Play</kbd> beside the FPS spinner still means the whole track, and leaves link-loop mode.</td></tr>
   <tr><td><kbd>✂ Cut link N</kbd></td><td>Cuts the link on the cursor — the button names the link and its length. Disabled until a link is selected.</td></tr>
   <tr><td>click the strip or a spike</td><td><b>Selects</b> that link; it does not cut. Cutting is a separate, deliberate press, because a mis-aimed click on a 58-link strip used to be an irreversible edit.</td></tr>
   <tr><td><kbd>⚠ Next track</kbd></td><td>Next kept track holding a flagged link, <b>ranked worst-first</b> across the cell, landing on that track's worst link. The status line reports your position: <code>Track 419 (1 of 99 flagged)</code>.</td></tr>
