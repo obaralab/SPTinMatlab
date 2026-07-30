@@ -10,14 +10,25 @@ function spt_statechange_smoke()
 %   Measured on the WithER cell against a null of pure Brownian tracks matched to the real per-track
 %   D distribution and track lengths — where every detection is by construction a false positive:
 %
-%     criterion (as implemented)          real    null    enrichment
-%     absolute 0.15, no minRun (OLD)       67%     45%       1.49x
-%     drop 0.3x, baseWin 10, minRun 5      52%     22%       2.36x   <- the default
-%     drop 0.3x, baseWin 10, minRun 8      35%     12%       3.00x
-%     relative 0.3x own median, minRun 5   27%      6%       4.29x
+%     criterion (as implemented)          real    null    enrichment   precision
+%     absolute 0.15, no minRun (OLDEST)    67%     45%       1.49x          ~33%
+%     drop 0.3x, baseWin 10, minRun 5      52%     22%       2.36x          ~54%
+%     relative 0.3x own median, minRun 5   27%      6%       4.29x          ~78%
+%     SEGMENT, minSeg 3, penalty 1.5       37%      5%       6.93x           86%   <- the default
 %
-%   'relative' scores best in aggregate but is blind to a SUSTAINED slowdown — the very thing a
-%   capture event looks like — which is why 'drop' is the default. Assertion (1) pins that down.
+%   'segment' splits the RAW squared-step series by exact exponential likelihood and labels the
+%   segments, so nothing is pre-smoothed. Head-to-head on known-truth synthetics (20 reps each):
+%
+%     case                          truth   drop rule   segment
+%     fast -> slow, sustained         yes        65%       85%
+%     brief slow episode              yes       100%       70%
+%     deep brief capture              yes       100%      100%
+%     ALREADY SLOW throughout          no        95%!       5%
+%     uniformly fast                   no        15%        0%
+%
+%   The decisive row is the fourth: the drop rule reports a spurious state change on 95% of tracks
+%   that were slow the whole time, because noise excursions relative to a low baseline trip its
+%   ratio test. Segment mode does not. It pays for that with brief shallow episodes (70% vs 100%).
 %
 % WHAT IS ASSERTED, on synthetic tracks where the truth is known by construction:
 %   1. RELATIVE FINDS WHAT ABSOLUTE MISSES — a fast track that halves its D is a real state change,
@@ -106,17 +117,45 @@ fprintf('provenance: confMode=%s confFrac=%.2f baseWin=%d minRun=%d\n', ...
 
 %% (5) the shipped DEFAULTS are the measured ones -------------------------------------------------
 dflt = spt_track_diffusion(T1, struct('dt',dt,'sigmaUm',sig)).diffOpts;
-assert(strcmp(dflt.confMode,'drop') && dflt.confFrac==0.30 && dflt.baseWin==10 && dflt.minRun==5, ...
-    'the defaults drifted from the measured best (drop / 0.30 / 10 / 5): got %s / %.2f / %d / %d', ...
-    dflt.confMode, dflt.confFrac, dflt.baseWin, dflt.minRun);
-fprintf('defaults are the measured best: drop 0.30x preceding 10, minRun 5\n');
+assert(strcmp(dflt.confMode,'segment') && dflt.confFrac==0.30 && dflt.minSeg==3 && dflt.penalty==1.5, ...
+    'the defaults drifted from the measured best (segment / 0.30 / 3 / 1.5): got %s / %.2f / %d / %.2f', ...
+    dflt.confMode, dflt.confFrac, dflt.minSeg, dflt.penalty);
+fprintf('defaults are the measured best: segment, minSeg 3, penalty 1.5\n');
+
+%% (7) SEGMENT mode: the already-slow case, which is what it exists for ---------------------------
+% The drop rule fires on ~95% of tracks that were slow the whole time. Segment mode must not: with
+% no change in the step distribution there is no changepoint to find.
+rng(9); nrep = 20; hitSlow = 0; hitDrop = 0;
+oSeg  = struct('dt',dt,'sigmaUm',sig);                                        % shipped = segment
+oDrop = struct('dt',dt,'sigmaUm',sig,'confMode','drop','confFrac',0.30,'baseWin',10,'minRun',5);
+for q = 1:nrep
+    Tq = one_track(make_xy(repmat(0.05,120,1), dt, sig), dt);
+    hitSlow = hitSlow + (sum(spt_track_diffusion(Tq, oSeg ).stateChange(:)) > 0);
+    hitDrop = hitDrop + (sum(spt_track_diffusion(Tq, oDrop).stateChange(:)) > 0);
+end
+fprintf('already-slow track, %d reps: segment fires %.0f%%, drop rule fires %.0f%%\n', ...
+    nrep, 100*hitSlow/nrep, 100*hitDrop/nrep);
+assert(hitSlow <= 0.25*nrep, 'segment mode fired on %.0f%% of already-slow tracks', 100*hitSlow/nrep);
+assert(hitSlow < hitDrop, ...
+    'segment mode (%.0f%%) is not better than the drop rule (%.0f%%) on the already-slow case', ...
+    100*hitSlow/nrep, 100*hitDrop/nrep);
+
+%% (8) segment mode needs the matrix, and says so ------------------------------------------------
+try
+    DtOnly = spt_track_diffusion(T1, struct('dt',dt,'sigmaUm',sig)).Dt;
+    spt_confine_flags(DtOnly, struct('confMode','segment'));   % no matrix -> must refuse
+    error('expected an error when segment mode is given no matrix');
+catch ME
+    assert(strcmp(ME.identifier,'spt_confine_flags:needMatrix'), 'wrong error: %s', ME.identifier);
+end
+fprintf('segment mode refuses to run without the matrix, with a named error\n');
 
 %% (6) ONE implementation — the builder and the re-derive path cannot drift ----------------------
 % These were separate copies and had already diverged: the app kept a sliding baseline after the
 % driver moved to a frozen one, so re-deriving a build gave different flags from building it.
-o6 = struct('confMode','drop','confFrac',0.30,'baseWin',10,'minRun',5,'confineD',0.15);
-built = spt_track_diffusion(T1, o(dt,sig,'drop',0.30,5));
-[cf, sc] = spt_confine_flags(built.Dt, o6);
+o6 = struct('confMode','segment','confFrac',0.30,'minSeg',3,'penalty',1.5,'dt',dt,'sigmaUm',sig);
+built = spt_track_diffusion(T1, struct('dt',dt,'sigmaUm',sig));
+[cf, sc] = spt_confine_flags(built.Dt, o6, T1.matrix);
 assert(isequal(cf, built.confined) && isequal(sc, built.stateChange), ...
     'spt_track_diffusion and spt_confine_flags disagree — they are supposed to be the same code path');
 fprintf('builder and re-derive agree exactly (one shared implementation)\n');

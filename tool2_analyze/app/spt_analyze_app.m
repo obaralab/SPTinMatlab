@@ -59,7 +59,9 @@ axDloc=[]; axDtrace=[];   % stepwise-diffusion QC: pooled per-localization D, an
 axCSD=[]; csdHi=[];       % cumulative-displacement panel + the highlight of the clicked track
 ddHi=[]; dlHi=[];         % where the CLICKED track sits in the two pooled D histograms
 eConfineD=[]; diffConfineD=0.15;   % per-localization diffusion: confinement threshold (µm²/s) computed at Build
-ddConfMode=[]; diffConfMode='drop';       % 'drop' (D vs its own PRECEDING baseline) | 'relative' | 'absolute'
+ddConfMode=[]; diffConfMode='segment';    % 'segment' | 'drop' | 'relative' | 'absolute'
+eMinSeg=[];    diffMinSeg=3;              % segment mode: shortest segment the splitter may produce
+ePenalty=[];   diffPenalty=1.5;           % segment mode: LR must exceed penalty*log(n) to split
 eBaseWin=[];   diffBaseWin=10;             % drop mode: preceding localizations forming the baseline
 eConfFrac=[];  diffConfFrac=0.30;         % relative mode: confined when D <= this x the track's median
 eMinRun=[];    diffMinRun=5;              % a confined run must last this many localizations to count
@@ -261,8 +263,8 @@ end
             'Tooltip','Fixed mode: % of lags fit. Adaptive mode: the MAXIMUM % of lags the adaptive fit may use.', ...
             'ValueChangedFcn',@(s,e) onMsdFrac());
         uilabel(r2,'Text','state change','HorizontalAlignment','right');
-        ddConfMode = uidropdown(r2,'Items',{'drop (× preceding)','relative (× own median)','absolute (µm²/s)'}, ...
-            'ItemsData',{'drop','relative','absolute'},'Value',diffConfMode, ...
+        ddConfMode = uidropdown(r2,'Items',{'segment (changepoint)','drop (× preceding)','relative (× own median)','absolute (µm²/s)'}, ...
+            'ItemsData',{'segment','drop','relative','absolute'},'Value',diffConfMode, ...
             'Tooltip',['How a localization is called "confined". RELATIVE compares D to THIS track''s own ' ...
             'median, so the test is "did this molecule slow down" rather than "is it below a fixed number" — ' ...
             'an absolute cut conflates a slow track with one that changed state.'], ...
@@ -271,6 +273,16 @@ end
             'Tooltip',['Relative mode: confined when D falls to this fraction of the track''s own median. ' ...
             'Measured against a matched Brownian null on the reference cell, 0.30 with a minimum run of 5 ' ...
             'gives 3.6x enrichment over chance; 0.40 gives 2.7x.'], ...
+            'ValueChangedFcn',@(s,e) onConfineD());
+        uilabel(r2,'Text','min seg','HorizontalAlignment','right');
+        eMinSeg = uispinner(r2,'Limits',[2 30],'Value',diffMinSeg,'Step',1,'RoundFractionalValues','on', ...
+            'Tooltip','Segment mode: the shortest segment the splitter may produce, in steps.', ...
+            'ValueChangedFcn',@(s,e) onConfineD());
+        uilabel(r2,'Text','penalty','HorizontalAlignment','right');
+        ePenalty = uispinner(r2,'Limits',[0.5 10],'Value',diffPenalty,'Step',0.25,'ValueDisplayFormat','%.2f', ...
+            'Tooltip',['Segment mode: a split is accepted when its likelihood ratio exceeds ' ...
+            'penalty x log(n). Higher = fewer, more confident segments. Measured on the reference ' ...
+            'cell: 1.5 gives 86% precision, 2.5 gives 94%, 3.0 gives 97% at progressively lower yield.'], ...
             'ValueChangedFcn',@(s,e) onConfineD());
         uilabel(r2,'Text','baseline','HorizontalAlignment','right');
         eBaseWin = uispinner(r2,'Limits',[3 100],'Value',diffBaseWin,'Step',1,'RoundFractionalValues','on', ...
@@ -1981,7 +1993,8 @@ end
             try
                 Tk = spt_track_diffusion(Tracks(k), struct('dt',dtk,'sigmaUm',PRECNM/1000, ...
                     'confineD',diffConfineD,'confMode',diffConfMode,'confFrac',diffConfFrac, ...
-                    'baseWin',diffBaseWin,'minRun',diffMinRun));
+                    'baseWin',diffBaseWin,'minRun',diffMinRun, ...
+                    'minSeg',diffMinSeg,'penalty',diffPenalty));
                 % assign FIELD-BY-FIELD (a whole-struct assign fails — the result has extra fields)
                 Tracks(k).Dt = Tk.Dt; Tracks(k).confined = Tk.confined; Tracks(k).stateChange = Tk.stateChange; Tracks(k).diffOpts = Tk.diffOpts;
             catch, end
@@ -2000,14 +2013,19 @@ end
             % ONE implementation, shared with the builder. These were separate copies and had
             % already drifted — the app kept a sliding baseline after the driver moved to a frozen
             % one, so re-deriving a build produced different flags from building it.
+            dtk = trackDt(k);
             [conf, sc] = spt_confine_flags(Dt, struct('confMode',diffConfMode, ...
-                'confFrac',diffConfFrac,'baseWin',diffBaseWin,'confineD',diffConfineD,'minRun',diffMinRun));
+                'confFrac',diffConfFrac,'baseWin',diffBaseWin,'confineD',diffConfineD, ...
+                'minRun',diffMinRun,'minSeg',diffMinSeg,'penalty',diffPenalty, ...
+                'dt',dtk,'sigmaUm',PRECNM/1000), buildTracks(k).matrix);
             buildTracks(k).confined = conf; buildTracks(k).stateChange = sc;
             if isfield(buildTracks,'diffOpts') && isstruct(buildTracks(k).diffOpts)
                 buildTracks(k).diffOpts.confineD = diffConfineD;
                 buildTracks(k).diffOpts.confMode = diffConfMode;
                 buildTracks(k).diffOpts.confFrac = diffConfFrac;
                 buildTracks(k).diffOpts.baseWin  = diffBaseWin;
+                buildTracks(k).diffOpts.minSeg   = diffMinSeg;
+                buildTracks(k).diffOpts.penalty  = diffPenalty;
                 buildTracks(k).diffOpts.minRun   = diffMinRun;
             end
         end
@@ -2023,6 +2041,8 @@ end
         if ~isempty(ddConfMode) && isgraphics(ddConfMode), diffConfMode = ddConfMode.Value; end
         if ~isempty(eConfFrac)  && isgraphics(eConfFrac),  diffConfFrac = eConfFrac.Value;  end
         if ~isempty(eBaseWin)   && isgraphics(eBaseWin),   diffBaseWin  = round(eBaseWin.Value); end
+        if ~isempty(eMinSeg)    && isgraphics(eMinSeg),    diffMinSeg   = round(eMinSeg.Value); end
+        if ~isempty(ePenalty)   && isgraphics(ePenalty),   diffPenalty  = ePenalty.Value; end
         if ~isempty(eMinRun)    && isgraphics(eMinRun),    diffMinRun   = round(eMinRun.Value); end
         isAbs = strcmpi(diffConfMode,'absolute');
         if ~isempty(eConfineD) && isgraphics(eConfineD)
@@ -2031,8 +2051,18 @@ end
         if ~isempty(eConfFrac) && isgraphics(eConfFrac)
             if isAbs, eConfFrac.Enable = 'off'; else, eConfFrac.Enable = 'on'; end
         end
+        isSeg = strcmpi(diffConfMode,'segment');
         if ~isempty(eBaseWin) && isgraphics(eBaseWin)
             if strcmpi(diffConfMode,'drop'), eBaseWin.Enable = 'on'; else, eBaseWin.Enable = 'off'; end
+        end
+        for h = [eMinSeg ePenalty]
+            if ~isempty(h) && isgraphics(h)
+                if isSeg, h.Enable = 'on'; else, h.Enable = 'off'; end
+            end
+        end
+        if ~isempty(eMinRun) && isgraphics(eMinRun)
+            % segment mode enforces its own minimum through minSeg; minRun would double-filter
+            if isSeg, eMinRun.Enable = 'off'; else, eMinRun.Enable = 'on'; end
         end
         reDeriveConfinement();
     end

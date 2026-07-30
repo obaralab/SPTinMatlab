@@ -42,7 +42,9 @@ sigmaUm = getf(opts,'sigmaUm', 0.030);
 win     = max(3, round(getf(opts,'win', 7)));
 mode    = lower(string(getf(opts,'mode','lag1')));
 confineD= getf(opts,'confineD', 0.15);
-confMode= lower(string(getf(opts,'confMode','drop')));  % 'drop' (default) | 'relative' | 'absolute'
+confMode= lower(string(getf(opts,'confMode','segment')));  % 'segment' | 'drop' | 'relative' | 'absolute'
+minSeg  = max(2, round(getf(opts,'minSeg', 3)));    % segment mode: shortest segment, in steps
+penalty = getf(opts,'penalty', 1.5);                % segment mode: LR must exceed penalty*log(n)
 confFrac= getf(opts,'confFrac', 0.30);    % drop/relative: the fraction of the baseline that counts
 baseWin = max(3, round(getf(opts,'baseWin', 10)));  % drop mode: mobile localizations forming the baseline
 minRun  = max(1, round(getf(opts,'minRun', 5)));   % a confined run must last this many localizations
@@ -108,11 +110,13 @@ end
 % from 41% to 12%.
 [confined, stateChange] = spt_confine_flags(Dt, struct( ...
     'confMode',char(confMode),'confFrac',confFrac,'baseWin',baseWin, ...
-    'confineD',confineD,'minRun',minRun));
+    'confineD',confineD,'minRun',minRun,'minSeg',minSeg,'penalty',penalty, ...
+    'dt',dt,'sigmaUm',sigmaUm), M);
 
 T.Dt = Dt; T.confined = confined; T.stateChange = stateChange;
 T.diffOpts = struct('dt',dt,'sigmaUm',sigmaUm,'win',win,'mode',char(mode),'confineD',confineD, ...
                     'confMode',char(confMode),'confFrac',confFrac,'baseWin',baseWin,'minRun',minRun, ...
+                    'minSeg',minSeg,'penalty',penalty, ...
                     'method','rolling (native, noise-corrected)');
 end
 

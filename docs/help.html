@@ -1112,21 +1112,35 @@ TrackStruct.mat</code></pre>
 <div class="warn"><b>What the old rule did.</b> One absolute cut, <code>D ≤ 0.15 µm²/s</code>, applied to every track, with no requirement that the slow stretch last. That conflates two different things: a molecule that is <em>slow</em> (baseline below the cut, permanently "confined") and one that <em>changed state</em>. Measured against a null of pure Brownian tracks matched to the reference cell's own D distribution and track lengths — where every detection is by construction a false positive — it fired on <b>45 %</b> of tracks that had no state change at all. The 1,492 state changes it reported on that cell should be read as mostly noise.</div>
 
 <table>
-  <tr><th>Criterion</th><th>Real</th><th>Null</th><th>Enrichment</th></tr>
-  <tr><td>absolute 0.15, no min run <em>(old)</em></td><td>67 %</td><td>45 %</td><td>1.49×</td></tr>
-  <tr><td><b>drop 0.3× preceding, min run 5</b> <em>(default)</em></td><td>52 %</td><td>22 %</td><td><b>2.36×</b></td></tr>
-  <tr><td>drop 0.3× preceding, min run 8</td><td>35 %</td><td>12 %</td><td>3.00×</td></tr>
-  <tr><td>relative 0.3× own median, min run 5</td><td>27 %</td><td>6 %</td><td>4.29×</td></tr>
+  <tr><th>Criterion</th><th>Real</th><th>Null</th><th>Enrichment</th><th>Precision</th></tr>
+  <tr><td>absolute 0.15, no min run <em>(oldest)</em></td><td>67 %</td><td>45 %</td><td>1.49×</td><td>~33 %</td></tr>
+  <tr><td>drop 0.3× preceding, min run 5</td><td>52 %</td><td>22 %</td><td>2.36×</td><td>~54 %</td></tr>
+  <tr><td>relative 0.3× own median, min run 5</td><td>27 %</td><td>6 %</td><td>4.29×</td><td>~78 %</td></tr>
+  <tr><td><b>segment, min seg 3, penalty 1.5</b> <em>(default)</em></td><td>37 %</td><td>5 %</td><td><b>6.93×</b></td><td><b>86 %</b></td></tr>
 </table>
 
-<p><b>Why the default is not the highest number in that table.</b> <b>relative</b> compares D to the track's median over its whole life, and scores best in aggregate — but it is <em>structurally blind to a sustained slowdown</em>. A track that slows and stays slow drags its own median down with it and the test stops firing. A molecule captured at a contact site does exactly that. On a synthetic four-fold sustained slowdown, <b>drop</b> reports one confined run of 15 localizations while relative and absolute report nothing at all. The default is the criterion that can see the event of interest, not the one with the best score.</p>
+<p><b>How segment mode works.</b> It does not threshold <code>D(t)</code> at all. The rolling estimator behind <code>D(t)</code> averages 7 localizations, and that blur is what makes a threshold-plus-persistence rule so delicate. Segment mode goes back to the <em>raw</em> squared steps: for 2D Brownian motion with localization noise, <code>r² = Δx²+Δy²</code> is <b>exponentially distributed</b> with mean <code>µ = 4·D·δt + 4·σ²</code>, so a change in D is a change in an exponential mean. The series is split by exact likelihood ratio — <code>LR = 2·(n·log µ − k·log µ₁ − (n−k)·log µ₂)</code>, accepted when it exceeds <code>penalty × log n</code> — and each segment is then compared <em>in D</em> against the last mobile segment. Comparing in D and not in µ matters: the noise floor <code>4σ²</code> does not scale with D, so a true four-fold drop is only a ~3.5× drop in µ and would fall the wrong side of a 0.30 test.</p>
+
+<div class="good"><b>The case that decides it.</b> On known-truth synthetics, 20 repeats each:
+<table>
+  <tr><th>case</th><th>truth</th><th>drop rule</th><th>segment</th></tr>
+  <tr><td>fast → slow, sustained</td><td>yes</td><td>65 %</td><td><b>85 %</b></td></tr>
+  <tr><td>brief slow episode</td><td>yes</td><td><b>100 %</b></td><td>70 %</td></tr>
+  <tr><td>deep brief capture</td><td>yes</td><td>100 %</td><td>100 %</td></tr>
+  <tr><td><b>already slow throughout</b></td><td><b>no</b></td><td><b>95 % — false</b></td><td><b>5 %</b></td></tr>
+  <tr><td>uniformly fast throughout</td><td>no</td><td>15 %</td><td><b>0 %</b></td></tr>
+</table>
+The fourth row is why the default changed. A threshold measured against a track's own recent history fires on a molecule that was <em>always</em> slow, because noise excursions relative to a low baseline still clear the ratio. Segment mode finds no changepoint, because there is no change. It pays for that with brief shallow episodes, where the drop rule is more sensitive.</div>
+
+<p>This is the same two-stage idea as <a href="https://www.cell.com/biophysj/fulltext/S0006-3495(23)00651-3">STEP</a>, which your <code>run_step.py</code> bridge targets: STEP predicts D pointwise with a neural network and then runs changepoint detection on <em>its own prediction</em>, assigning each segment the average. Segment mode is that second stage applied directly to the steps.</p>
 
 <table>
   <tr><th>Control</th><th>What it does</th></tr>
-  <tr><td><b>state change</b><br>default <b>drop</b></td><td><b>drop</b> — confined when D falls to a fraction of <em>what it was in the previous state</em>. The baseline is the median of the last few <em>mobile</em> localizations and <b>freezes on entry</b>, so a sustained slow state stays detected; recovery is hysteretic at 1.5× the entry threshold so noise cannot chatter the state. <b>relative</b> — against the track's whole-life median. <b>absolute</b> — the legacy fixed cut.</td></tr>
+  <tr><td><b>state change</b><br>default <b>segment</b></td><td><b>segment</b> — changepoint detection on the raw squared steps, then each segment compared in D to the last mobile one. No smoothing, and the only tuning is the acceptance penalty. <b>drop</b> — confined when D falls to a fraction of <em>what it was in the previous state</em>. The baseline is the median of the last few <em>mobile</em> localizations and <b>freezes on entry</b>, so a sustained slow state stays detected; recovery is hysteretic at 1.5× the entry threshold so noise cannot chatter the state. <b>relative</b> — against the track's whole-life median. <b>absolute</b> — the legacy fixed cut.</td></tr>
   <tr><td><b>× fraction</b><br>default <b>0.30</b></td><td>How far D must fall. 0.40 roughly doubles the false-positive rate (1.50× enrichment against 2.36×).</td></tr>
   <tr><td><b>baseline</b><br>default <b>10</b></td><td>Drop mode: how many preceding mobile localizations set the baseline.</td></tr>
-  <tr><td><b>min run</b><br>default <b>5</b></td><td>How many localizations a confined stretch must span. <b>The main specificity lever</b> — on the matched null it takes the false-positive rate from 41 % to 12 %. Raise it to 8 for 3.0× enrichment at the cost of short events.</td></tr>
+  <tr><td><b>min seg</b> / <b>penalty</b><br>default <b>3</b> / <b>1.5</b></td><td>Segment mode only. <b>min seg</b> is the shortest segment the splitter may produce, in steps. <b>penalty</b> sets how much evidence a split needs: 1.5 gives 86 % precision, 2.5 gives 94 %, 3.0 gives 97 %, at progressively lower yield. <b>min run</b> is disabled in this mode — the splitter already enforces a minimum, and applying both would double-filter.</td></tr>
+  <tr><td><b>min run</b><br>default <b>5</b></td><td>Drop/relative/absolute modes. How many localizations a confined stretch must span. <b>The main specificity lever</b> — on the matched null it takes the false-positive rate from 41 % to 12 %. Raise it to 8 for 3.0× enrichment at the cost of short events.</td></tr>
   <tr><td><b>confined ≤ D</b></td><td>Only active in <b>absolute</b> mode; greyed out otherwise.</td></tr>
 </table>
 
