@@ -166,6 +166,25 @@ if ~isempty(bBatch)
     fprintf('batch == interactive: %d of %d kept, manual override honoured\n', kept, stPre.nAll);
 end
 
+%% playback timers must not leak ----------------------------------------
+% A leaked timer is not cosmetic. Its TimerFcn closes over THIS instance's workspace, so it keeps
+% firing against a stale copy of S after the window is gone; once the file gains a field the old S
+% never had, every tick prints "Unrecognized field name" with line numbers from the NEW file, which
+% reads as a bug in code that is fine. do_play used to overwrite S.play_timer without stopping the
+% previous one, so every extra press of Play orphaned another.
+TAG = 'spt_track_viewer_play';
+pl = pick('Play');
+if ~isempty(pl)
+    selFn = getappdata(fig,'tv_select');
+    if ~isempty(selFn) && ~isempty(st.kept), selFn(st.kept(1)); drawnow; end
+    cbp = pl(1).ButtonPushedFcn;
+    for q = 1:3, cbp(pl(1), struct()); end
+    drawnow;
+    nT = numel(timerfindall('Tag',TAG));
+    assert(nT <= 1, '3 presses of Play left %d timers running — they are being orphaned', nT);
+    fprintf('playback timers after 3x Play: %d (no orphans)\n', nT);
+end
+
 %% FPS is live ----------------------------------------------------------
 sp = findobj(fig,'Type','uispinner');
 fps = sp(arrayfun(@(s) isequal(s.Limits,[1 60]), sp));
@@ -173,7 +192,10 @@ assert(~isempty(fps), 'FPS spinner not found');
 assert(~isempty(fps(1).ValueChangedFcn), 'FPS has no callback — it will not take effect while playing');
 fprintf('FPS spinner is live\n');
 
-close(fig);
+close(fig); drawnow;
+nLeft = numel(timerfindall('Tag','spt_track_viewer_play'));
+assert(nLeft == 0, 'closing the viewer left %d playback timer(s) running', nLeft);
+fprintf('viewer teardown left 0 playback timers\n');
 fprintf('\nCURATE REVIEW SMOKE PASSED.\n');
 end
 

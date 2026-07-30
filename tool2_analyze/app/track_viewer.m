@@ -43,6 +43,23 @@ S.cuts_by_cell  = containers.Map('KeyType','char','ValueType','any');   % base -
 S.nextFragId    = [];    % per-cell monotonic counter for minted fragment ids (never reused)
 S.strip         = struct('spotId',[],'t0',[],'t1',[],'step',[],'gap',[]);   % edges currently drawn
 S.linkIdx       = [];    % which link of the selected track the cursor sits on
+
+% Playback timers carry this tag so an instance can find and kill the ones a PREVIOUS instance
+% leaked. A leaked timer is not merely untidy: its TimerFcn closes over that instance's workspace,
+% so it keeps firing against a stale S long after its window is gone. Once this file gains a field
+% the old S never had, every tick prints "Unrecognized field name" with line numbers from the NEW
+% file — which reads as a bug in code that is actually fine.
+TIMER_TAG = 'spt_track_viewer_play';
+old_t = timerfindall('Tag', TIMER_TAG);
+if ~isempty(old_t)
+    for q = 1:numel(old_t)
+        try, stop(old_t(q)); catch, end
+        try, delete(old_t(q)); catch, end
+    end
+    warning('track_viewer:staleTimer', ...
+        ['Stopped %d playback timer(s) left by a previous Import & Curate instance. ' ...
+         'If you were seeing repeated errors in the console, that was them.'], numel(old_t));
+end
 S.manual_by_cell = containers.Map('KeyType','char','ValueType','any');  % base -> the two lists,
                          % so manual decisions survive switching cells AND a batch run
 S.selected_id    = [];
@@ -574,6 +591,7 @@ end
         setappdata(fig,'tv_cuts',  S.cuts);
         setappdata(fig,'tv_docut', @do_cut);
         setappdata(fig,'tv_links', @link_info);
+        setappdata(fig,'tv_select',@select_track);
         setappdata(fig,'tv_nav',   struct('goto',@link_goto,'worst',@link_goto_worst, ...
                                           'flag',@link_next_susp_in_track,'cut',@cut_current, ...
                                           'idx',S.linkIdx));
@@ -1482,7 +1500,7 @@ end
         % question: a genuine mislinkage looks like one long stride bridging two separate clouds,
         % and no amount of staring at a step-vs-time trace shows you that.
         cutTxt = '';
-        if ~isempty(S.linkIdx)
+        if isfield(S,'linkIdx') && ~isempty(S.linkIdx)
             Lc = link_info(S.selected_id);
             if ~isempty(Lc.step) && S.linkIdx>=1 && S.linkIdx<=numel(Lc.step)
                 k = S.linkIdx;
@@ -1558,7 +1576,7 @@ end
             'HitTest','off','PickableParts','none');
         yline(ax_gr, min(ratio_thr(),6)/6, ':', 'Color',[0.85 0.12 0.12], 'LineWidth',0.8);
         % the cursor: a wide translucent band, so it reads at a glance on a 58-link track
-        if ~isempty(S.linkIdx) && S.linkIdx>=1 && S.linkIdx<=n
+        if isfield(S,'linkIdx') && ~isempty(S.linkIdx) && S.linkIdx>=1 && S.linkIdx<=n
             k = S.linkIdx;
             patch(ax_gr, [L.t0(k) L.t1(k) L.t1(k) L.t0(k)], [-1 -1 1 1], [1 0.85 0.2], ...
                 'FaceAlpha',0.45,'EdgeColor',[0.85 0.55 0],'LineWidth',1.2, ...
@@ -1843,8 +1861,14 @@ end
 
     function do_play()
         if ~S.loaded||isempty(S.selected_id), return, end
+        % Stop whatever is already running FIRST. Overwriting S.play_timer left the previous timer
+        % running with nothing pointing at it — it kept firing into this closure forever, holding the
+        % whole workspace alive. A stale timer from a previous app instance is how you get
+        % "Unrecognized field name" for a field the current file plainly initializes: the orphan is
+        % executing the OLD code against the OLD S, while MATLAB prints line numbers from the new file.
+        do_pause();
         S.playing=true;
-        S.play_timer=timer('ExecutionMode','fixedRate',...
+        S.play_timer=timer('ExecutionMode','fixedRate','Tag',TIMER_TAG,...
             'Period',round(max(0.033,1/c.fps.Value)*1000)/1000,...   % ms precision (timer requires it)
             'TimerFcn',@(~,~) advance_frame());
         start(S.play_timer);
@@ -1855,6 +1879,7 @@ end
         if ~isempty(S.play_timer)&&isvalid(S.play_timer)
             stop(S.play_timer); delete(S.play_timer);
         end
+        S.play_timer = [];
     end
 
     function advance_frame()
