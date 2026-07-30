@@ -1106,37 +1106,10 @@ TrackStruct.mat</code></pre>
 <div class="good"><b>Changing it does not rebuild anything.</b> The flags are re-derived from the <b>stored <code>Dt</code></b>: <code>confined = Dt ≤ threshold</code>, and <code>stateChange</code> is recomputed as the rising edge into each confined run (walking each track's real localizations in frame order). That is arithmetic on an array already in memory — no re-rolling of the estimator, no re-parsing of XML. The new flags are written back into the <b>active</b> build (not unconditionally into <code>TrackStruct.mat</code>, which used to leave a divergent shadow file behind), <code>diffOpts.confineD</code> is updated so the provenance matches, and the QC redraws.</div>
 <p>Because <code>NaN ≤ x</code> is false, padded slots and gaps are never flagged confined. What the spinner cannot change is <code>Dt</code> itself — the window, the mode and the noise floor σ are fixed at Build (see below); to change those you rebuild.</p>
 
-<h3 id="t2statechange">Confinement and state changes — picking a criterion <span class="tag you">new</span></h3>
-<p>A "state change" is meant to be a molecule slowing down — the signature of capture at a site. Getting the criterion right matters more than it looks, because the naive version mostly reports noise.</p>
-
-<div class="warn"><b>What the old rule did.</b> One absolute cut, <code>D ≤ 0.15 µm²/s</code>, applied to every track, with no requirement that the slow stretch last. That conflates two different things: a molecule that is <em>slow</em> (baseline below the cut, permanently "confined") and one that <em>changed state</em>. Measured against a null of pure Brownian tracks matched to the reference cell's own D distribution and track lengths — where every detection is by construction a false positive — it fired on <b>45 %</b> of tracks that had no state change at all. The 1,492 state changes it reported on that cell should be read as mostly noise.</div>
-
-<table>
-  <tr><th>Criterion</th><th>Real</th><th>Null</th><th>Enrichment</th><th>Precision</th></tr>
-  <tr><td>absolute 0.15, no min run <em>(oldest)</em></td><td>67 %</td><td>45 %</td><td>1.49×</td><td>~33 %</td></tr>
-  <tr><td>drop 0.3× preceding, min run 5</td><td>52 %</td><td>22 %</td><td>2.36×</td><td>~54 %</td></tr>
-  <tr><td>relative 0.3× own median, min run 5</td><td>27 %</td><td>6 %</td><td>4.29×</td><td>~78 %</td></tr>
-  <tr><td><b>segment, min seg 3, penalty 1.5</b> <em>(default)</em></td><td>37 %</td><td>5 %</td><td><b>6.93×</b></td><td><b>86 %</b></td></tr>
-</table>
-
-<p><b>How segment mode works.</b> It does not threshold <code>D(t)</code> at all. The rolling estimator behind <code>D(t)</code> averages 7 localizations, and that blur is what makes a threshold-plus-persistence rule so delicate. Segment mode goes back to the <em>raw</em> squared steps: for 2D Brownian motion with localization noise, <code>r² = Δx²+Δy²</code> is <b>exponentially distributed</b> with mean <code>µ = 4·D·δt + 4·σ²</code>, so a change in D is a change in an exponential mean. The series is split by exact likelihood ratio — <code>LR = 2·(n·log µ − k·log µ₁ − (n−k)·log µ₂)</code>, accepted when it exceeds <code>penalty × log n</code> — and each segment is then compared <em>in D</em> against the last mobile segment. Comparing in D and not in µ matters: the noise floor <code>4σ²</code> does not scale with D, so a true four-fold drop is only a ~3.5× drop in µ and would fall the wrong side of a 0.30 test.</p>
-
-<div class="good"><b>The case that decides it.</b> On known-truth synthetics, 20 repeats each:
-<table>
-  <tr><th>case</th><th>truth</th><th>drop rule</th><th>segment</th></tr>
-  <tr><td>fast → slow, sustained</td><td>yes</td><td>65 %</td><td><b>85 %</b></td></tr>
-  <tr><td>brief slow episode</td><td>yes</td><td><b>100 %</b></td><td>70 %</td></tr>
-  <tr><td>deep brief capture</td><td>yes</td><td>100 %</td><td>100 %</td></tr>
-  <tr><td><b>already slow throughout</b></td><td><b>no</b></td><td><b>95 % — false</b></td><td><b>5 %</b></td></tr>
-  <tr><td>uniformly fast throughout</td><td>no</td><td>15 %</td><td><b>0 %</b></td></tr>
-</table>
-The fourth row is why the default changed. A threshold measured against a track's own recent history fires on a molecule that was <em>always</em> slow, because noise excursions relative to a low baseline still clear the ratio. Segment mode finds no changepoint, because there is no change. It pays for that with brief shallow episodes, where the drop rule is more sensitive.</div>
-
-<p>This is the same two-stage idea as <a href="https://www.cell.com/biophysj/fulltext/S0006-3495(23)00651-3">STEP</a>, which your <code>run_step.py</code> bridge targets: STEP predicts D pointwise with a neural network and then runs changepoint detection on <em>its own prediction</em>, assigning each segment the average. Segment mode is that second stage applied directly to the steps.</p>
-
-<div class="note"><b>These are not exposed in the Build &amp; QC row.</b> The criterion is applied at build with the defaults above and the QC row is kept for the rolling-diffusion readout (QC cell, D fit, fit %). Six tuning controls had been added to that row, and a <code>uigridlayout</code> squeezes every child once there are more of them than declared columns — which squashed the whole strip to slivers. To change the criterion, pass <code>confMode</code> / <code>confFrac</code> / <code>minSeg</code> / <code>penalty</code> to <code>spt_track_diffusion</code>; the values used are recorded in <code>Tracks(k).diffOpts</code>.</div>
-
-<div class="note">These flags are what Tool 3's <b>confined</b> and <b>state-change</b> density channels read, so the criterion changes what the contact-site picker can find. <b>Builds made before this change carry the old absolute flags and need rebuilding.</b></div>
+<h3 id="t2statechange">Confinement and state changes — not currently in the pipeline</h3>
+<p>Builds store the <b>rolling diffusion only</b>. <code>Tracks.confined</code> and <code>Tracks.stateChange</code> are no longer written, and Tool 3's contact-site picker no longer has <em>Confined</em> / <em>State-change</em> density channels — its density is always the tracked localization cloud.</p>
+<p>The reason is that every one of those flags depends on a confinement criterion, and picking contact sites by diffusion <em>state</em> would have rested on a parameter nobody was setting. Measured against a matched Brownian null on the reference cell, the criterion that had been shipping fired on <b>45 %</b> of tracks with no state change at all, and on <b>95 %</b> of tracks that were simply slow the whole time — so those channels were selecting largely on noise.</p>
+<p>The capability is intact, not deleted: <code>spt_confine_flags</code> implements four criteria (<code>segment</code>, <code>drop</code>, <code>relative</code>, <code>absolute</code>) with the full benchmark in <code>spt_track_diffusion</code>'s header. To bring it back, pass <code>confMode</code> &amp;c to <code>spt_track_diffusion</code> and store <code>Tk.confined</code> / <code>Tk.stateChange</code> in the build. Old builds that still carry the fields load and display fine; they are simply ignored.</p>
 
 <h3 id="t2dmath">The two diffusion estimators — what each number means</h3>
 <div class="good"><b>Each step is weighted by the time it actually spans.</b> <code>diff()</code> runs over <em>localizations</em>, not frames, so a gap-closed step covers more than one frame interval. Dividing it by a single <code>dt</code> attributes all of that displacement to one frame and inflates D by the gap factor. The estimator therefore pools numerator and denominator separately —
@@ -1348,18 +1321,10 @@ D distribution — median &lt;med&gt; µm²/s  ·  adaptive fit &lt;min&gt;–&l
 <div class="warn"><b>The sweep is an approximation, and deliberately so.</b> It uses the <em>whole-movie</em> ER support instead of each window's start-frame ER mask, a cheaper <b>80-run</b> Monte-Carlo null (or your <code>sims</code> value if lower), always the full tracked set (it ignores the <b>channel</b> dropdown), non-overlapping windows only, and it does <b>not</b> apply your <b>min enrich</b> or <b>min tracks</b> gates. Read it for the <em>shape</em> — where the curve flattens — not for the site counts you will finally report.</div>
 <div class="good">Read the sweep right-to-left (long windows → short). Your minimum usable window is the last point before <em>either</em> the site count starts falling <em>or</em> the median significance drops. On the reference cell it is flat (16–23 sites, significance ≈ 1.0 down to about 6,800 loc/win), which means that cell is not localization-limited: pick the window length from how fast the sites move, not from counts.</div>
 
-<h3 id="t3channel">The density <b>channel</b> dropdown <span class="tag you">diffusion-aware</span></h3>
-<p>Normally a site is "a place with a lot of protein". The channel dropdown lets you instead ask "a place where the protein <em>slows down</em>" or "a place where it <em>gets captured</em>", by building the density from a subset of the tracked localizations:</p>
-<table>
-  <tr><th>Channel</th><th>Density built from</th><th>Reads which build field</th></tr>
-  <tr><td><b>Tracked</b> (default)</td><td>Every tracked localization.</td><td><code>matrix</code></td></tr>
-  <tr><td><b>Confined (low D)</b></td><td>Only localizations flagged confined — stepwise <code>D</code> at or below the confinement threshold set in Tool 2.</td><td><code>Tracks.confined</code></td></tr>
-  <tr><td><b>State-change</b></td><td>Only the fast→slow transition localizations — the capture events themselves.</td><td><code>Tracks.stateChange</code></td></tr>
-</table>
-<div class="warn"><b>The dropdown is greyed out unless the build carries the diffusion fields.</b> It is enabled only when this cell has a non-empty <code>confined</code> or <code>stateChange</code> array, which Tool 2's <kbd>▶ Build + QC</kbd> writes. On an older build (or one built before the stepwise-D stage existed) the control is disabled and the channel is forced back to <b>Tracked</b>. Fix it by rebuilding in Tool 2, not here.</div>
-<div class="warn"><b>Switching channel invalidates the caches, so you must re-run Detect.</b> Changing the channel throws away every window's cached raw counts, smoothed density <em>and</em> Monte-Carlo null, redraws all thumbnails on the new channel, and prints <em>"Density channel: … — re-run Detect to find sites on this channel."</em> Any sites still on screen were detected on the <em>previous</em> channel: they are stale until you press <kbd>Detect win</kbd> or <kbd>Detect all</kbd> again. The status line grows a <code>· channel confined (N locs)</code> segment whenever the channel is not <b>Tracked</b>, and every window count (thumbnail titles, the <b>min locs/win</b> warning, the detail title) switches to counting <em>that channel's</em> localizations — expect the counts to drop a long way, and re-think your <b>min locs/win</b> floor accordingly.</div>
+<h3 id="t3channel">The density channel — removed</h3>
+<p>There used to be a <b>channel</b> dropdown here offering <em>Confined (low D)</em> and <em>State-change</em>, which built the density from a diffusion-state subset of the localizations instead of all of them. It is gone: the density is always the tracked localization cloud.</p>
+<p>Both channels read <code>Tracks.confined</code> / <code>Tracks.stateChange</code>, which builds no longer write. Those flags depend on a confinement criterion that is not currently part of the pipeline, so selecting contact sites by diffusion state would have rested on a parameter nobody was setting — and the criterion that had been shipping fired on <b>95 %</b> of tracks that were merely slow throughout, so the channels were selecting largely on noise. See <a href="#t2statechange">Confinement and state changes</a> for how to bring the capability back.</p>
 
-<div class="warn"><b>The channel changes detection only — nothing downstream records it.</b> <kbd>💾 Save</kbd> always writes <code>source = tracked</code> into <code>CSwindows.mat</code>, and the provenance JSON hardcodes <code>densitySource = "tracked (matrix)"</code>, so neither file remembers which channel found the site. The concrete symptom is that one site carries <em>two different enrichment numbers</em>: the picker's table and <code>_CSsites_stats.csv</code> compute peak, <b>p</b>, <b>enrich</b>, <b>nLocs</b> and area on the <em>channel</em> density, while <code>cs_window_metrics.csv</code> and <code>CSW.enrichment</code> recompute them on the <em>full tracked</em> density — as does everything Refine draws. Dwell and membership are the exception, and not an oversight: they are computed on the tracked matrix by design, because they need track continuity. Use the channels to <em>find</em> diffusion-defined sites; do not read the downstream numbers as channel-specific.</div>
 <h3 id="t3method">method · sens · sims — how the cutoff is set</h3>
 <p>Detection thresholds the σ-smoothed density and is <b>confined to the ER support</b> of the window (a site must sit on the ER). Three methods, chosen with <b>method</b>; <b>sens</b> means a different thing in each, and its default changes when you switch:</p>
 <table>
@@ -2402,10 +2367,10 @@ curation.exported       = 2026-07-29 11:02:13</code></pre>
   <tr><th>Metric</th><th>Definition</th><th>Computed in</th><th>Where you see it</th></tr>
 
   <tr>
-    <td><b>confined</b><br>logical, per localization</td>
-    <td><code>Dt ≤ confineD</code>, elementwise. <code>confineD</code> is the <b>confined ≤ D</b> spinner, default <b>0.15 µm²/s</b>. A gap is not confined: <code>NaN ≤ x</code> is false. Changing the spinner re-derives this from the <em>stored</em> <code>Dt</code> — cheap, and it re-saves the active build without a rebuild.</td>
-    <td><code>spt_track_diffusion.m</code>, at build; re-derived by the app's <code>reDeriveConfinement</code></td>
-    <td>Build &amp; QC: the stepwise-D histogram's threshold line and the "% confined" in its title; red points in <b>stepwise D(t)</b>. Tool 3: the <b>Confined (low D)</b> density channel.</td>
+    <td><b>confined</b> · <b>stateChange</b><br><em>no longer written</em></td>
+    <td>Per-localization diffusion-state flags. Builds store the rolling <code>Dt</code> only; these are not computed. <code>spt_confine_flags</code> still implements four criteria if they are needed again.</td>
+    <td>—</td>
+    <td>Nothing reads them. Old builds that still carry them load and display normally.</td>
   </tr>
 
   <tr>
@@ -2568,10 +2533,10 @@ curation.exported       = 2026-07-29 11:02:13</code></pre>
   </tr>
 
   <tr>
-    <td><b>state change</b><br>logical, per localization</td>
-    <td>The <b>rising edge</b> into a confined run: a localization where <code>confined</code> is true and the previous localization <em>of that track</em> was not. A fast→slow entry — a capture event. Counted over the track's finite-<code>Dt</code> rows only, so a gap does not manufacture an edge. Re-derived, like <code>confined</code>, whenever the threshold spinner changes.</td>
-    <td><code>spt_track_diffusion.m</code> · re-derived by <code>reDeriveConfinement</code></td>
-    <td>Build &amp; QC: vertical marks on <b>stepwise D(t)</b>, and the state-change count in the D-distribution title. Tool 3: the <b>State-change</b> density channel, which identifies sites by capture events rather than by density alone.</td>
+    <td><b>state change</b><br><em>not currently computed</em></td>
+    <td>The <b>rising edge</b> into a confined run — a fast→slow entry, i.e. a capture event. Builds no longer compute it; see <a href="#t2statechange">Confinement and state changes</a> for why, and for how to re-enable it.</td>
+    <td><code>spt_confine_flags.m</code> (available, not called by the build)</td>
+    <td>Nothing. Old builds that carry the field load and display normally.</td>
   </tr>
 </table>
 

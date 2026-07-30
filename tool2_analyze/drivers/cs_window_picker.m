@@ -53,7 +53,6 @@ st.SF   = st.FOV / st.grid;
 
 % per-cell state
 st.aX=[]; st.aY=[]; st.aF=[]; st.aMD=[]; st.haveMD=false; st.nDet=0; st.nAll=0; st.aT=[];   % st.aT = per-localization track id
-st.aConf=[]; st.aSC=[]; st.haveDiff=false; st.densMode='tracked';   % per-loc confined/state-change flags + the density channel
 st.splitPeaks=true; st.minEnrich=1.0; st.minTracks=1; st.minSiteLocs=0;   % detection-quality gates (1.0/1 = off)
 % st.sites{w} column map (widened to carry per-site stats through add/remove/reorder):
 SC = struct('x',1,'y',2,'flag',3,'manual',4,'peak',5,'pval',6,'enr',7,'nloc',8,'ntrk',9,'stab',10,'area',11,'dwell',12);
@@ -149,13 +148,11 @@ eMinEnr = uispinner(rD,'Limits',[1 1e4],'Value',st.minEnrich,'Step',0.5,'ValueCh
 uilabel(rD,'Text','min tracks','HorizontalAlignment','right');
 eMinTrk = uispinner(rD,'Limits',[1 1e4],'Value',st.minTracks,'Step',1,'ValueChangedFcn',@(s,e) onGate(), ...
     'Tooltip','Distinct-molecule gate: keep a site only if at least this many DISTINCT tracks contribute localizations to it — rejects a single parked molecule. 1 = off. Re-run Detect to apply.');
-uilabel(rD,'Text','channel','HorizontalAlignment','right');
-ddChannel = uidropdown(rD,'Items',{'Tracked','Confined (low D)','State-change'},'ItemsData',{'tracked','confined','statechange'}, ...
-    'Value','tracked','Enable','off', ...
-    'Tooltip',['Density CHANNEL. Tracked = all tracked localizations. Confined = only low-D (dwelling) localizations. ' ...
-               'State-change = only fast→slow transition localizations. Confined/State-change identify sites by DIFFUSION ' ...
-               'STATE (needs a Build with diffusion). Re-run Detect after switching.'], ...
-    'ValueChangedFcn',@(s,e) onDensMode());
+% The density is always the tracked localization cloud. There used to be Confined and State-change
+% channels here, driven by Tracks.confined / Tracks.stateChange. Those flags depend on a confinement
+% criterion that is not currently part of the pipeline, so picking sites by diffusion STATE would
+% have rested on a parameter nobody was setting. spt_confine_flags still implements it if the
+% question comes back.
 chkExplain = uicheckbox(rD,'Text','🔍 explain spot','Value',false, ...
     'Tooltip','When on, clicking the density map reports that location''s density, null percentile, enrichment, #tracks and p — even for non-detected spots (no site is added/selected).');
 lblExplain = uilabel(rD,'Text','','FontColor',[0.30 0.30 0.45]);
@@ -198,12 +195,7 @@ onCell();
     function onCell()
         st.ci = max(1, find(strcmp(ddCell.Items, ddCell.Value), 1)); if isempty(st.ci), st.ci=1; end
         T = st.Tracks(st.ci);
-        [st.aX, st.aY, st.aF, st.aMD, st.haveMD, st.aT, st.aConf, st.aSC] = cellLocs(T, true);   % density is ALWAYS tracked-only (matrix, not the cloud)
-        st.haveDiff = (isfield(T,'confined')&&~isempty(T.confined)) || (isfield(T,'stateChange')&&~isempty(T.stateChange));
-        if ~isempty(ddChannel) && isgraphics(ddChannel)
-            ddChannel.Enable = tern(st.haveDiff,'on','off');
-            if ~st.haveDiff, ddChannel.Value='tracked'; st.densMode='tracked'; end
-        end
+        [st.aX, st.aY, st.aF, st.aMD, st.haveMD, st.aT] = cellLocs(T, true);   % density is ALWAYS tracked-only (matrix, not the cloud)
         st.nDet = numel(st.aX);                                          % tracked localizations (what the density is built from)
         st.nAll = st.nDet;                                              % total detections (full cloud) — for the total-vs-tracked readout
         if isstruct(T.allSpots) && isfield(T.allSpots,'X') && ~isempty(T.allSpots.X)
@@ -222,23 +214,23 @@ onCell();
         buildWindows();                         % -> selectWindow -> drawDetail sets the full total/tracked/window readout
     end
 
-    function [X,Y,F,MD,have,TID,CONF,SC] = cellLocs(T, useTracked)
-        have=false; MD=[]; TID=[]; CONF=[]; SC=[];
+    function [X,Y,F,MD,have,TID] = cellLocs(T, useTracked)
+        % NB: this used to also return per-localization confined/state-change flags in locals named
+        % CONF and SC — and SC SHADOWED the sites-table column-index struct of the same name that the
+        % rest of this file uses. The flags are gone with the diffusion-state channels; the shadow
+        % went with them.
+        have=false; MD=[]; TID=[];
         haveCloud = isstruct(T.allSpots) && isfield(T.allSpots,'X') && ~isempty(T.allSpots.X);
         if ~useTracked && haveCloud
             X=double(T.allSpots.X(:)); Y=double(T.allSpots.Y(:)); F=double(T.allSpots.FRAME(:));
             TID=(1:numel(X))';                                   % cloud: each detection its own "track"
-            CONF=false(size(X)); SC=false(size(X));
             if isfield(T.allSpots,'MITODIST') && numel(T.allSpots.MITODIST)==numel(X), MD=double(T.allSpots.MITODIST(:)); have=true; end
         else
             M=T.matrix; [nF,nT,~]=size(M); X=reshape(M(:,:,2),[],1); Y=reshape(M(:,:,3),[],1); F=reshape(M(:,:,1),[],1);
             TID=reshape(repmat(1:nT,nF,1),[],1);                 % track id = matrix column of each localization
-            CONF=false(numel(X),1); SC=false(numel(X),1);        % per-loc diffusion state (from spt_track_diffusion at Build)
-            if isfield(T,'confined')    && isequal(size(T.confined),[nF nT]),    CONF=logical(reshape(T.confined,[],1)); end
-            if isfield(T,'stateChange') && isequal(size(T.stateChange),[nF nT]), SC=logical(reshape(T.stateChange,[],1)); end
             if isfield(T,'mitoDist') && isequal(size(T.mitoDist),size(M(:,:,1))), MD=reshape(T.mitoDist,[],1); have=true; end
         end
-        ok=isfinite(X)&isfinite(Y); X=X(ok); Y=Y(ok); F=F(ok); TID=TID(ok); CONF=CONF(ok); SC=SC(ok); if have, MD=MD(ok); end
+        ok=isfinite(X)&isfinite(Y); X=X(ok); Y=Y(ok); F=F(ok); TID=TID(ok); if have, MD=MD(ok); end
         if ~have, MD=nan(size(X)); end
     end
 
@@ -686,19 +678,8 @@ onCell();
     function onMinLocs(), st.minLocs=round(eMinLocs.Value); drawThumbAll(); drawDetail(); end
     function onSplit(), st.splitPeaks=chkSplit.Value; set(lbl,'Text','Split-peaks changed — re-run Detect to apply.'); end
     function onGate(), st.minEnrich=eMinEnr.Value; st.minTracks=round(eMinTrk.Value); set(lbl,'Text','Gate changed — re-run Detect (win/all) to apply.'); end
-    function onDensMode()
-        st.densMode = ddChannel.Value;
-        st.wrc=cell(1,st.nW); st.wdens=cell(1,st.nW); st.wnull=cell(1,st.nW);   % channel changed -> density/null caches stale
-        drawThumbAll(); drawDetail();
-        set(lbl,'Text',sprintf('Density channel: %s — re-run Detect to find sites on this channel.', ddChannel.Value));
-    end
     function m = densMask()
-        switch st.densMode
-            case 'confined',    m = st.aConf;         % only low-D (dwelling) localizations
-            case 'statechange', m = st.aSC;           % only fast->slow transition localizations
-            otherwise,          m = [];               % tracked = all
-        end
-        if isempty(m) || numel(m)~=numel(st.aX), m = true(numel(st.aX),1); end
+        m = true(numel(st.aX),1);     % every tracked localization; there are no other channels
     end
     function c = winLocCount(w)                                   % localizations of the CURRENT channel in window w
         if w<1 || w>st.nW, c=0; return; end
@@ -797,15 +778,14 @@ onCell();
     % ---- helpers ----
     function s=statusText()
         pct = tern(st.nAll>0, 100*st.nDet/max(st.nAll,1), 100);
-        ch = ''; if ~strcmp(st.densMode,'tracked'), ch = sprintf(' · channel %s (%d locs)', st.densMode, nnz(densMask())); end
         % Say so IN the status line whenever the panel cap has cut the movie short — a warning on the
         % console is easy to miss, and every number in this window is then partial.
         wtxt = sprintf('%d windows', st.nW);
         if isfield(st,'nWwanted') && st.nWwanted > st.nW
             wtxt = sprintf('%d of %d windows ⚠ frames %d+ NOT analysed', st.nW, st.nWwanted, st.dropFrom);
         end
-        s=sprintf('%s · detections %d · tracked %d (%.0f%%)%s · %s · %s', ...
-            char(st.Tracks(st.ci).file), st.nAll, st.nDet, pct, ch, wtxt, ...
+        s=sprintf('%s · detections %d · tracked %d (%.0f%%) · %s · %s', ...
+            char(st.Tracks(st.ci).file), st.nAll, st.nDet, pct, wtxt, ...
             tern(st.haveMD,'mito from MITODIST','no MITODIST'));
     end
     function n=totalSites(), n=0; for w=1:st.nW, n=n+size(st.sites{w},1); end, end

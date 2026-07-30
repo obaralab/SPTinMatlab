@@ -58,13 +58,10 @@ tsName=''; eTsName=[]; ddBuild=[];   % the ACTIVE TrackStruct basename in analys
 axDloc=[]; axDtrace=[];   % stepwise-diffusion QC: pooled per-localization D, and D(t) for the clicked track
 axCSD=[]; csdHi=[];       % cumulative-displacement panel + the highlight of the clicked track
 ddHi=[]; dlHi=[];         % where the CLICKED track sits in the two pooled D histograms
-% Confinement / state-change criterion. Computed at BUILD and consumed by Tool 3's picker (its
-% confined / state-change density channels); deliberately NOT exposed in the QC row, which is for
-% the rolling-diffusion readout. These are the values measured against a matched Brownian null —
-% see spt_track_diffusion's header for the comparison and why 'segment' is the default. To change
-% the criterion, pass confMode/confFrac/minSeg/penalty through to spt_track_diffusion.
-diffConfMode='segment'; diffConfFrac=0.30; diffMinSeg=3; diffPenalty=1.5;
-diffBaseWin=10; diffMinRun=5; diffConfineD=0.15;
+% Confinement / state-change is not part of the pipeline right now: the build stores only the
+% rolling D, and Tool 3's picker has no diffusion-state density channels. The criterion and all four
+% of its modes live on in spt_confine_flags / spt_track_diffusion, measured against a matched
+% Brownian null (see that header), for when the contact-site work needs them.
 ddFitMode=[]; axSweep=[];   % MSD fit-window mode (fixed % / adaptive R²) + the per-track D-vs-fit-window sweep
 qcTracks={}; qcSelIdx=0; qcHi=[]; playerCtl=[];   % click-to-inspect: flat track list, selection, highlight, embedded player
 densCache=struct('base',{},'occ',{});   % per-cell whole-movie occupancy cache (used by ensureMips + saveDensityFiles)
@@ -1959,12 +1956,14 @@ end
         for k = 1:numel(Tracks)
             dtk = DTS; if isfield(Tracks,'frameInterval') && ~isempty(Tracks(k).frameInterval) && Tracks(k).frameInterval>0, dtk = Tracks(k).frameInterval; end
             try
-                Tk = spt_track_diffusion(Tracks(k), struct('dt',dtk,'sigmaUm',PRECNM/1000, ...
-                    'confineD',diffConfineD,'confMode',diffConfMode,'confFrac',diffConfFrac, ...
-                    'baseWin',diffBaseWin,'minRun',diffMinRun, ...
-                    'minSeg',diffMinSeg,'penalty',diffPenalty));
+                Tk = spt_track_diffusion(Tracks(k), struct('dt',dtk,'sigmaUm',PRECNM/1000));
+                % Only the rolling D is stored. confined / stateChange are NOT written: nothing reads
+                % them any more (Tool 3's diffusion-state density channels are gone), and carrying
+                % flags derived from a confinement criterion nobody is setting invites them being
+                % trusted. spt_confine_flags still implements all four criteria — pass confMode &c to
+                % spt_track_diffusion and assign Tk.confined / Tk.stateChange here to bring it back.
                 % assign FIELD-BY-FIELD (a whole-struct assign fails — the result has extra fields)
-                Tracks(k).Dt = Tk.Dt; Tracks(k).confined = Tk.confined; Tracks(k).stateChange = Tk.stateChange; Tracks(k).diffOpts = Tk.diffOpts;
+                Tracks(k).Dt = Tk.Dt; Tracks(k).diffOpts = Tk.diffOpts;
             catch, end
         end
     end
@@ -1991,7 +1990,7 @@ end
         end
         if isempty(Tracks), setBuild('No tracks imported — check the tracks folder.',[0.6 0.4 0.1]); return; end
         setBuild('Computing per-localization diffusion D(t) + confinement…',[0.2 0.4 0.5]); drawnow;
-        Tracks = addDiffusion(Tracks);                         % per-loc D(t)/confined/stateChange stored in TrackStruct
+        Tracks = addDiffusion(Tracks);                         % per-localization rolling D(t) stored in TrackStruct
         aDir = fullfile(projectDir,'analysis'); if ~isfolder(aDir), mkdir(aDir); end
         onTsName(); setActiveTs(aDir, tsName);          % write analysis/<name>.mat and make it active
         save(fullfile(aDir,tsName),'Tracks','-v7.3');
@@ -2106,8 +2105,6 @@ end
                     'MSD', colOr(msdT,c), 'ER', finiteCol(erT,c), 'MI', finiteCol(miT,c), 'D', rr.D, 'sigLoc', rr.sigLocUm, 'fracUsed', rr.fracUsed, ...
                     'dt', dtk, ...                                       % stepwise (per-localization) diffusion, aligned to X/Y/F:
                     'Dt',   maskCol(fieldOr(T,'Dt'),          c, ok), ...
-                    'conf', maskCol(fieldOr(T,'confined'),    c, ok), ...
-                    'sc',   maskCol(fieldOr(T,'stateChange'), c, ok), ...
                     'CSD',  trimCol(fieldOr(T,'CSD'), c, nnz(ok)-1));    % path length through each step (µm)
                 qcTracks{end+1} = s; L(end+1)=s.len; ER=[ER; s.ER]; MI=[MI; s.MI]; %#ok<AGROW>
             end
@@ -2149,37 +2146,16 @@ end
         if ~isempty(Dv), histogram(axDdist, Dv, min(40,max(5,round(numel(Dv)/3))), 'FaceColor',[0.4 0.55 0.75],'EdgeColor','none'); end
         xlabel(axDdist,'D (µm²/s)'); ylabel(axDdist,'tracks');
         title(axDdist, sprintf('D distribution — median %.3g µm²/s  ·  %s', median0_(Dv), fitTag));
-        % per-localization confinement (from the stored diffusion) — the low-D cutoff Tool 3 uses
-        % confined/stateChange may be absent even when Dt is present (a struct written before those
-        % fields existed, or one merged by combine_trackstructs where a source lacked them) — reading
-        % them unguarded threw 'Unrecognized field name "confined"' and blanked the whole QC tab.
-        if isfield(buildTracks,'Dt') && isfield(buildTracks,'confined') && isfield(buildTracks,'stateChange')
-            nConf=0; nLoc=0; nSC=0;
-            for k=ks
-                if ~isempty(buildTracks(k).Dt) && ~isempty(buildTracks(k).confined) && ~isempty(buildTracks(k).stateChange)
-                    fin=isfinite(buildTracks(k).Dt); nLoc=nLoc+nnz(fin);
-                    nConf=nConf+nnz(buildTracks(k).confined & fin); nSC=nSC+nnz(buildTracks(k).stateChange);
-                end
-            end
-            if nLoc>0
-                hold(axDdist,'on'); xline(axDdist, diffConfineD, '-','Color',[0.85 0.3 0.2],'LineWidth',1.2,'Alpha',0.8); hold(axDdist,'off');
-                title(axDdist, sprintf('D dist — median %.3g · %s | confined ≤%.3g: %.1f%% locs · %d state-changes', ...
-                    median0_(Dv), fitTag, diffConfineD, 100*nConf/max(nLoc,1), nSC),'FontSize',8.5);
-            end
-        end
         % ---- pooled STEPWISE diffusion: one D per localization (spt_track_diffusion), not per track ----
         % This is a different quantity from the D-distribution above: that one fits an MSD per TRACK,
-        % this one is the rolling noise-corrected D at every localization, and it is what the confined /
-        % state-change flags — and Tool 3's density channels — are derived from.
+        % this one is the rolling noise-corrected D at every localization, each step weighted by
+        % the time it actually spans.
         cla(axDloc);
-        Dl = []; Cl = [];
+        Dl = [];
         for k = ks
             Tk = buildTracks(k);
             if ~isfield(Tk,'Dt') || isempty(Tk.Dt), continue; end
-            d = Tk.Dt(:); fin = isfinite(d); Dl = [Dl; d(fin)]; %#ok<AGROW>
-            if isfield(Tk,'confined') && ~isempty(Tk.confined)
-                cc = Tk.confined(:); Cl = [Cl; cc(fin)]; %#ok<AGROW>
-            end
+            d = Tk.Dt(:); Dl = [Dl; d(isfinite(d))]; %#ok<AGROW>
         end
         if isempty(Dl)
             title(axDloc,'stepwise D (per localization) — not in this TrackStruct');
@@ -2194,16 +2170,12 @@ end
             % 2.92, so the bulk still occupies half the axis.
             hi = max(Dl); if ~(hi > 0), hi = eps; end
             histogram(axDloc, Dl, linspace(0, hi, 60), 'FaceColor',[0.45 0.35 0.65],'EdgeColor','none');
-            hold(axDloc,'on');
-            xline(axDloc, diffConfineD, '-','Color',[0.85 0.3 0.2],'LineWidth',1.4);
-            hold(axDloc,'off');
-            try, set(axDloc,'YScale','log'); catch, end                   % the confined peak is orders below the bulk
+            try, set(axDloc,'YScale','log'); catch, end                   % the slow end is orders below the bulk
             xlim(axDloc, [0 max(hi, eps)]);
             xlabel(axDloc, sprintf('stepwise D (µm²/s)/loc  ·  full range, max %.2g', hi));
             ylabel(axDloc,'localizations');
-            pctC = 100*mean(Dl <= diffConfineD); if ~isempty(Cl), pctC = 100*mean(Cl); end
-            title(axDloc, sprintf('stepwise D · med %.3g · %.0f%% confined · n=%s', ...
-                median(Dl), pctC, kfmt_(numel(Dl))), 'FontSize',8.5);
+            title(axDloc, sprintf('stepwise D · med %.3g · n=%s', ...
+                median(Dl), kfmt_(numel(Dl))), 'FontSize',8.5);
         end
 
         % ---- CSD: cumulative path length per track (µm). Every track faint, median bold; the
@@ -2323,8 +2295,7 @@ end
             end
         end
 
-        % stepwise D(t) for THIS track — the per-localization rolling D that the confined /
-        % state-change flags come from. The MSD panel above gives one D for the whole track; this
+        % stepwise D(t) for THIS track. The MSD panel above gives one D for the whole track; this
         % shows how it varies along the track, which is the point of computing it per localization.
         cla(axDtrace);
         Dt = fieldOr(s,'Dt');
@@ -2339,24 +2310,15 @@ end
                 F0 = s.F - s.F(1);
                 if all(abs(F0 - round(F0)) < 1e-6), tt = F0 * dtk; else, tt = F0; end
             end
-            cf = fieldOr(s,'conf'); if isempty(cf), cf = Dt <= diffConfineD; end
-            cf = logical(cf(:)) & isfinite(Dt(:));
             hold(axDtrace,'on');
             plot(axDtrace, tt, Dt, '-','Color',[0.45 0.5 0.62],'LineWidth',0.9);
-            plot(axDtrace, tt(~cf), Dt(~cf), '.','Color',[0.20 0.45 0.75],'MarkerSize',7);   % mobile
-            plot(axDtrace, tt(cf),  Dt(cf),  '.','Color',[0.85 0.30 0.20],'MarkerSize',9);   % confined
-            yline(axDtrace, diffConfineD, '--','Color',[0.85 0.3 0.2],'LineWidth',1.1);
-            scv = fieldOr(s,'sc');
-            if ~isempty(scv)
-                z = find(logical(scv(:)));                                                   % fast -> slow entries
-                for q = z(:)', xline(axDtrace, tt(q), '-','Color',[0.95 0.6 0.1],'LineWidth',1.1,'Alpha',0.85); end
-            end
+            plot(axDtrace, tt, Dt, '.','Color',[0.20 0.45 0.75],'MarkerSize',7);
+            md = median(Dt(isfinite(Dt)));
+            yline(axDtrace, md, '--','Color',[0.85 0.3 0.2],'LineWidth',1.0);   % this track's own median
             hold(axDtrace,'off');
             xlabel(axDtrace,'time along track (s)'); ylabel(axDtrace,'D (µm²/s)');
             if ~isempty(tt) && tt(end) > tt(1), xlim(axDtrace, [tt(1) tt(end)]); end
-            nsc = 0; if ~isempty(scv), nsc = nnz(scv); end
-            title(axDtrace, sprintf('stepwise D(t) · med %.3g · %.0f%% confined · %d state-change%s', ...
-                median(Dt(isfinite(Dt))), 100*mean(cf), nsc, plural_(nsc)), 'FontSize',9);
+            title(axDtrace, sprintf('stepwise D(t) · med %.3g µm²/s (dashed)', md), 'FontSize',9);
         end
 
         % D & R² vs fit window — the sensitivity of this track's D to how many MSD lags are fit
