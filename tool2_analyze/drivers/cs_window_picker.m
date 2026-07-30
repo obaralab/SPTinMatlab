@@ -289,7 +289,21 @@ onCell();
             st.win=W;
         end
         st.nW=size(st.win,1);
-        if st.nW>st.MAXPANELS, st.win=st.win(1:st.MAXPANELS,:); st.nW=st.MAXPANELS; end
+        % The panel cap bounds the UI, but truncating here THROWS AWAY THE END OF THE MOVIE — including
+        % the tail-coverage window deliberately appended just above. It used to do so silently, so a
+        % short frames/win setting quietly analysed only the first stretch of the cell and every count,
+        % enrichment and dwell number downstream was computed over that stretch alone. The cap stays
+        % (drawing hundreds of thumbnails is not usable, and coarsening the windows would change the
+        % per-window statistics the user asked for), but what it costs is now recorded and reported.
+        st.nWwanted = st.nW; st.dropFrom = NaN;
+        if st.nW>st.MAXPANELS
+            st.dropFrom = st.win(st.MAXPANELS,2)+1;            % first frame no longer covered
+            st.win=st.win(1:st.MAXPANELS,:); st.nW=st.MAXPANELS;
+            warning('cs_window_picker:windowsTruncated', ...
+                ['%d windows needed but only %d panels are available: frames %d-%d (%.0f%% of the movie) ' ...
+                 'are NOT analysed. Raise frames/win (or step) so the movie fits in %d windows.'], ...
+                st.nWwanted, st.MAXPANELS, st.dropFrom, T-1, 100*(T-st.dropFrom)/max(T,1), st.MAXPANELS);
+        end
         st.sites=repmat({zeros(0,NCOL)},1,st.nW);
         st.wrc=cell(1,st.nW); st.wdens=cell(1,st.nW); st.werM=cell(1,st.nW); st.wmitoM=cell(1,st.nW); st.wnull=cell(1,st.nW);
         st.cw=1; st.selList=[];
@@ -565,7 +579,15 @@ onCell();
     function detectCur(), detectWindow(st.cw); end   % nested -> reads the LIVE current window (not a captured value)
     function detectAll()
         for w=1:st.nW, detectWindow(w); end
-        set(lbl,'Text',sprintf('Detected all %d windows (%s): %d site(s) total.',st.nW,st.method,totalSites()));
+        % "all" only if the cap did not cut the movie short — otherwise say what was left out, because
+        % this total is what gets saved and carried into Refine, Sites and Dwell.
+        if isfield(st,'nWwanted') && st.nWwanted > st.nW
+            set(lbl,'Text',sprintf(['Detected %d of %d windows (%s): %d site(s). ⚠ frames %d+ NOT ' ...
+                'analysed — raise frames/win to cover the whole movie.'], ...
+                st.nW, st.nWwanted, st.method, totalSites(), st.dropFrom));
+        else
+            set(lbl,'Text',sprintf('Detected all %d windows (%s): %d site(s) total.',st.nW,st.method,totalSites()));
+        end
     end
 
     % ---- window-length sweep: how # sites + significance depend on the window length ----
@@ -776,8 +798,14 @@ onCell();
     function s=statusText()
         pct = tern(st.nAll>0, 100*st.nDet/max(st.nAll,1), 100);
         ch = ''; if ~strcmp(st.densMode,'tracked'), ch = sprintf(' · channel %s (%d locs)', st.densMode, nnz(densMask())); end
-        s=sprintf('%s · detections %d · tracked %d (%.0f%%)%s · %d windows · %s', ...
-            char(st.Tracks(st.ci).file), st.nAll, st.nDet, pct, ch, st.nW, ...
+        % Say so IN the status line whenever the panel cap has cut the movie short — a warning on the
+        % console is easy to miss, and every number in this window is then partial.
+        wtxt = sprintf('%d windows', st.nW);
+        if isfield(st,'nWwanted') && st.nWwanted > st.nW
+            wtxt = sprintf('%d of %d windows ⚠ frames %d+ NOT analysed', st.nW, st.nWwanted, st.dropFrom);
+        end
+        s=sprintf('%s · detections %d · tracked %d (%.0f%%)%s · %s · %s', ...
+            char(st.Tracks(st.ci).file), st.nAll, st.nDet, pct, ch, wtxt, ...
             tern(st.haveMD,'mito from MITODIST','no MITODIST'));
     end
     function n=totalSites(), n=0; for w=1:st.nW, n=n+size(st.sites{w},1); end, end
