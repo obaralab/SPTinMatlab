@@ -1745,7 +1745,10 @@ end
         ddCmpMetric = uidropdown(r,'Items',{'dwell s','k_out /s','enrichment','area µm²','n_loc','mito fraction','# sites'},'Value','enrichment');
         uibutton(r,'Text','▶ Compute','FontWeight','bold','BackgroundColor',[0.18 0.45 0.70],'FontColor','w','ButtonPushedFcn',@(s,e) onCompareCompute());
         uibutton(r,'Text','Export CSV','ButtonPushedFcn',@(s,e) onCompareExport());
-        lblCmp = uilabel(r,'Text','Run the mapper (Sites tab); dwell metrics also need the Dwell tab. Then Compute.','FontColor',[0.2 0.4 0.5]);
+        % WordWrap: this label carries status and error text that runs well past its column — at
+        % 1280 px it had 402 px for a string needing ~496, so the end was cut off.
+        lblCmp = uilabel(r,'Text','Run the mapper (Sites tab); dwell metrics also need the Dwell tab. Then Compute.', ...
+            'FontColor',[0.2 0.4 0.5],'WordWrap','on');
         uilabel(r,'Text','');
         mn = uigridlayout(g,[1 2],'ColumnWidth',{'0.9x','1.1x'},'Padding',[0 0 0 0],'ColumnSpacing',8);
         tblCmp = uitable(mn,'ColumnName',{'group','n','mean','sem'},'ColumnWidth',{'1x',44,80,80});

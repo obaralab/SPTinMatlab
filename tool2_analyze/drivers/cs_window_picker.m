@@ -65,11 +65,14 @@ st.thumbAx=[]; st.selList=[]; st.erPath=''; st.mitoPath=''; st.segNfr=0; st.segM
 % UI
 % =====================================================================
 delete(allchild(parent));
-g = uigridlayout(parent,[5 1],'RowHeight',{32,30,30,30,'1x'},'Padding',[8 8 8 8],'RowSpacing',5);
+% Row 5 is the status line, on its OWN full-width row. It used to be the last cell of control row A,
+% where it got whatever was left after twelve fixed-width controls — 320 px on a 1280-wide window for
+% a string that needs about 1035. Two thirds of every detection result was simply cut off.
+g = uigridlayout(parent,[6 1],'RowHeight',{32,30,30,30,32,'1x'},'Padding',[8 8 8 8],'RowSpacing',5);
 
 % ---- control row A: data + detection ----
 rA = uigridlayout(g,[1 13],'ColumnWidth', ...
-    {34,140, 62,58, 52,140, 40,78, 74,72, 66,66, '1x'}, 'Padding',[0 0 0 0],'ColumnSpacing',5);
+    {34,140, 62,58, 52,140, 40,78, 74,72, 66,66, '1x'}, 'Padding',[0 0 0 0],'ColumnSpacing',5);   %#ok<*NASGU>
 uilabel(rA,'Text','Cell','HorizontalAlignment','right');
 ddCell = uidropdown(rA,'Items',cellNames(),'ValueChangedFcn',@(s,e) onCell());
 % density is always built from TRACKED localizations (single-frame detections are excluded as noise)
@@ -89,7 +92,7 @@ eContact = uispinner(rA,'Limits',[-1 2],'Value',st.contactUm,'Step',0.05,'ValueC
 btnDetW = uibutton(rA,'Text','Detect win','ButtonPushedFcn',@(s,e) detectCur(), ...
     'Tooltip','Detect candidate sites in the CURRENT window (manual, on demand).');
 btnDetA = uibutton(rA,'Text','Detect all','ButtonPushedFcn',@(s,e) detectAll());
-lbl = uilabel(rA,'Text','','FontColor',[0.2 0.4 0.5]);
+uilabel(rA,'Text','');                       % spacer: the status line has its own row now
 
 % ---- control row B: display + overlays + save ----
 rB = uigridlayout(g,[1 16],'ColumnWidth', ...
@@ -158,6 +161,9 @@ chkExplain = uicheckbox(rD,'Text','🔍 explain spot','Value',false, ...
 lblExplain = uilabel(rD,'Text','','FontColor',[0.30 0.30 0.45]);
 
 % ---- main: [ thumbnails | detail+colorbar | site list ] ----
+% ---- status line: full width, wraps rather than truncating ----
+lbl = uilabel(g,'Text','','FontColor',[0.2 0.4 0.5],'WordWrap','on','VerticalAlignment','center');
+
 mn = uigridlayout(g,[1 3],'ColumnWidth',{'1.0x','1.5x',290},'Padding',[0 0 0 0],'ColumnSpacing',8);
 pnThumbs = uipanel(mn,'Title','Windows — click one to zoom','BorderType','line');
 dc = uigridlayout(mn,[1 2],'ColumnWidth',{'1x',66},'Padding',[0 0 0 0],'ColumnSpacing',4);
