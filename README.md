@@ -4,20 +4,37 @@ Everything for the single-particle-tracking → ER–mitochondria contact-site w
 in one place. Three focused tools that hand off through files only.
 
 ```
-Tool 1: TRACK & FILTER        handoff (files)      Tool 2: CURATE & BUILD    handoff (file)   Tool 3: ANALYZE
-raw SPT + ER-seg + mito-seg ─▶ tracks/             import · curate · build ─▶ analysis/     ─▶ contact sites, refine,
-match·detect·track·filter      <base>_tracks_filtered.xml   (the slow MSD step)  <name>.mat      sites, dwell, compare
-                               <base>_spots_filtered.csv
+Tool 1: TRACK & FILTER          Tool 2: CURATE & BUILD              Tool 3: ANALYZE
+match · detect · track · filter   import · curate · build             contact sites · refine
+                                  (the slow MSD step)                 sites · dwell · compare
+        │                                 │              │                      │
+        ▼                                 ▼              ▼                      ▼
+  tracks/<base>_tracks_filtered.xml  ─▶ tracks/<base>_tracks_curated.xml  ─▶ analysis/<name>.mat
+         <base>_spots_filtered.csv           <base>_spots_curated.csv           + active_trackstruct.txt
+         <base>_settings.txt                 <base>_track_metrics.csv
+                                             <base>_filter_log.csv
+
+  <project>/experiment_manifest.mat  ← the manifest all three tools share (cells, conditions, stage counts)
 ```
+
+Every hand-off is a file on disk, so you can stop after any stage, inspect what it wrote, and resume in a
+different tool — or a different session — without re-running anything upstream.
 
 ## Launch
 
 ```matlab
 addpath('/Users/safal-mac/Desktop/IntegratedPipeline/SPTinMatlab')
-run_track      % Tool 1  spt_app         — Match files · Detect · Track & filter · Experiment
-run_curate     % Tool 2  spt_curate_app  — Import & Curate · Build & QC · Experiment
-run_analyze    % Tool 3  spt_analyze_app — Contact sites · Refine · Sites · Dwell · Experiment · Compare
+run_track      % Tool 1  spt_app         — Experiment · Match files · Detect · Track & filter
+run_curate     % Tool 2  spt_curate_app  — Experiment · Import & Curate · Build & QC
+run_analyze    % Tool 3  spt_analyze_app — Experiment · Contact sites · Refine · Sites · Dwell · Compare
 ```
+
+**Experiment is tab 1 in all three tools**, and the tabs are numbered in the title bar so the order is
+visible. The manifest itself lives at the project top level (`<project>/experiment_manifest.mat`, not
+inside `analysis/`) and is loaded as soon as a project folder is set, so whichever tool you open next
+already knows the cells and conditions. Tools 2 and 3 open on it. Tool 1 is the exception: it moves the
+selection to *Match files*, because on a fresh project there is nothing in the manifest yet and matching
+the three input folders is the first thing you actually do.
 
 Tools 2 and 3 are **one implementation** — `spt_analyze_app.m` behind a `mode` argument.
 `spt_curate_app` just calls `spt_analyze_app('curate')`; `run_analyze` calls `spt_analyze_app('analyze')`;
@@ -52,6 +69,7 @@ SPTinMatlab/
 │   │   ├── spt_experiment_panel.m  ← the Experiment tab, shared by all three tools
 │   │   ├── spt_pipeline_app.m  ← LEGACY one-window app; not what run_* launches
 │   │   ├── track_viewer.m      ← the curation viewer (embedded in Import & Curate)
+│   │   ├── *_smoke.m           ← regression tests (batch-overwrite, curate-review, named-build, split)
 │   │   └── cs_pipeline_doc.html
 │   ├── drivers/                ← EDITABLE additive layer (the picker rework lives here)
 │   │   ├── TrackImporter_direct.m   ← curated XML/CSV → Tracks struct (reads MITO_DIST_UM + ER_DIST_UM)
@@ -69,14 +87,23 @@ SPTinMatlab/
 │   │                              Kept as the reference of record; robust was validated against it.
 │   └── docs/                   ← DOCUMENTATION.md, tracks_struct_contract.md, SPT_pipeline_map.md, …
 │
-└── docs/                       ← cross-tool notes: PIPELINE.md, DATA_STRUCTURE.md, SESSION_HANDOFF.md
+└── docs/
+    ├── help.html               ← the reference manual — every tab, every control, the maths, the
+    │                             file/column reference, a metric glossary and troubleshooting.
+    │                             Opens in your browser from the ❓ Help button in all three tools.
+    ├── PIPELINE.md             ← the narrative walk-through, stage by stage
+    ├── DATA_STRUCTURE.md       ← what each stage holds in memory, and what it costs at scale
+    ├── IDEA_unravelling.md     ← a future extension (ER-trajectory unravelling) and its blocker
+    └── SESSION_HANDOFF.md
 ```
 
 ## The tool-to-tool contract
 
 **Tool 1 → Tool 2.** Tool 1 writes, and Tool 2 reads, one set per cell in `<project>/tracks/`:
 
-- **`<base>_tracks_filtered.xml`** — only the tracks that passed curation (renumbered `TRACK_ID` 0…K-1).
+- **`<base>_tracks_filtered.xml`** — the tracks that passed Tool 1's **filter** (renumbered `TRACK_ID`
+  0…K-1). Tool 1 filters on length and net displacement only; *curation* — density, step-variance and
+  per-track human judgement — is Tool 2's job, and nothing in Tool 1 is called curation.
 - **`<base>_spots_filtered.csv`** — **every** detection (the localization cloud is never filtered),
   columns `TRACK_ID, SPOT_ID, FRAME, T_s, X_um, Y_um, QUALITY, MEAN/MAX/TOTAL_INTENSITY,
   MITO_DIST_UM, ER_DIST_UM`. `TRACK_ID` is blank for spots in dropped/untracked tracks.
@@ -85,6 +112,15 @@ SPTinMatlab/
 `MITO_DIST_UM` / `ER_DIST_UM` are signed µm (− inside the organelle, + outside) computed per spot
 from the **per-frame** ER/mito masks. Tool 2's importer carries both into
 `Tracks(k).mitoDist` / `Tracks(k).erDist` (per tracked spot) and `Tracks(k).allSpots` (every detection).
+
+**Inside Tool 2.** *Import & Curate* reads that pair and exports its own, under the `curated` suffix and
+never over its input: **`<base>_tracks_curated.xml`**, **`<base>_spots_curated.csv`** (again the whole
+cloud, `TRACK_ID` blanked for tracks the curation dropped), plus `<base>_track_metrics.csv` with a `KEEP`
+column and `<base>_filter_log.csv`. *Run batch filter* writes the same set for every matched cell, so a
+batch and a hand-curated cell are interchangeable downstream; any write that would land on the file it
+just read is refused and reported in the activity log. *Build & QC* then prefers `_tracks_curated.xml`
+over `_tracks_filtered.xml` over raw `_tracks.xml`, and `TrackImporter_direct` pairs each XML with the
+spots CSV of the **same** stage.
 
 **Tool 2 → Tool 3.** Build & QC has a **Name** field: a build writes `<project>/analysis/<name>.mat`
 (default `TrackStruct.mat`) and records that name in `analysis/active_trackstruct.txt`. A project can
@@ -96,6 +132,28 @@ Experiment "built" lamp all resolve through it, so they can never disagree about
 force. `Tracks.mat` is **legacy**: it is written only by `run_contactsite_analysis`, which only the
 legacy `spt_pipeline_app` / `pipeline_gui` invoke, so it never appears in the `run_curate` /
 `run_analyze` flow.
+
+## Tests
+
+Every `*_smoke.m` is a self-contained assertion script: no test framework, no arguments. Add the tool
+folder to the path and call it by name. Each prints a line per assertion and ends in either a `PASSED`
+banner or a MATLAB error naming what broke.
+
+```matlab
+addpath(genpath('/Users/safal-mac/Desktop/IntegratedPipeline/SPTinMatlab'))
+spt_geo_strict_smoke        % strict ER-geodesic fails closed (27 assertions)
+spt_batch_overwrite_smoke   % Tool 2's batch cannot overwrite Tool 1's output
+spt_curate_review_smoke     % the curate review workflow; manual keep/reject is durable
+spt_named_build_smoke       % named builds + the single-load hand-off to Tool 3
+spt_msd_fit_smoke           % the adaptive MSD fit window — a confined track must fit fewer lags
+spt_precision_smoke         % sigma_loc = sqrt(b)/2 recovers a known injected precision
+```
+
+Most build synthetic data in `tempdir` and clean up after themselves. The few that need a real movie
+read `../WithER/`, which is **pristine reference data: never write into it** — note that MATLAB's
+`save()` and `fopen()` follow symlinks, so a fixture must never symlink a whole WithER *directory*.
+`spt_named_build_smoke` fingerprints every WithER file before and after and fails if any of them moved.
+A test that needs a built TrackStruct and finds none skips loudly rather than passing quietly.
 
 ## Provenance & which suite runs
 
