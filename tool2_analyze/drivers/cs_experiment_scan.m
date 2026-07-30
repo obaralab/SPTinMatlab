@@ -21,8 +21,15 @@ if ischar(folders) || isstring(folders), folders = cellstr(folders); end
 here = fileparts(mfilename('fullpath')); t1 = fullfile(fileparts(fileparts(here)),'tool1_track');
 if isfolder(t1), addpath(t1); end                      % spt_match lives in tool1_track
 
+% Two folders can name the SAME project — Tool 1 adds the project root while Tools 2 and 3 used to
+% add its analysis/ subfolder, and both resolve here to the same P.project. Scanning both then
+% enumerated every cell twice, which is what showed up as duplicate rows in the manifest. Resolve
+% first, then keep one entry per project.
+seenProj = {};
 for i = 1:numel(folders)
     P = resolvePaths(char(folders{i}));
+    if any(strcmp(seenProj, P.project)), continue; end
+    seenProj{end+1} = P.project; %#ok<AGROW>
     [bases, seg] = enumerateCells(P);                  % cell base names + a per-base seg/spt map
     for b = 1:numel(bases)
         base = bases{b};
@@ -40,11 +47,24 @@ for i = 1:numel(folders)
         cells(end+1) = rec; %#ok<AGROW>
     end
 end
+% Final guard: one record per (project, cell). The project-level skip above handles the common case,
+% but two DIFFERENT projects that happen to share a cell base name are legitimate and must survive,
+% so the key is the pair, not the file name alone.
+if ~isempty(cells)
+    key = strcat({cells.project}, '|', {cells.file});
+    [~, keep] = unique(key, 'stable');
+    cells = cells(keep);
+end
 end
 
 % ------------------------------------------------------------------------------------------------
 function P = resolvePaths(folder)
 % Resolve an input folder (project root OR its analysis/) to the standard sub-paths.
+% Normalize FIRST: a trailing separator or an unresolved symlink makes two spellings of one project
+% compare unequal, and every dedup downstream keys on these strings.
+folder = char(folder);
+if numel(folder) > 1 && endsWith(folder, filesep), folder = folder(1:end-1); end
+try, r = char(java.io.File(folder).getCanonicalPath()); if ~isempty(r), folder = r; end, catch, end
 if ~isempty(cs_active_trackstruct(folder)) && ~isfolder(fullfile(folder,'analysis'))
     ana = folder; proj = fileparts(folder);                 % given an analysis/ folder
 else

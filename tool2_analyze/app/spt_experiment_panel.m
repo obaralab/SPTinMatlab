@@ -32,7 +32,7 @@ onChange    = getf(opts,'onChange',[]);
 here = fileparts(mfilename('fullpath'));                 % make cs_experiment_* reachable
 d1 = fullfile(fileparts(here),'drivers'); if isfolder(d1), addpath(d1); end
 
-folders = {}; sf = getf(opts,'seedFolders',{}); if ~isempty(sf), folders = cellstr(sf); end
+folders = {}; sf = getf(opts,'seedFolders',{}); if ~isempty(sf), folders = cellstr(sf); end   % canonicalised on first scan/add
 autoPath = '';   % canonical <project>/experiment_manifest.mat — auto-loaded on open and
                  % auto-saved on every change, so the manifest lives WITH the project and no
                  % one has to remember to save it.
@@ -106,8 +106,26 @@ ctl = struct('getCells',@getCellsLive, 'getManifest',@getManifest, 'getSelected'
         if ~(hasBuild || isfolder(fullfile(d,'analysis')) || isfolder(fullfile(d,'spt')) || isfolder(fullfile(d,'tracks')))
             setStatus('That folder is not a project/analysis folder (no build, analysis/, spt/ or tracks/).'); return;
         end
-        if ~any(strcmp(folders,d)), folders{end+1} = d; end %#ok<AGROW>
+        folders = canon_folders([folders(:)' {d}]);
         doScan();
+    end
+
+    function F = canon_folders(F)
+        % One entry per PROJECT. A project can be named two ways — its root, or its analysis/
+        % subfolder — and both were being added: Tool 1 added the root, Tools 2 and 3 added
+        % analysis/. Both land in the same <project>/experiment_manifest.mat, so the manifest ended
+        % up naming one project twice and every cell was listed twice. Collapse to the root, resolve
+        % symlinks and trailing separators, then keep the first of each.
+        out = {};
+        for i = 1:numel(F)
+            d = char(F{i}); if isempty(d), continue; end
+            if endsWith(d, filesep), d = d(1:end-1); end
+            [par, leaf] = fileparts(d);
+            if strcmpi(leaf,'analysis') && ~isempty(par) && isfolder(par), d = par; end   % analysis/ -> its project
+            try, r = char(java.io.File(d).getCanonicalPath()); if ~isempty(r), d = r; end, catch, end
+            if ~any(strcmp(out, d)), out{end+1} = d; end %#ok<AGROW>
+        end
+        F = out;
     end
 
     function doScan()
@@ -220,6 +238,9 @@ ctl = struct('getCells',@getCellsLive, 'getManifest',@getManifest, 'getSelected'
         try, L = load(p); catch ME, setStatus(['Load failed: ' ME.message]); return; end
         if ~isfield(L,'manifest') || ~isfield(L.manifest,'cells'), setStatus('Not an experiment manifest.'); return; end
         folders = L.manifest.folders; if ischar(folders), folders = cellstr(folders); end
+        % Repair a manifest already carrying the same project under two names — every one written
+        % before this fix does, because Tool 1 stored the project root and Tools 2/3 stored analysis/.
+        folders = canon_folders(folders);
         cells = L.manifest.cells;
         doScan();                                                 % refresh status, keep loaded conditions
         setStatus(['Loaded ' p]);

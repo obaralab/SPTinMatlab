@@ -218,7 +218,10 @@ end
         try, if ~isempty(exptCtl) && isstruct(exptCtl) && isfield(exptCtl,'setAutoPath')
                 exptCtl.setAutoPath(fullfile(d,'experiment_manifest.mat'));
              end, catch, end
-        try, if ~isempty(exptCtl) && isstruct(exptCtl) && isfolder(fullfile(d,'analysis')), exptCtl.addFolder(fullfile(d,'analysis')); end, catch, end   % keep the experiment in sync
+        % Add the PROJECT ROOT, the same thing Tool 1 adds. This used to add <project>/analysis,
+        % which resolves to the same project — so a manifest touched by both tools named one project
+        % twice and listed every cell twice.
+        try, if ~isempty(exptCtl) && isstruct(exptCtl), exptCtl.addFolder(d); end, catch, end   % keep the experiment in sync
         refreshBuildList();
     end
 

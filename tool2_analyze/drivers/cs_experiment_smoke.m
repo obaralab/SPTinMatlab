@@ -65,8 +65,21 @@ assert(numel(CSWx)==nWT, 'exclude did not drop the FFAT sites');
 assert(~any(strcmp({CSWx.condition},'FFAT')), 'excluded FFAT still present');
 assert(~any(strcmp({DDx.events.condition},'FFAT')), 'excluded FFAT events still present');
 
+%% one project named two ways must yield ONE set of cells --------------------------------------
+% Tool 1 adds the project root; Tools 2 and 3 used to add <project>/analysis. Both land in the same
+% <project>/experiment_manifest.mat and both resolve to the same project, so every cell was listed
+% twice — which is what showed up as duplicate rows when opening Analyze after Track and Curate.
+pj = fileparts(dayA);                       % the PROJECT root; dayA is its analysis/
+nRoot = numel(cs_experiment_scan({pj}));
+nBoth = numel(cs_experiment_scan({pj, dayA}));
+nSpel = numel(cs_experiment_scan({[pj filesep], pj, dayA, [dayA filesep]}));
+fprintf('dedup: root %d · root+analysis %d · 4 spellings %d\n', nRoot, nBoth, nSpel);
+assert(nBoth == nRoot, 'project root + its analysis/ produced %d cells, expected %d', nBoth, nRoot);
+assert(nSpel == nRoot, 'four spellings of one project produced %d cells, expected %d', nSpel, nRoot);
+
 fprintf('\nALL EXPERIMENT-ENGINE ASSERTIONS PASSED.\n');
 end
+
 
 function mkFolder(anaDir, Tcell, src)
 mkdir(anaDir); mkdir(fullfile(anaDir,'csIDs')); mkdir(fullfile(anaDir,'Densities'));
