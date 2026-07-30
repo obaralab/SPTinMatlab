@@ -58,13 +58,13 @@ tsName=''; eTsName=[]; ddBuild=[];   % the ACTIVE TrackStruct basename in analys
 axDloc=[]; axDtrace=[];   % stepwise-diffusion QC: pooled per-localization D, and D(t) for the clicked track
 axCSD=[]; csdHi=[];       % cumulative-displacement panel + the highlight of the clicked track
 ddHi=[]; dlHi=[];         % where the CLICKED track sits in the two pooled D histograms
-eConfineD=[]; diffConfineD=0.15;   % per-localization diffusion: confinement threshold (µm²/s) computed at Build
-ddConfMode=[]; diffConfMode='segment';    % 'segment' | 'drop' | 'relative' | 'absolute'
-eMinSeg=[];    diffMinSeg=3;              % segment mode: shortest segment the splitter may produce
-ePenalty=[];   diffPenalty=1.5;           % segment mode: LR must exceed penalty*log(n) to split
-eBaseWin=[];   diffBaseWin=10;             % drop mode: preceding localizations forming the baseline
-eConfFrac=[];  diffConfFrac=0.30;         % relative mode: confined when D <= this x the track's median
-eMinRun=[];    diffMinRun=5;              % a confined run must last this many localizations to count
+% Confinement / state-change criterion. Computed at BUILD and consumed by Tool 3's picker (its
+% confined / state-change density channels); deliberately NOT exposed in the QC row, which is for
+% the rolling-diffusion readout. These are the values measured against a matched Brownian null —
+% see spt_track_diffusion's header for the comparison and why 'segment' is the default. To change
+% the criterion, pass confMode/confFrac/minSeg/penalty through to spt_track_diffusion.
+diffConfMode='segment'; diffConfFrac=0.30; diffMinSeg=3; diffPenalty=1.5;
+diffBaseWin=10; diffMinRun=5; diffConfineD=0.15;
 ddFitMode=[]; axSweep=[];   % MSD fit-window mode (fixed % / adaptive R²) + the per-track D-vs-fit-window sweep
 qcTracks={}; qcSelIdx=0; qcHi=[]; playerCtl=[];   % click-to-inspect: flat track list, selection, highlight, embedded player
 densCache=struct('base',{},'occ',{});   % per-cell whole-movie occupancy cache (used by ensureMips + saveDensityFiles)
@@ -249,7 +249,12 @@ end
         lblBuild = uilabel(r1,'Text','Curate first (Import & Curate tab), then build + QC here — or Load an existing build.','FontColor',[0.45 0.45 0.45]);
         uilabel(r1,'Text','');
         % row 2 — QC controls
-        r2 = uigridlayout(g,[1 9],'ColumnWidth',{56,180,58,130,66,56,84,60,'1x'},'Padding',[0 0 0 0],'ColumnSpacing',6);
+        % QC controls for the ROLLING DIFFUSION readout. The confinement / state-change criterion is
+        % applied at build with the measured defaults (see spt_track_diffusion) and is deliberately NOT
+        % exposed here: its six tuning controls overflowed this row — a uigridlayout squeezes every
+        % child when there are more of them than declared columns, which is what squashed this strip.
+        % To change the criterion, pass confMode/confFrac/minSeg/penalty to spt_track_diffusion.
+        r2 = uigridlayout(g,[1 7],'ColumnWidth',{56,180,58,130,66,56,'1x'},'Padding',[0 0 0 0],'ColumnSpacing',6);
         uilabel(r2,'Text','QC cell','HorizontalAlignment','right');
         ddQCcell = uidropdown(r2,'Items',{'(build first)'},'ValueChangedFcn',@(s,e) onQCcell());
         uilabel(r2,'Text','D fit','HorizontalAlignment','right');
@@ -262,43 +267,6 @@ end
         eMsdFrac = uispinner(r2,'Limits',[5 100],'Value',25,'Step',5, ...
             'Tooltip','Fixed mode: % of lags fit. Adaptive mode: the MAXIMUM % of lags the adaptive fit may use.', ...
             'ValueChangedFcn',@(s,e) onMsdFrac());
-        uilabel(r2,'Text','state change','HorizontalAlignment','right');
-        ddConfMode = uidropdown(r2,'Items',{'segment (changepoint)','drop (× preceding)','relative (× own median)','absolute (µm²/s)'}, ...
-            'ItemsData',{'segment','drop','relative','absolute'},'Value',diffConfMode, ...
-            'Tooltip',['How a localization is called "confined". RELATIVE compares D to THIS track''s own ' ...
-            'median, so the test is "did this molecule slow down" rather than "is it below a fixed number" — ' ...
-            'an absolute cut conflates a slow track with one that changed state.'], ...
-            'ValueChangedFcn',@(s,e) onConfineD());
-        eConfFrac = uispinner(r2,'Limits',[0.05 0.95],'Value',diffConfFrac,'Step',0.05,'ValueDisplayFormat','%.2f', ...
-            'Tooltip',['Relative mode: confined when D falls to this fraction of the track''s own median. ' ...
-            'Measured against a matched Brownian null on the reference cell, 0.30 with a minimum run of 5 ' ...
-            'gives 3.6x enrichment over chance; 0.40 gives 2.7x.'], ...
-            'ValueChangedFcn',@(s,e) onConfineD());
-        uilabel(r2,'Text','min seg','HorizontalAlignment','right');
-        eMinSeg = uispinner(r2,'Limits',[2 30],'Value',diffMinSeg,'Step',1,'RoundFractionalValues','on', ...
-            'Tooltip','Segment mode: the shortest segment the splitter may produce, in steps.', ...
-            'ValueChangedFcn',@(s,e) onConfineD());
-        uilabel(r2,'Text','penalty','HorizontalAlignment','right');
-        ePenalty = uispinner(r2,'Limits',[0.5 10],'Value',diffPenalty,'Step',0.25,'ValueDisplayFormat','%.2f', ...
-            'Tooltip',['Segment mode: a split is accepted when its likelihood ratio exceeds ' ...
-            'penalty x log(n). Higher = fewer, more confident segments. Measured on the reference ' ...
-            'cell: 1.5 gives 86% precision, 2.5 gives 94%, 3.0 gives 97% at progressively lower yield.'], ...
-            'ValueChangedFcn',@(s,e) onConfineD());
-        uilabel(r2,'Text','baseline','HorizontalAlignment','right');
-        eBaseWin = uispinner(r2,'Limits',[3 100],'Value',diffBaseWin,'Step',1,'RoundFractionalValues','on', ...
-            'Tooltip','Drop mode: how many preceding localizations form the baseline D that the current one is compared against.', ...
-            'ValueChangedFcn',@(s,e) onConfineD());
-        uilabel(r2,'Text','min run','HorizontalAlignment','right');
-        eMinRun = uispinner(r2,'Limits',[1 50],'Value',diffMinRun,'Step',1,'RoundFractionalValues','on', ...
-            'Tooltip',['A confined stretch must last this many localizations to count as a state change. ' ...
-            'This is the single biggest lever on specificity: a noise dip in the 7-point rolling estimator ' ...
-            'is short, a real confinement episode is not. At 1 (no persistence) roughly half of pure ' ...
-            'constant-D tracks register a false state change.'], ...
-            'ValueChangedFcn',@(s,e) onConfineD());
-        uilabel(r2,'Text','confined ≤ D','HorizontalAlignment','right');
-        eConfineD = uispinner(r2,'Limits',[0.001 100],'Value',diffConfineD,'Step',0.05,'ValueDisplayFormat','%.3g', ...
-            'Tooltip','Per-localization confinement threshold (µm²/s): D ≤ this = "confined". Sets which localizations feed Tool 3''s confinement/state-change site detection. Re-derives from the stored D(t) (no rebuild).', ...
-            'ValueChangedFcn',@(s,e) onConfineD());
         lblQCm = uilabel(r2,'Text','Build, then click a track in the tracks panel to inspect it (it plays here).','FontColor',[0.2 0.4 0.5]);
         % row 3 — main: [ left pooled | middle clickable tracks | right: embedded player + small MSD ]
         mn = uigridlayout(g,[1 3],'ColumnWidth',{'0.78x','1.15x','1.05x'},'Padding',[0 0 0 0],'ColumnSpacing',8);
@@ -2001,71 +1969,7 @@ end
         end
     end
 
-    function reDeriveConfinement()
-        % Recompute confined/stateChange from the STORED Dt (cheap — no re-rolling) for a new threshold,
-        % re-save TrackStruct, and refresh the QC. Called when the confinement spinner changes.
-        if isempty(buildTracks) || ~isfield(buildTracks,'Dt'), return; end
-        for k = 1:numel(buildTracks)
-            Dt = buildTracks(k).Dt; if isempty(Dt), continue; end
-            % Same rules the builder uses — relative-to-own-median by default, with a minimum run
-            % length. This used to hardcode `Dt <= diffConfineD` with no persistence, so re-deriving
-            % silently reverted a build to the old absolute criterion.
-            % ONE implementation, shared with the builder. These were separate copies and had
-            % already drifted — the app kept a sliding baseline after the driver moved to a frozen
-            % one, so re-deriving a build produced different flags from building it.
-            dtk = trackDt(k);
-            [conf, sc] = spt_confine_flags(Dt, struct('confMode',diffConfMode, ...
-                'confFrac',diffConfFrac,'baseWin',diffBaseWin,'confineD',diffConfineD, ...
-                'minRun',diffMinRun,'minSeg',diffMinSeg,'penalty',diffPenalty, ...
-                'dt',dtk,'sigmaUm',PRECNM/1000), buildTracks(k).matrix);
-            buildTracks(k).confined = conf; buildTracks(k).stateChange = sc;
-            if isfield(buildTracks,'diffOpts') && isstruct(buildTracks(k).diffOpts)
-                buildTracks(k).diffOpts.confineD = diffConfineD;
-                buildTracks(k).diffOpts.confMode = diffConfMode;
-                buildTracks(k).diffOpts.confFrac = diffConfFrac;
-                buildTracks(k).diffOpts.baseWin  = diffBaseWin;
-                buildTracks(k).diffOpts.minSeg   = diffMinSeg;
-                buildTracks(k).diffOpts.penalty  = diffPenalty;
-                buildTracks(k).diffOpts.minRun   = diffMinRun;
-            end
-        end
-        % Re-save to the ACTIVE build. Writing TrackStruct.mat unconditionally discarded the edit
-        % for a named build and left a divergent shadow file behind.
-        p = activeTsPath();
-        try, if ~isempty(p), Tracks = buildTracks; save(p,'Tracks','-v7.3'); end, catch, end %#ok<NASGU>
-        if ~isempty(ddQCcell) && isgraphics(ddQCcell), drawQC(ddQCcell.Value); end
-    end
 
-    function onConfineD()
-        if ~isempty(eConfineD) && isgraphics(eConfineD), diffConfineD = eConfineD.Value; end
-        if ~isempty(ddConfMode) && isgraphics(ddConfMode), diffConfMode = ddConfMode.Value; end
-        if ~isempty(eConfFrac)  && isgraphics(eConfFrac),  diffConfFrac = eConfFrac.Value;  end
-        if ~isempty(eBaseWin)   && isgraphics(eBaseWin),   diffBaseWin  = round(eBaseWin.Value); end
-        if ~isempty(eMinSeg)    && isgraphics(eMinSeg),    diffMinSeg   = round(eMinSeg.Value); end
-        if ~isempty(ePenalty)   && isgraphics(ePenalty),   diffPenalty  = ePenalty.Value; end
-        if ~isempty(eMinRun)    && isgraphics(eMinRun),    diffMinRun   = round(eMinRun.Value); end
-        isAbs = strcmpi(diffConfMode,'absolute');
-        if ~isempty(eConfineD) && isgraphics(eConfineD)
-            if isAbs, eConfineD.Enable = 'on'; else, eConfineD.Enable = 'off'; end
-        end
-        if ~isempty(eConfFrac) && isgraphics(eConfFrac)
-            if isAbs, eConfFrac.Enable = 'off'; else, eConfFrac.Enable = 'on'; end
-        end
-        isSeg = strcmpi(diffConfMode,'segment');
-        if ~isempty(eBaseWin) && isgraphics(eBaseWin)
-            if strcmpi(diffConfMode,'drop'), eBaseWin.Enable = 'on'; else, eBaseWin.Enable = 'off'; end
-        end
-        for h = [eMinSeg ePenalty]
-            if ~isempty(h) && isgraphics(h)
-                if isSeg, h.Enable = 'on'; else, h.Enable = 'off'; end
-            end
-        end
-        if ~isempty(eMinRun) && isgraphics(eMinRun)
-            % segment mode enforces its own minimum through minSeg; minRun would double-filter
-            if isSeg, eMinRun.Enable = 'off'; else, eMinRun.Enable = 'on'; end
-        end
-        reDeriveConfinement();
-    end
 
 
     function onBuild()
