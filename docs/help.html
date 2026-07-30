@@ -77,6 +77,7 @@
   <a href="#t2curate">2 · Import &amp; Curate — every control</a>
   <a href="#t2cells">&nbsp;&nbsp;Cells load themselves — there is no file picker</a>
   <a href="#t2trackparams">&nbsp;&nbsp;Tracking parameters — the fields that define the crowding metric</a>
+  <a href="#t2crowding">&nbsp;&nbsp;CROWDING — how local density is measured</a>
   <a href="#t2filterctl">&nbsp;&nbsp;The filter controls, control by control</a>
   <a href="#t2review">&nbsp;&nbsp;REVIEW — the point of the tab</a>
   <a href="#t2detail">&nbsp;&nbsp;The four "Selected track" panels</a>
@@ -717,6 +718,24 @@ n_spots,n_tracks,er_aware,run_time</code></pre>
 </table>
 <p>The auto-fill reads <code>tracks/&lt;base&gt;_settings.txt</code> — the provenance file Tool 1 writes for every run — with a <code>key = value</code> regex, and clamps each value into the spinner's limits. It happens on <em>every</em> cell load, so cells tracked with different parameters each get their own. If a cell has no settings file the fields simply keep their current values, which is the one case where you must set them by hand.</p>
 <div class="good"><b>Why the linking radius, and not some tidy round number?</b> The local-density count asks "how many other spots were inside the window the linker actually searched?". Measured at any other radius it answers a question about the data that has nothing to do with the decision the linker faced. Because Tool 1 wrote its real <code>link_um</code> into the settings file and this field reads it, the crowding metric is by default calibrated to the run that produced the tracks. Changing <b>Linking max dist</b> immediately re-runs <code>compute_metrics_from_spots</code>, rescales the density slider's upper limit to the new maximum + 1, redraws both histograms and refreshes the keep/reject preview — no reload.</div>
+
+<h3 id="t2crowding">CROWDING — how local density is measured <span class="tag you">new</span></h3>
+<p>The crowding metric answers "is this track sitting in a busy part of the field?". It is worth understanding before you touch the threshold, because until recently it could not answer that question at all.</p>
+
+<div class="warn"><b>What was wrong.</b> Density was counted within the <em>linking</em> radius, over <em>tracked</em> spots only. Both are wrong for this purpose, and measured on the reference cell the combination left the metric with no usable range: <b>73 % of tracks scored 0</b>, the largest value anywhere in the cell was <b>2</b>, and only 3 of 838 tracks could ever be rejected. Two thirds of the detections you can see on screen — 220,401 in the cell against 73,994 in surviving tracks — were invisible to it.</div>
+
+<table>
+  <tr><th>Control</th><th>What it does</th></tr>
+  <tr><td><b>Density radius (µm)</b><br>default <b>2.0</b></td><td>The neighbourhood counted as "local", <b>independent of the linking distance</b>. The two were tied together, which conflated an algorithm limit (how far the tracker may link, 0.8 µm here) with a biology question (how large a neighbourhood counts as crowded). A crowd 1.5&nbsp;µm away is invisible at 0.8&nbsp;µm and obvious at 3&nbsp;µm — and a crowd at that distance is exactly what you see when a track looks clean but its field is busy.</td></tr>
+  <tr><td><b>Per track use</b><br>default <b>mean</b></td><td><b>mean</b> is time-averaged over the track's own lifetime — "is this track in a crowded <em>region</em>", the one to use to avoid crowded regions. <b>max</b> is the worst single frame — "did it ever risk a mislinkage". Prefer mean: max saturates, and on the reference cell its median is 2.0 for <em>every</em> track-length class, so it barely separates anything.</td></tr>
+  <tr><td><b>Count untracked detections too</b><br>default <b>on</b></td><td>Count the whole localization cloud rather than only spots in surviving tracks. An untracked blink still crowds the field and still confuses the linker. Leaving this off is what made the old metric blind to most of the field.</td></tr>
+</table>
+
+<p>The green line underneath re-reads as you change any of them — <code>time-avg within 2.00 µm: median 0.58 · p90 1.58 · max 3.64 · 3% at zero</code> — and turns orange when more than half the tracks score zero, which means the metric cannot discriminate at those settings and the threshold below is decorative.</p>
+
+<p>On the reference cell the new defaults give a real distribution: <b>3 %</b> of tracks at zero instead of 73 %, median 0.58, p90 1.58, max 3.64. As a guide to the <b>Max density</b> slider on that cell — set it to 1.58 to drop the 83 most crowded tracks (keeping 90 %), or 1.04 to drop 209 (keeping 75 %).</p>
+
+<div class="note">Changing the radius or the statistic re-measures every track, so the <b>Max density</b> slider rescales and your old threshold value no longer means the same thing. Read the green line, not the number you used last time. The batch measures each cell against <em>its own</em> cloud at the same settings, so a batch and a hand-curated cell stay comparable.</div>
 
 <h3 id="t2filterctl">The filter controls, control by control</h3>
 <p>What the two metrics <em>mean</em> is covered in full in <a href="#curatefilter">the curate filter</a> — read that first. This is the mechanics of the six controls that set them.</p>

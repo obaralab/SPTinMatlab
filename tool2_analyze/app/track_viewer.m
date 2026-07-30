@@ -46,6 +46,7 @@ S.linkIdx       = [];    % which link of the selected track the cursor sits on
 S.playRange     = [];    % [f0 f1] — when set, playback loops this window instead of the whole track
 S.linkLoop      = false; % true while looping across one link rather than the whole track
 S.linkPad       = 2;     % frames shown either side of a link when playing across it
+S.cloud         = [];    % [FRAME X_um Y_um] for EVERY detection, tracked or not — the crowding source
 
 % Playback timers carry this tag so an instance can find and kill the ones a PREVIOUS instance
 % leaked. A leaked timer is not merely untidy: its TimerFcn closes over that instance's workspace,
@@ -155,9 +156,9 @@ c.file_lbl.Layout.Row = row; c.file_lbl.Layout.Column = [1 2];
 row=row+1; sec_lbl(lg,row,'TRACKING PARAMETERS (from Tool 1 run)');
 row=row+1; lbl2(lg,row,'Linking max dist (µm):');
 c.link_dist = uispinner(lg,'Limits',[0.05 20],'Value',1.0,'Step',0.1,'FontSize',9, ...
-    'Tooltip',['Frame-to-frame LAP search radius you used. The local-density crowding ' ...
-    'metric is measured at THIS radius (so a track counts as crowded when other spots fall ' ...
-    'inside the window the linker actually searched). Was hardcoded 1.0.'], ...
+    'Tooltip',['Frame-to-frame LAP search radius you used. Recorded for provenance, and it sets ' ...
+    'the floor under the mislinkage flag. The crowding metric has its OWN radius below — the two ' ...
+    'answer different questions and were wrongly tied together.'], ...
     'ValueChangedFcn',@(~,~) on_param_change());
 c.link_dist.Layout.Row=row; c.link_dist.Layout.Column=2;
 row=row+1; lbl2(lg,row,'Gap-close max dist (µm):');
@@ -169,6 +170,34 @@ row=row+1; lbl2(lg,row,'Max frame gap:');
 c.max_frame_gap = uispinner(lg,'Limits',[0 10],'Value',1,'Step',1,'RoundFractionalValues','on','FontSize',9, ...
     'Tooltip','Max frames a gap may span in your tracking (recorded with the filtered output for provenance).');
 c.max_frame_gap.Layout.Row=row; c.max_frame_gap.Layout.Column=2;
+
+% -- Crowding metric --  how "local density" is measured, before you threshold it
+row=row+1; sec_lbl(lg,row,'CROWDING — how density is measured');
+row=row+1; lbl2(lg,row,'Density radius (µm):');
+c.dens_rad = uispinner(lg,'Limits',[0.1 20],'Value',2.0,'Step',0.25,'FontSize',9, ...
+    'Tooltip',['Neighbourhood radius for the crowding count — INDEPENDENT of the linking distance. ' ...
+    'At the linking radius the metric had almost no dynamic range (on the reference cell 73% of ' ...
+    'tracks scored 0 and the maximum was 2). 2 µm spreads the same cell over 0-8.'], ...
+    'ValueChangedFcn',@(~,~) on_param_change());
+c.dens_rad.Layout.Row=row; c.dens_rad.Layout.Column=2;
+row=row+1; lbl2(lg,row,'Per track use:');
+c.dens_stat = uidropdown(lg,'Items',{'mean (time-averaged)','max (worst frame)'}, ...
+    'ItemsData',{'mean','max'},'Value','mean','FontSize',9, ...
+    'Tooltip',['mean = is this track sitting in a crowded REGION (what you want to avoid); ' ...
+    'max = did it ever touch one crowded frame (mislinkage risk). max saturates — on the reference ' ...
+    'cell its median is 2 for every track-length class — so mean discriminates far better.'], ...
+    'ValueChangedFcn',@(~,~) on_param_change());
+c.dens_stat.Layout.Row=row; c.dens_stat.Layout.Column=2;
+row=row+1;
+c.dens_cloud = uicheckbox(lg,'Text','Count untracked detections too','Value',true,'FontSize',9, ...
+    'Tooltip',['Count the WHOLE localization cloud, not just spots in surviving tracks. The ' ...
+    'reference cell holds 220,401 detections but only 73,994 in tracks — untick this and two ' ...
+    'thirds of what you can see in the field of view stops counting as crowding.'], ...
+    'ValueChangedFcn',@(~,~) on_param_change());
+c.dens_cloud.Layout.Row=row; c.dens_cloud.Layout.Column=[1 2];
+row=row+1;
+c.dens_lbl = uilabel(lg,'Text','—','FontSize',8.5,'FontColor',[0.25 0.45 0.25],'WordWrap','on');
+c.dens_lbl.Layout.Row=row; c.dens_lbl.Layout.Column=[1 2];
 
 % -- Filter section --  (crowding = local density, mis-links = the jump gate; NND removed)
 row=row+1; sec_lbl(lg,row,'FILTER — sliders (the actual thresholds)');
@@ -609,6 +638,7 @@ end
         % before export, and do_cut is what a click on the strip ends up calling — a headless test has
         % no way to click an axes, so it invokes the same entry point the UI does.
         setappdata(fig,'tv_spots', S.spots_t);
+        setappdata(fig,'tv_metrics', S.track_metrics);
         setappdata(fig,'tv_cuts',  S.cuts);
         setappdata(fig,'tv_docut', @do_cut);
         setappdata(fig,'tv_links', @link_info);
@@ -776,6 +806,11 @@ end
         spots_j.FRAME   = double(spots_j.FRAME);
         spots_j.X_um    = double(spots_j.X_um);
         spots_j.Y_um    = double(spots_j.Y_um);
+        % The WHOLE localization cloud, kept for the crowding metric. Only a third of these end up in
+        % surviving tracks, but an untracked blink still crowds the field and still confuses the
+        % linker — counting only tracked spots is what made the density filter blind.
+        ok_ = isfinite(spots_j.FRAME) & isfinite(spots_j.X_um) & isfinite(spots_j.Y_um);
+        S.cloud = [spots_j.FRAME(ok_), spots_j.X_um(ok_), spots_j.Y_um(ok_)];
 
         % XML
         xdoc   = xmlread(xml_path);
@@ -866,26 +901,87 @@ end
 
     % ---- Metric computation (shared: load + batch + param change) -----------
     function R = metric_R()
-        % crowding radius = the linking distance from your TrackMate run (was hardcoded 1.0)
+        % Crowding radius, INDEPENDENT of the linking distance. It used to be the linking distance,
+        % which conflated two different questions: how far the tracker may link (an algorithm limit,
+        % 0.8 µm here) versus how large a neighbourhood counts as "crowded" (a biology/optics
+        % question). At the linking radius the metric had no dynamic range — see
+        % compute_metrics_from_spots.
         R = DENSITY_RADIUS;
-        if isfield(c,'link_dist') && isgraphics(c.link_dist), R = c.link_dist.Value; end
+        if isfield(c,'dens_rad') && isgraphics(c.dens_rad), R = c.dens_rad.Value; end
     end
 
-    function tm = compute_metrics_from_spots(spots_t)
-        % Per-spot local density (# other spots within the linking radius R, same frame).
-        % Per track: density = MAX over its spots (worst-case crowding) — so a track that dips
-        % into ONE crowded frame is flagged, not averaged away. Plus displacement variance,
-        % the max single-step jump, and confinement.
-        R = metric_R();
-        frames = unique(spots_t.FRAME);
-        dens_v = zeros(height(spots_t),1);
-        for fi=1:numel(frames)
-            idx = find(spots_t.FRAME==frames(fi));
-            if numel(idx)<=1, continue, end
-            xy = [spots_t.X_um(idx), spots_t.Y_um(idx)];
-            D  = pdist2(xy,xy); D(eye(size(D))==1)=Inf;
-            dens_v(idx) = sum(D<=R,2);          % # other spots within the linking radius, same frame
+    function st = density_stat()
+        st = 'mean';
+        if isfield(c,'dens_stat') && isgraphics(c.dens_stat), st = c.dens_stat.Value; end
+    end
+
+    function tf = density_use_cloud()
+        tf = true;
+        if isfield(c,'dens_cloud') && isgraphics(c.dens_cloud), tf = c.dens_cloud.Value; end
+    end
+
+    function [CF, CX, CY] = density_source(spots_t, cloud)
+        % Which detections count as neighbours. The whole cloud by default: an untracked blink still
+        % crowds the field and still confuses the linker, and it is what you actually see on screen.
+        % The cloud is passed in rather than read from S, because the batch measures cells that are
+        % NOT the one currently open — reading S.cloud there would score every cell in the run
+        % against the open cell's field.
+        if density_use_cloud() && ~isempty(cloud)
+            CF = cloud(:,1); CX = cloud(:,2); CY = cloud(:,3);
+        else
+            CF = spots_t.FRAME; CX = spots_t.X_um; CY = spots_t.Y_um;
         end
+    end
+
+    function d = local_density(tf, tx, ty, cf, cx, cy, R)
+        % Neighbours within R, in the same frame, for every spot in (tf,tx,ty), counted against the
+        % cloud (cf,cx,cy). Both sides are bucketed by frame once and walked together — the previous
+        % version ran find(FRAME==f) inside a loop over frames, which is O(frames x spots) and on this
+        % cell alone was 5,981 x 73,994 element comparisons before any distance was computed.
+        d = zeros(numel(tf),1);
+        if isempty(tf) || isempty(cf), return; end
+        [cfs, oc] = sort(cf(:)); cxs = cx(oc); cys = cy(oc);
+        cs = [1; find(diff(cfs))+1]; ce = [cs(2:end)-1; numel(cfs)]; cfr = cfs(cs);
+        [tfs, ot] = sort(tf(:)); txs = tx(ot); tys = ty(ot);
+        ts = [1; find(diff(tfs))+1]; te = [ts(2:end)-1; numel(tfs)]; tfr = tfs(ts);
+        [hit, loc] = ismember(tfr, cfr);
+        ds = zeros(numel(tfs),1);
+        for g = 1:numel(tfr)
+            if ~hit(g), continue; end
+            ti = ts(g):te(g); ci = cs(loc(g)):ce(loc(g));
+            if numel(ci) < 2, continue; end
+            D = pdist2([txs(ti) tys(ti)], [cxs(ci) cys(ci)]);
+            % every tracked spot is itself in the cloud, so one of those distances is its own zero
+            ds(ti) = max(sum(D <= R, 2) - 1, 0);
+        end
+        d(ot) = ds;
+    end
+
+    function tm = compute_metrics_from_spots(spots_t, cloud)
+        if nargin < 2, cloud = S.cloud; end        % interactive path: the open cell's own cloud
+        % Per-spot local density: how many OTHER detections share this spot's frame within radius R.
+        %
+        % Two things here used to make this metric nearly useless, both measured on the WithER cell:
+        %   · R was the LINKING radius (0.8 µm). At that radius 73% of tracks had a max density of 0
+        %     and the largest value in the whole cell was 2 — the filter could only ever say 0, 1 or 2,
+        %     which is why one slider position kept 838 tracks and the next kept 835. R is now its own
+        %     spinner, defaulting to 2 µm, where the same cell spreads over 0-8.
+        %   · Only TRACKED spots were counted. The cell holds 220,401 detections but only 73,994 in
+        %     surviving tracks, so two thirds of what you can see in the field of view — every blink,
+        %     every spot too short-lived to track — was invisible to the crowding measure. It now
+        %     counts the whole localization cloud by default.
+        %
+        % Per track the statistic is selectable, because MAX and MEAN answer different questions:
+        %   max  — the worst single frame. "Did this track ever risk a mislinkage?" Saturates: on the
+        %          reference cell the median max is 2 for every track-length class, so it separates
+        %          poorly.
+        %   mean — time-averaged over the track's own lifetime. "Is this track sitting in a crowded
+        %          REGION?" This is the one that discriminates (median 0.62 / 0.54 / 0.36 across
+        %          short / mid / long tracks) and the one to use to avoid crowded regions.
+        % Plus displacement variance, the max single-step jump, and confinement.
+        R = metric_R();
+        [CF, CX, CY] = density_source(spots_t, cloud);
+        dens_v = local_density(spots_t.FRAME, spots_t.X_um, spots_t.Y_um, CF, CX, CY, R);
         spots_t.LOCAL_DENSITY = dens_v;
 
         track_ids = unique(spots_t.TRACK_ID); n_t = numel(track_ids);
@@ -898,7 +994,11 @@ end
             n_spots(ti)=height(r); x_mean(ti)=mean(r.X_um); y_mean(ti)=mean(r.Y_um);
             frame_start(ti)=min(r.FRAME); frame_end(ti)=max(r.FRAME);
             mean_quality(ti)=mean(r.QUALITY,'omitnan');
-            mean_local_density(ti) = max(r.LOCAL_DENSITY,[],'omitnan'); % worst-case: densest frame
+            if strcmp(density_stat(),'max')
+                mean_local_density(ti) = max(r.LOCAL_DENSITY,[],'omitnan');   % worst single frame
+            else
+                mean_local_density(ti) = mean(r.LOCAL_DENSITY,'omitnan');     % time-averaged crowding
+            end
             if height(r)>=2
                 dx=diff(r.X_um); dy=diff(r.Y_um); d=sqrt(dx.^2+dy.^2);
                 disp_variance(ti)=var(d); max_step_um(ti)=max(d);
@@ -911,13 +1011,37 @@ end
     end
 
     function on_param_change()
-        % a tracking-parameter field changed -> re-measure crowding at the new linking radius
+        % a crowding or tracking parameter changed -> re-measure and rescale the threshold to match
         if ~S.loaded || isempty(S.spots_t), return; end
         S.track_metrics = compute_metrics_from_spots(S.spots_t);
         tm = S.track_metrics;
-        dn = max(tm.mean_local_density);
-        if dn>0, c.max_dn.Limits=[0 dn+1]; c.max_dn.Value=min(c.max_dn.Value,dn+1); end
+        d  = tm.mean_local_density;
+        dn = max(d);
+        if dn>0
+            % 'mean' produces fractional densities, so the old integer-ish +1 headroom is not enough
+            % resolution; give the slider a little padding and keep the current value inside it.
+            hi = dn*1.05 + 0.01;
+            c.max_dn.Limits=[0 hi]; c.max_dn.Value=min(c.max_dn.Value,hi);
+        end
+        report_density_spread(d);
         update_histograms(); preview_filter(); refresh_thresh_labels();
+        publish_state();     % the metrics table just changed; observers must see the new values
+    end
+
+    function report_density_spread(d)
+        % Say plainly whether the metric can discriminate at these settings. A metric where most
+        % tracks score zero cannot separate anything, and that was the state this filter shipped in.
+        if ~isfield(c,'dens_lbl') || ~isgraphics(c.dens_lbl), return; end
+        d = d(isfinite(d));
+        if isempty(d), c.dens_lbl.Text = '—'; return; end
+        z = 100*mean(d<=0); q = quantile(d,[0.5 0.9]);
+        c.dens_lbl.Text = sprintf('%s within %.2f µm: median %.2f · p90 %.2f · max %.2f · %.0f%% at zero', ...
+            tern_(strcmp(density_stat(),'max'),'worst frame','time-avg'), metric_R(), q(1), q(2), max(d), z);
+        if z > 50
+            c.dens_lbl.FontColor = [0.75 0.35 0.05];   % cannot discriminate: most tracks score nothing
+        else
+            c.dens_lbl.FontColor = [0.25 0.45 0.25];
+        end
     end
 
     % ---- Histogram plots ------------------------------------
@@ -2319,9 +2443,12 @@ end
                     end
                 end
 
-                % Crowding + motion metrics — SAME function as the interactive filter, so the
-                % batch measures density(max) at your linking radius identically.
-                tm_b        = compute_metrics_from_spots(spots_t_b);
+                % Crowding + motion metrics — SAME function as the interactive filter, at the same
+                % radius and statistic. The cloud is THIS cell's, built from the CSV just read: the
+                % crowding measure counts every detection in the field, not only the tracked ones.
+                okb_ = isfinite(spots_j.FRAME) & isfinite(spots_j.X_um) & isfinite(spots_j.Y_um);
+                cloud_b = [spots_j.FRAME(okb_), spots_j.X_um(okb_), spots_j.Y_um(okb_)];
+                tm_b        = compute_metrics_from_spots(spots_t_b, cloud_b);
                 track_ids_b = tm_b.TRACK_ID;
                 n_tb        = height(tm_b);
                 mean_dn_b   = tm_b.mean_local_density; % worst-case (max) density per track
