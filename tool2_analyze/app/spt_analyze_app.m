@@ -1810,8 +1810,9 @@ end
     end
 
     function [vals, grp] = compareValues(metric, mode)
-        % One value per site (cmpCSW element) + its group label. Dwell/k_out from cmpDD.perSite (matched
-        % by siteUID + source folder, so experiment folders with colliding UIDs don't cross-match).
+        % One value per site (cmpCSW element) + its group label. Dwell/k_out from cmpDD.perSite, matched
+        % by siteUID and then by source folder. That NARROWS cross-folder mixing, it does not prevent it —
+        % see findPerSite for the two cases that fall through to cand(1).
         n = numel(cmpCSW); vals = nan(1,n); grp = cell(1,n);
         havePS = ~isempty(cmpDD) && isfield(cmpDD,'perSite') && ~isempty(cmpDD.perSite);
         for i = 1:n
@@ -1838,7 +1839,10 @@ end
     end
 
     function j = findPerSite(ps, e)
-        % match a site to its per-site dwell record by siteUID, disambiguated by source folder
+        % Match a site to its per-site dwell record by siteUID, then by source folder. siteUID restarts
+        % at 1 in every folder's mapper run, so collisions across folders are normal. TWO fall-throughs
+        % return a record from a DIFFERENT folder: a single candidate is taken without checking the
+        % folder at all, and if no candidate's folder matches, the first is used anyway.
         j = 0; ids = [ps.siteUID]; cand = find(ids==e.siteUID);
         if isempty(cand), return; end
         if numel(cand)==1 || ~isfield(e,'srcFolder') || ~isfield(ps,'srcFolder'), j = cand(1); return; end

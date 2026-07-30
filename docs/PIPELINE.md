@@ -28,9 +28,10 @@ tracks (embeds `track_viewer`) and runs `build_trackstruct` (the slow MSD step) 
 `analysis/active_trackstruct.txt`. **Tool 3** (`spt_analyze_app`) starts from that build — which it resolves
 through `cs_active_trackstruct` (§7.2), never by a hardcoded filename: density → contact-site picker → refine →
 mapper → dwell → compare, reusing the advisor's ContactSites suite (`ContactSites_robust`, validated against the pristine
-Nature-2024 `ContactSites_original`). A shared **Experiment** tab (`spt_experiment_panel`) is present in ALL three
-tools — the multi-folder / per-condition manifest (day, condition, exclude, derived tracked/curated/built/mapped/
-dwelled status) that ties the dataset together and drives Tool 3's cross-condition Compare.
+Nature-2024 `ContactSites_original`). A shared **Experiment** tab (`spt_experiment_panel`) is **tab 1 in all three
+tools** — the multi-folder / per-condition manifest (day, condition, exclude, notes, derived tracked/curated/built/
+picked/mapped/dwelled status and the per-stage spot/track counts behind it) that ties the dataset together and
+drives Tool 3's cross-condition Compare. It lives with the project as `<project>/experiment_manifest.mat`.
 
 ---
 
@@ -43,7 +44,7 @@ SPTinMatlab/
 ├── README.md                          quick overview
 ├── docs/PIPELINE.md                   ← this file
 ├── tool1_track/                       TOOL 1 · Track (spt_app + engine)
-│   ├── spt_app.m                      the app: Match · Detect · Track & filter · Experiment
+│   ├── spt_app.m                      the app: Experiment · Match files · Detect · Track & filter
 │   ├── spt_match.m                    3-folder matcher (SPT ↔ ER-seg ↔ mito-seg)
 │   ├── spt_dog.m spt_detect.m spt_pool_quality.m spt_count_per_frame.m   detection
 │   ├── spt_track.m                    LAP tracker (euclid/penalty/geodesic modes, §6.2)
@@ -51,14 +52,17 @@ SPTinMatlab/
 │   ├── spt_er_support.m spt_on_er.m   ER support (mask ⊕ 1 px) + on-ER test — the strict rule (§6.2)
 │   ├── spt_geo_strict_smoke.m         regression: no off-ER detection can reach a track (27 asserts)
 │   ├── spt_link_compare.m             compare euclid vs geodesic linking; find where geodesic wins
+│   ├── spt_compare_app.m spt_method_compare.m   3-way method-comparison window + engine (§6.2)
 │   ├── spt_measure.m spt_load_seg.m spt_process_cell.m                   per-frame measure + orchestrate
 │   ├── spt_write_outputs.m spt_curate_read.m spt_curate_write.m          outputs + filter
-│   ├── spt_track_movie.m spt_pixel_size.m
+│   ├── spt_write_settings.m spt_append_curation_settings.m spt_append_detection_summary.m  provenance
+│   ├── spt_track_movie.m spt_pixel_size.m spt_seg_fg_label.m
 └── tool2_analyze/                     TOOLS 2 + 3 (ContactSites; one impl, mode-gated)
-    ├── app/spt_analyze_app.m          the tab app; MODE selects the tab set:
-    │                                    'curate'  → Tool 2: Import&Curate · Build&QC · Experiment
-    │                                    'analyze' → Tool 3: Contact sites · Refine · Sites · Dwell · Experiment · Compare
-    │                                    'full'    → every tab in one window
+    ├── app/spt_analyze_app.m          the tab app; MODE selects the tab set (Experiment always tab 1,
+    │                                  the rest numbered 2…N per launcher):
+    │                                    'curate'  → Tool 2: Experiment · Import&Curate · Build&QC
+    │                                    'analyze' → Tool 3: Experiment · Contact sites · Refine · Sites · Dwell · Compare
+    │                                    'full'    → Experiment then both sets in one window
     ├── app/spt_curate_app.m           Tool 2 launcher (thin wrapper: spt_analyze_app('curate'))
     ├── app/spt_experiment_panel.m     SHARED Experiment tab embedded by all three tools
     ├── app/track_viewer.m             embedded Import&Curate tool
@@ -82,13 +86,19 @@ SPTinMatlab/
 │   ├── <base>_spots_filtered.csv   all detections, TRACK_ID for kept only
 │   ├── <base>_tracks_curated.xml   ← Tool 2 curation (density/variance) writes this
 │   ├── <base>_spots_curated.csv    all detections, TRACK_ID for twice-curated kept
-│   ├── <base>_settings.txt         provenance: detection + tracking params used
+│   ├── <base>_track_metrics.csv    one row per track + a KEEP flag (Tool 2 export/batch)
+│   ├── <base>_filter_log.csv       per-track kept/removed + the thresholds applied
+│   ├── <base>_settings.txt         provenance: detection + tracking + curation params used
+│   ├── detection_summary.csv       project-level: one row per cell (§5)
+│   ├── batch_filter_report.html    Tool 2 batch-filter summary
 │   └── cs_calib.mat                per-dataset calibration (written by Tool 2)
+├── experiment_manifest.mat     the shared Experiment tab's manifest (day/condition/exclude/notes)
 └── analysis/                   ← Tool 2 writes the build here, Tool 3 reads it
     ├── <name>.mat              a NAMED build (Tracks struct); TrackStruct.mat by default, several may coexist
     ├── active_trackstruct.txt  one line: the basename of the build IN FORCE (§7.2)
     ├── cs_calib.mat            copied in from tracks/ at build time
-    └── Densities/ csIDs/ Density_<cell>_CSwindows.mat CS_footprints.mat CSW_final.mat cs_window_dwell.* …
+    └── Densities/ csIDs/ mips/ Density_<cell>_CSwindows.mat CS_footprints.mat CS_trackedits.mat
+        CSW_final.mat cs_window_metrics.csv cs_window_dwell.* cs_window_track_labels.csv step/ …
 ```
 
 `<base>` = the spt file name, e.g. `250408_WT_012_spt1`. Channel-name mismatches (the seg files carry a
@@ -117,7 +127,8 @@ of picker sites still default to 30 nm.)
 
 ## 4. Tool 1 — Track & filter
 
-Input: the 3 folders (`spt/`, `er_seg/`, `mito_seg/`; ER/mito optional). Tabs: **Match · Detect · Track & filter · Experiment**.
+Input: the 3 folders (`spt/`, `er_seg/`, `mito_seg/`; ER/mito optional). Tabs: **1 · Experiment · 2 · Match files ·
+3 · Detect · 4 · Track & filter**.
 
 ### 4.1 Match (`spt_match.m`)
 Pairs each SPT stack with its ER/mito seg by a shared key: strip the channel suffix (`_spt\d*`,
@@ -144,9 +155,10 @@ gap:
   `ELONGATION`,`ORIENT_DEG` columns in `_spots.csv`/`_spots_filtered.csv`, and shown in the Detect preview by
   colouring spot rings green (round) / red (elong ≥ 1.5, likely motion-blur).
 - **Localization precision** (`drivers/spt_fit_msd.m`, Tool 2): fit MSD(τ)=4Dτ+b; the τ→0 intercept b=4·σ_loc²
-  gives a fit-free per-track precision **σ_loc = √b/2**. Build & QC shows the ensemble median (tracks ≥5 lags)
-  as "loc precision ≈ N nm" on the D-distribution and per-track on the clicked MSD plot. NB the intercept also
-  absorbs confined/blur dynamic error within the first lag, so it is an *upper bound* on the static precision.
+  gives a per-track precision **σ_loc = √b/2** (`sigLocUm`). Build & QC reports it for the **clicked** track only,
+  as a trailing `· σ_loc≈N nm` on the QC readout line — deliberately a small caveat rather than a headline,
+  because it is fit-window dependent, and because the intercept also absorbs confined/blur dynamic error within
+  the first lag, so it is an *upper bound* on the static precision. There is no pooled/ensemble annotation.
 
 The **track player** (`spt_track_movie.m`, used in Track & filter) shows the true movie length: its title
 reads "N tracks · track span f0–f1 of NFR frames" and the scrubber spans the whole movie, so the animated
@@ -162,7 +174,7 @@ For every detection, the **signed distance** (µm) to the nearest mito and ER pi
 (`bwdist(mask) − bwdist(~mask)`; − inside, + outside). Uses the per-frame seg masks. Written as
 `MITO_DIST_UM` / `ER_DIST_UM`. Blank when that segmentation is absent.
 
-### 4.5 Curate (Track & filter tab; `spt_curate_read/write.m`)
+### 4.5 Filter (Track & filter tab; `spt_curate_read/write.m`)
 Filter **tracks** by min length + min displacement. **Localizations are never filtered** — every detection
 is preserved; only `TRACK_ID` is renumbered (kept 0…K-1) or blanked. Writes the `_filtered` pair.
 
@@ -326,7 +338,7 @@ engine's single-link off-ER heuristic), and names what differs. Selecting one op
 frame where the methods diverge** — opening on the disagreement frame itself usually shows three identical
 panels. A **Backdrop** dropdown draws on the raw frame with the ER outline (default), a light ER tint, the
 raw frame alone, or the ER mask, with a contrast slider; both redraw from preloaded frames (no re-tracking).
-A **Min len** spinner (defaults to the Curate min-length) re-counts the bars from the stored tracks at any
+A **Min len** spinner (defaults to the Track-&-filter min length) re-counts the bars from the stored tracks at any
 threshold, since the raw counts are unfiltered and the method with more tracks *flips* with the threshold.
 The summary panel reports **how many detections ER-geodesic excludes** (ER-penalty excludes none — it links
 every detection Euclidean does and differs only in *how* it groups them).
@@ -351,7 +363,7 @@ older figure quoting geodesic ≈ 612 tracks predates it):
 
 The strict pre-filter excluded **653 of 11 535 detections (5.7%)** as off their own frame's ER; **0 frames
 had no ER mask** (the ER stack has 5981 pages, same as the movie). The last column is what survives the
-Curate export default `Min track length = 50`. (The older 2-way `spt_link_compare.m` engine — Euclidean vs
+Track-&-filter export default `Min track length = 50`. (The older 2-way `spt_link_compare.m` engine — Euclidean vs
 geodesic only — is retained.) Regression: `spt_compare_smoke.m`, `spt_geo_strict_smoke.m`. Cost functions
 shared with tracking (`spt_link_cost*`, `spt_er_support`/`spt_on_er`), and the comparison passes the
 **target** frame's ER mask to `spt_link_cost_geo` so it matches what tracking does.
@@ -363,7 +375,7 @@ per track = the worst-case (densest) frame. High local density + high step-size 
 
 ---
 
-## 7. Tool 2 — Analyze (in progress)
+## 7. Tools 2 + 3 — Curate & Build · Analyze
 
 New tab app `spt_analyze_app.m`; reuses the drivers + `ContactSites_robust` suite. Build order:
 
@@ -374,6 +386,13 @@ New tab app `spt_analyze_app.m`; reuses the drivers + `ContactSites_robust` suit
    toggle + contrast), overlaying only the selected + nearby spots as rings. Manual **keep/reject** (Toggle)
    records `manual_keep`/`manual_reject` that **override the auto-filter and survive a re-apply**
    (`kept = (filter ∖ manual_reject) ∪ manual_keep`); the preview count shows the override-adjusted total.
+   The **batch filter** applies the same absolute thresholds — plus each cell's own saved manual keep/reject —
+   to every cell, and writes the same set the interactive Export does: `_tracks_<exportSuffix>.xml`
+   (**`_tracks_curated.xml`** in Tool 2, since `exportSuffix='curated'`), `_spots_curated.csv`,
+   `_track_metrics.csv`, `_filter_log.csv`, plus one `batch_filter_report.html`. Any write that would land on
+   the file it just read is **refused and logged** (`same_file_`, canonical paths, so a relative out-dir or a
+   symlinked `tracks/` cannot slip past), so Tool 1's `_tracks_filtered.xml` can no longer be overwritten by
+   its own re-filtering.
 2. **Build & QC** *(done)* — `build_trackstruct` on the `_curated` tracks (falls back to `_filtered`/raw if
    not yet curated) → **`<project>/analysis/<name>.mat`** (the slow MSD step, once, after curation), where
    `<name>` is the tab's **Name** field (default `TrackStruct`) — see *Named builds* below. Building also
@@ -445,9 +464,10 @@ New tab app `spt_analyze_app.m`; reuses the drivers + `ContactSites_robust` suit
    so it is unit-testable), returning `D, R², b, sigLocUm, nPts, fracUsed, lag, y, fitX, fitY`; the embedded
    player is `spt_track_movie(panel)`, torn down on app close.
 3. **Contact sites** *(done — consolidated windowed picker; the standalone Density tab was removed and folded
-   in here)* — Tab 3 embeds a purpose-built **time-resolved** picker `cs_window_picker.m` (non-blocking, opens
+   in here)* — embeds a purpose-built **time-resolved** picker `cs_window_picker.m` (non-blocking, opens
    in ~1 s). It splits each cell's movie into **frame windows** (you set *frames per window*; a tiny trailing
-   remainder merges into the last) and shows **one localization-density panel per window in a grid**; click a
+   remainder merges into the last — or a *step frames* stride smaller than that, giving sliding, overlapping
+   windows that follow a moving site) and shows **one localization-density panel per window in a grid**; click a
    window → a large **zoomed detail view** to **＋Add** sites by clicking, **Detect** on demand, and
    **multi-select** the site list to remove.
    - **Density source is fixed to tracked-only** — the density (and therefore the null, the peaks and the
@@ -461,7 +481,7 @@ New tab app `spt_analyze_app.m`; reuses the drivers + `ContactSites_robust` suit
      state** rather than by density alone, and read the per-localization `confined`/`stateChange` flags
      stored at Build (§7.2) — so the dropdown is **disabled** for a build without them. Switching channel
      invalidates the per-window density and MC-null caches, so **re-run Detect** afterwards; the status line
-     then appends `· channel <name> (N locs)`.
+     then carries `· channel <name> (N locs)`.
    - Display: **contrast** (turbo clip at contrast·peak) + **map α** (dim to reveal points) +
      **＋locs** overlay (this window's localizations).
    - **Detection** (`cs_detect.m`): **ER Monte-Carlo** (default; null scatters the on-ER localizations
@@ -484,20 +504,27 @@ New tab app `spt_analyze_app.m`; reuses the drivers + `ContactSites_robust` suit
      CSR background line** (= on-ER locs ÷ ER bins, the expected count/bin under uniform ER scatter) and a
      `peak (N× enrich)` readout; *significance (p)*
      recolours the detail map by per-pixel FWER p = `mean(nullMax ≥ D)` (hot = small p). The cutoff/peak-p
-     read out on the status line (not a cut-off colorbar title), which also shows **window locs N / cell
-     total**. The status conveniently answers "how much of the cloud is in this window."
+     read out on the status line (not a cut-off colorbar title), which reads `<cell> · detections N ·
+     tracked M (P%) · <nW> windows · mito from MITODIST`, then `· THIS window <n> tracked locs`, then the
+     colorbar's own `· cutoff α=… · peak p=…`. So it answers "how much of the cloud is in this window" — and
+     it says `<nW> of <wanted> windows ⚠ frames N+ NOT analysed` when the 24-panel cap has cut the movie
+     short, because every number in that window list is then partial.
    - **Save** writes, per cell, `csIDs/<cell>_CSsites.txt` (8-col; **`Slice` = window index**, `Counter` = mito
-     flag — still mapper-readable) + `analysis/Density_<cell>_CSwindows.mat` (per-window frame ranges, grid, SF)
+     flag — still mapper-readable), beside it `_CSsites_stats.csv` (per site: p, enrichment, #locs, #tracks,
+     stability, dwell %, area) and `_CSsites_provenance.json` (every detection parameter that produced them),
+     + `analysis/Density_<cell>_CSwindows.mat` (per-window frame ranges, grid, SF, `source`)
      for time-resolved downstream. The advisor **`Densities/<cell>_rho.tif` + `Density_<cell>.mat/.tif`** export
      (`saveDensityFiles`, byte-identical to `DensityVisualization`/`LocDensityFigIntUse`) is still written on
      launch behind a checkbox, for the legacy mapper. `cs_identify` remains as the legacy engine.
-4. **Refine** *(done)* — Tab 4 is the paper's mouse-driven refiner (`cs_refine.m` behaviour), folded into the
+4. **Refine** *(done)* — the paper's mouse-driven refiner (`cs_refine.m` behaviour), folded into the
    modern pipeline as an **interactive footprint editor**. `cs_footprints_build.m` (headless) computes the
    **auto** half-max footprint for every picked site (or resumes an existing `CS_footprints.mat`). Per site the
    editor shows the **window density**, the footprint, the **localizations** (a *show localizations* overlay of
    this window's points), and the tracked member trails; on the side a **radial concentration plot**
-   (`cs_radial_plot.m`) draws the cumulative localizations-within-radius curve against the **uniform (CSR)**
-   expectation (concentration index 0 = diffuse → 1 = tight) plus the *% of window locs inside the boundary*.
+   (`cs_radial_plot.m`) draws the cumulative localizations-within-radius curve against a **cell-wide
+   ER-uniform** expectation (the same localizations spread over ALL this cell's ER at its average density;
+   `erNullForSite` builds it, and the disk-uniform CSR curve is only the fallback when the cell has no usable
+   ER mask), with a concentration index 0 = diffuse → 1 = tight, plus the *% of window locs inside the boundary*.
    You refine either the **paper way — ✎ Draw centre + boundary** (`drawpoint` sets the centre, then
    `drawfreehand` traces the boundary; both in µm), or the **auto way** (**frac / maxR** spinners recompute the
    half-max blob), or **↺ Reset to auto**. Only sites you actually edit are flagged `edited`. **💾 Save** writes
@@ -515,10 +542,10 @@ New tab app `spt_analyze_app.m`; reuses the drivers + `ContactSites_robust` suit
    plot sits full width beneath the editor (no cut-off); a **colour-scale** dropdown + colorbar + contrast
    slider — *density (a.u.)* (smoothed), *locs / bin* (raw count image), or *significance (p)*, which **recolours
    the map** as a per-pixel FWER **p-map** (`1 − p`, hot = density unlikely under a random scatter) from a
-   per-window **CSR Monte-Carlo** null (`cs_mc_threshold`, cached); and a **🗑 Delete / ♻ Restore site** toggle
-   (rows flag `✎`/`✗del`). Refinement is **optional**. Shared parsers `cs_read_sites.m` / `cs_load_windows.m` /
+   per-window **CSR Monte-Carlo** null (`cs_mc_threshold`, cached); and a **🗑 Delete site** toggle — one click
+   marks the site deleted, the next restores it (rows flag `✎`/`✗del`). Refinement is **optional**. Shared parsers `cs_read_sites.m` / `cs_load_windows.m` /
    `cs_default_gridsf.m` back both the mapper and the footprint builder (one source of truth).
-5. **Sites** *(done)* — Tab 5 runs the **windowed mapper** `cs_window_mapper.m` (headless) over every picked
+5. **Sites** *(done)* — runs the **windowed mapper** `cs_window_mapper.m` (headless) over every picked
    site. For each `(site, window=Slice)` it: rebuilds the window density (`cs_window_density`, the same map the
    picker showed); derives an **auto footprint** `cs_window_footprint.m` = the connected blob of
    `density ≥ frac·localPeak` (default `frac=0.5`, half-max) containing the pick, clipped to a `maxRadius`
@@ -537,19 +564,21 @@ New tab app `spt_analyze_app.m`; reuses the drivers + `ContactSites_robust` suit
    site×window, carrying `siteUID, window, winFrames, refboundary, tracks, LocIDs, CSmatrix, MitoFlag,
    enrichment, …`) + `cs_window_metrics.csv`. If `analysis/CS_footprints.mat` exists (from the Refine tab) it
    **overrides** the auto footprint (and **skips deleted sites**) per matching `file|csID|window`. The tab shows a **per-(site,window) results
-   table** — columns **`cloud n`** (localizations in the footprint from the density SOURCE) vs **`trk loc` / `trk`**
-   (TRACKED member localizations / tracks) so a site on **untracked** detections reads honestly (`cloud n`
-   large, `trk` = 0: an immobile/blinking structure that never linked into a curated track — *not* a bug) — an
-   **inspector** (click a row → window density + footprint + member trails + pick, titled with both counts),
+   table** — columns `cell · site · win · mito · area µm² · tracks · enrich`, with a **window** dropdown to show
+   one window at a time — an **inspector** (click a row → window density + footprint + member trails + pick,
+   titled `cell C · site S · win W [f0–f1] · cloud N locs · M tracked (K trk) · enrich E`, which is where the
+   two counts sit side by side: a site on **untracked** detections reads honestly as a large cloud count with
+   `trk` = 0 — an immobile/blinking structure that never linked into a curated track, *not* a bug),
    and a **selectable member-track list**: clicking a track highlights it (cyan) on the density and enables
    **▶ Play selected track** (that one) or **▶ Play all member tracks**, both over the raw SPT movie in an
    embedded `spt_track_movie` (one colour per track, per-frame ER/mito overlay; `CSmatrix` µm-rel-centre →
-   absolute µm → camera px via `PXUM`, per-point `trackId`). **🗑 Delete selected track** removes a track from a
-   site — recorded in a SEPARATE `analysis/CS_trackedits.mat` (`CSexclude`, so it never clobbers
-   `CS_footprints.mat`) that the mapper drops from membership on the next run (pickPx-guarded via the new
-   `CSW.pickPx`). The density **source and auto half-max** are locked/simplified to match the Refine tab.
+   absolute µm → camera px via `PXUM`, per-point `trackId`). **🗑 Mark/unmark track for removal** flags the
+   selected member track (it turns red and the flags stay pending across sites — nothing is written yet);
+   **💾 Save removals (re-run)** then writes every pending flag to a SEPARATE `analysis/CS_trackedits.mat`
+   (`CSexclude`, so it never clobbers `CS_footprints.mat`) and re-runs the mapper **once**, which drops them
+   from membership (pickPx-guarded via `CSW.pickPx`). The density **source and auto half-max** are locked/simplified to match the Refine tab.
    **Units = µm everywhere** in `CSW`.
-6. **Dwell** *(done)* — Tab 6 runs `cs_window_dwell.m` (headless). A dwell **event** = a maximal run of
+6. **Dwell** *(done)* — runs `cs_window_dwell.m` (headless). A dwell **event** = a maximal run of
    consecutive in-footprint localizations of one member track, **clipped to that site's own window**;
    duration = `(exitFrame − entryFrame + 1)·dt` (frame-span accounting). Primitives
    (`csInsideMask`/`runsToEvents`/`mergeIntervals`/`classifyInside`) are **lifted verbatim** into
@@ -566,7 +595,8 @@ New tab app `spt_analyze_app.m`; reuses the drivers + `ContactSites_robust` suit
    `PXUM`). The contact-site outline, dwell colouring (inside frames red; head marker red while INSIDE), and
    organelle overlay draw on **either** backdrop. **🎥 Save video…** renders the animation (chosen backdrop +
    trajectory + dwell + moving organelle) to MP4/AVI (`exportgraphics`→`VideoWriter`).
-7. **Compare** *(done)* — Tab 7 is a grouped-stats layer over `CSW_final.mat` (+ `DD` for dwell metrics).
+7. **Compare** *(done)* — a grouped-stats layer over `CSW_final.mat` (+ `DD` for dwell metrics), on either
+   **this project** or the whole **experiment** (every folder in the Experiment tab, via `cs_experiment_aggregate`).
    **Group by** {mito vs non-mito · window (time-resolved) · condition (cell)} × **metric** {dwell s · k_out /s ·
    enrichment · area µm² · n_loc · mito fraction · # sites}. Shows a grouped **mean ± sem** table, a
    **per-site scatter** with group means, a **pooled dwell-time CDF** per group, and a two-group **rank-sum p**
@@ -577,13 +607,16 @@ New tab app `spt_analyze_app.m`; reuses the drivers + `ContactSites_robust` suit
    would reuse the app's own MSD `fitTrackD`, not the Deff path).
 
    Sites/Dwell/Compare all read `analysis/CSW_final.mat`, so each stage is independently re-runnable. Refinement
-   is an **optional** editor (Tab 4) whose `CS_footprints.mat` the mapper honours per site; skip it and the auto
-   footprint is used. Engines validated headless (`cs_window_mapper_smoke`, `cs_window_dwell_smoke`,
+   is an **optional** editor (the Refine tab) whose `CS_footprints.mat` the mapper honours per site; skip it and
+   the auto footprint is used. Engines validated headless (`cs_window_mapper_smoke`, `cs_window_dwell_smoke`,
    `cs_footprints_smoke` — the footprint-override roundtrip) and the tabs driven offscreen against real
    `Project/analysis` data (Load → Refine → mapper-applies-refined → Play → Dwell → Compare).
 
 **Contact-site refinement + interaction metrics.** Refine: a **✨ Smooth boundary** control (`cs_smooth_boundary.m`
-— arc-length resample + periodic moving average → a clean closed loop; auto-applied to a freehand trace).
+— arc-length resample + periodic moving average → a clean closed loop), strength from the *smooth boundary*
+slider (default 0.35), applied **only when you click it** — repeat clicks smooth further, and the site is then
+flagged `edited` with mode `…+smooth`. Smoothing is **not** automatic: a freehand trace keeps every vertex you
+drew, and only its closing seam is rounded (`cs_close_boundary.m`, ±4 vertices either side of the join).
 Sites: per member track the **% of its localizations inside** the site (`trackPctInside` in the mapper) with a
 **≥% in filter** (dwelling vs passing-through), and the **STEP diffusion-change bridge**: `⇢ Export tracks for
 STEP` writes `analysis/step/step_tracks.csv` (member trajectories + inside-CS flags); `drivers/run_step.py`
@@ -596,7 +629,10 @@ Smokes: `cs_smooth_smoke`, `cs_step_roundtrip_smoke` (export→run_step.py→imp
 Per cell: `file, lengths, matrix (frame,x,y), center, rawSteps, steps, MSDdata, MSD, MSDstdev, MSDerror,
 CSD, CSDnorm, rawVector, vector, intens (mean/max/total), allSpots (FRAME,X,Y[,MITODIST][,ERDIST]),
 mitoDist [m×n], erDist [m×n], trackIDs, frameInterval`. `mitoDist`/`erDist` are signed µm per tracked spot;
-`[]` if the CSV lacks the column. Build & QC then adds `Dt, confined, stateChange, diffOpts` (§7.2).
+`[]` if the CSV lacks the column. The spots CSV is paired with the **same variant as the XML being imported**
+(`_spots_curated.csv` for `_tracks_curated.xml`, `_spots_filtered.csv` for `_tracks_filtered.xml`), the other
+variants only as a fallback — so a curate-only folder is no longer read with no intensities and no
+mito/ER distances. Build & QC then adds `Dt, confined, stateChange, diffOpts` (§7.2).
 
 Two of these were **corrected**, and the fix moves downstream numbers — an old `.mat` build is not
 comparable to a new one, so rebuild rather than mix them:
