@@ -83,8 +83,11 @@ Tracks = struct('file',{},'lengths',{},'matrix',{},'center',{}, ...
 for i = 1:nFiles
     xmlPath = fullfile(xmlFiles(i).folder, xmlFiles(i).name);
     [~, xmlBase] = fileparts(xmlFiles(i).name);
-    % base name = strip the trailing '_tracks' / '_tracks_filtered'
+    % base name = strip the trailing '_tracks' / '_tracks_filtered' / '_tracks_curated', keeping the
+    % variant so the spots CSV can be paired with the SAME stage of the pipeline (see below).
     base = regexprep(xmlBase, '_tracks(_filtered|_curated)?$', '');
+    vtok = regexp(xmlBase, '_tracks(_filtered|_curated)?$', 'tokens', 'once');
+    variant = ''; if ~isempty(vtok), variant = vtok{1}; end   % '' | '_filtered' | '_curated'
     if opt.Verbose
         fprintf('[%d/%d] %s\n', i, nFiles, xmlFiles(i).name);
     end
@@ -207,7 +210,7 @@ for i = 1:nFiles
     % ---- optional intensities + mito/ER distance + ALL detections from the spots CSV ----
     intens = []; allSpots = []; mitoDist = []; erDist = [];
     if opt.AttachCSV
-        [intens, allSpots, mitoDist, erDist] = attach_intensities(inputDir, base, trkCols, spotIDs, m, n, useFrame, frameInt);
+        [intens, allSpots, mitoDist, erDist] = attach_intensities(inputDir, base, variant, trkCols, spotIDs, m, n, useFrame, frameInt);
     end
 
     % ---- padded-layout size guard ----
@@ -302,7 +305,7 @@ end
 
 
 % =====================================================================
-function [intens, allSpots, mitoDist, erDist] = attach_intensities(inputDir, base, trkCols, spotIDs, m, n, useFrame, frameInt)
+function [intens, allSpots, mitoDist, erDist] = attach_intensities(inputDir, base, variant, trkCols, spotIDs, m, n, useFrame, frameInt)
 % Attach MEAN/MAX/TOTAL intensity (and, when present, the signed mito distance
 % MITO_DIST_UM and ER distance ER_DIST_UM) from <base>_spots.csv (or _filtered)
 % to the tracked spots.
@@ -319,8 +322,18 @@ function [intens, allSpots, mitoDist, erDist] = attach_intensities(inputDir, bas
 % The join is by SPOT_ID (exact) when both the XML and the CSV carry it; else it
 % falls back to a rounded (X_um,Y_um) position match.
 intens = []; allSpots = []; mitoDist = []; erDist = [];
-cand = {fullfile(inputDir,[base '_spots.csv']), ...
-        fullfile(inputDir,[base '_spots_filtered.csv'])};
+% Pair the CSV with the XML variant actually being imported — <base>_spots<variant>.csv first, then
+% the other variants as a fallback. '_spots_curated.csv' (Tool 2's export) was not in the list at
+% all, so importing '*_tracks_curated.xml' silently paired it with Tool 1's '_spots_filtered.csv'.
+% Benign where both exist (each preserves the whole cloud under the same SPOT_IDs, so the join gives
+% identical intensities and distances), but a curate-only folder holding just the curated pair got no
+% localization data at all: no intensities, no MITO_DIST_UM, no ER_DIST_UM, and an empty allSpots.
+cand = {};
+if ~isempty(variant), cand{end+1} = fullfile(inputDir,[base '_spots' variant '.csv']); end
+for v = {'', '_filtered', '_curated'}
+    p = fullfile(inputDir,[base '_spots' v{1} '.csv']);
+    if ~any(strcmp(cand, p)), cand{end+1} = p; end %#ok<AGROW>
+end
 csvPath = '';
 for c = 1:numel(cand)
     if exist(cand{c},'file'), csvPath = cand{c}; break; end

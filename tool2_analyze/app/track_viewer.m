@@ -859,6 +859,34 @@ end
         if ~isempty(d) && isvalid(d), close(d); end   % onCleanup guard for the batch progress bar
     end
 
+    function tf = same_file_(a, b)
+        % Would writing to `a` destroy `b`? Compares the two paths as the filesystem sees them, so a
+        % relative out-dir, a trailing slash or a symlinked tracks/ folder cannot slip a write past
+        % the check. Used to refuse any export that would land on the file it just read.
+        tf = false;
+        if isempty(a) || isempty(b), return; end
+        tf = strcmp(canon_(a), canon_(b));
+    end
+
+    function p = canon_(p)
+        % Resolve to an absolute, symlink-free path. The file need not exist yet (the output usually
+        % does not), so resolve the FOLDER — which does — and re-attach the name.
+        [d,n,e] = fileparts(char(p));
+        if isempty(d), d = pwd; end
+        try
+            r = char(java.io.File(d).getCanonicalPath());
+            if ~isempty(r), d = r; end
+        catch
+            % no JVM (-nojvm / headless): fall back to the un-resolved absolute path
+            if ~isAbsolute_(d), d = fullfile(pwd, d); end
+        end
+        p = fullfile(d, [n e]);
+    end
+
+    function tf = isAbsolute_(d)
+        tf = startsWith(d, filesep) || ~isempty(regexp(d, '^[A-Za-z]:[\\/]', 'once'));
+    end
+
     function do_apply_filter()
         if ~S.loaded
             clog('APPLY: nothing loaded — nothing to do.'); return
@@ -1677,8 +1705,17 @@ end
                 end
                 removed_ids_b = setdiff(track_ids_b, good_ids_b);
 
-                % Export filtered custom XML
-                fid_x = fopen(fullfile(out_dir,[base_nm '_tracks_filtered.xml']),'w');
+                % Export the filtered custom XML under the SAME suffix the interactive export uses.
+                % This was hardcoded '_tracks_filtered.xml': in Tool 2 (readPrefer='filtered',
+                % exportSuffix='curated') the batch reads Tool 1's _tracks_filtered.xml and, with the
+                % out-dir box defaulting to that same tracks/ folder, wrote straight back over its own
+                % input — Tool 1's tracking output replaced by the twice-filtered result, unrecoverably.
+                xmlOut = fullfile(out_dir,[base_nm '_tracks_' S.exportSuffix '.xml']);
+                if same_file_(xmlOut, xml_path)
+                    clog('   %s: SKIPPED — output would overwrite the input (%s).', base_nm, xmlOut);
+                    continue;
+                end
+                fid_x = fopen(xmlOut,'w');
                 fprintf(fid_x,'<?xml version="1.0" encoding="UTF-8"?>\n');
                 fprintf(fid_x,'<Tracks nTracks="%d" frameInterval="%.6f" spaceUnit="%s" timeUnit="%s">\n',...
                     numel(good_ids_b), fi_val,...
@@ -1708,7 +1745,13 @@ end
                     blt_root  = blt_doc.getDocumentElement();
                     parts_b   = blt_doc.getElementsByTagName('particle');
                     sorted_all_b  = sort(track_ids_b);
-                    fid_b2 = fopen(fullfile(out_dir,[base_nm '_tracks_builtin_filtered.xml']),'w');
+                    bltOut = fullfile(out_dir,[base_nm '_tracks_builtin_' S.exportSuffix '.xml']);
+                    if same_file_(bltOut, blt_path)
+                        clog('   %s: builtin XML skipped — would overwrite the input.', base_nm);
+                        bltOut = '';
+                    end
+                  if ~isempty(bltOut)
+                    fid_b2 = fopen(bltOut,'w');
                     fprintf(fid_b2,'<?xml version="1.0" encoding="UTF-8"?>\n');
                     fprintf(fid_b2,'<Tracks nTracks="%d" spaceUnits="%s" frameInterval="%s" timeUnits="%s">\n',...
                         numel(good_ids_b),...
@@ -1730,7 +1773,25 @@ end
                         fprintf(fid_b2,'  </particle>\n');
                     end
                     fprintf(fid_b2,'</Tracks>\n'); fclose(fid_b2);
+                  end
                 end
+
+                % Spots CSV + track metrics — the interactive export writes both and the batch wrote
+                % neither, so a batch-only run produced tracks with no localization data beside them:
+                % TrackImporter_direct then found no matching _spots_<suffix>.csv and silently built
+                % the TrackStruct with no intensities, no MITO_DIST_UM and no ER_DIST_UM.
+                spotsOut_b = fullfile(out_dir,[base_nm '_spots_' S.exportSuffix '.csv']);
+                if same_file_(spotsOut_b, csv_path)
+                    clog('   %s: spots CSV skipped — would overwrite the input.', base_nm);
+                elseif S.preserveCloud
+                    export_cloud(csv_path, good_ids_b, spotsOut_b);   % every detection, TRACK_ID blanked
+                else
+                    sk = spots_t_b(ismember(spots_t_b.TRACK_ID, good_ids_b),:);
+                    sk = removevars(sk, intersect({'LOCAL_DENSITY'}, sk.Properties.VariableNames));
+                    writetable(sk, spotsOut_b);
+                end
+                tmk = tm_b; tmk.KEEP = ismember(tmk.TRACK_ID, good_ids_b);
+                writetable(tmk, fullfile(out_dir,[base_nm '_track_metrics.csv']));
 
                 % Export filter log CSV (thresholds are the absolute cutoffs applied to all files)
                 fid_l = fopen(fullfile(out_dir,[base_nm '_filter_log.csv']),'w');
@@ -1769,7 +1830,10 @@ end
         write_html_report(batch_results, html_path, thr_dv, thr_dn, jump_on, thr_jump);
 
         if ~isempty(dlg) && isvalid(dlg), dlg.Value=1; dlg.Message='Done'; close(dlg); end
-        clog('✔ BATCH done — %d cell(s) in %s -> %s', n_files, hms_(toc(tBatch)), html_path);
+        clog('✔ BATCH done — %d cell(s) in %s', n_files, hms_(toc(tBatch)));
+        clog('   -> %s  [per cell: _tracks_%s.xml · _spots_%s.csv · _track_metrics.csv · _filter_log.csv]', ...
+            out_dir, S.exportSuffix, S.exportSuffix);
+        clog('   -> %s', html_path);
         c.status.Text = sprintf('✔ Batch done: %d files in %s. Report: %s', n_files, hms_(toc(tBatch)), html_path);
         c.status.FontColor = [0.15 0.50 0.20];
     end

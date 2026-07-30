@@ -149,8 +149,15 @@ if ~isempty(bBatch)
     L = logOf();
     assert(any(contains(L,'BATCH')), 'batch wrote nothing to the log');
     assert(any(contains(L,'manual override')), 'batch did not report preserving manual overrides');
-    kept = xml_ntracks(fullfile(obDir,'cellA_tracks_filtered.xml'));
-    assert(~isnan(kept), 'batch produced no cellA output');
+    % The batch writes under the SAME suffix as the interactive export ('curated' here). It used to
+    % hardcode '_tracks_filtered.xml', which in Tool 2 is the name of its own INPUT.
+    kept = xml_ntracks(fullfile(obDir,'cellA_tracks_curated.xml'));
+    assert(~isnan(kept), 'batch produced no cellA output under the export suffix');
+    % ...and it writes the full set, not just the XML: without the spots CSV the importer finds no
+    % localization data for a batch-only folder (no intensities, no mito/ER distances).
+    for want = {'cellA_spots_curated.csv','cellA_track_metrics.csv','cellA_filter_log.csv'}
+        assert(isfile(fullfile(obDir,want{1})), 'batch did not write %s', want{1});
+    end
     % The batch must land on the same decision the interactive view showed: the threshold's keeps
     % PLUS the manual override — not all 12 (override ignored the threshold) and not the raw
     % threshold count (override dropped).
