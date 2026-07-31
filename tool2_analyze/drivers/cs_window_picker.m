@@ -48,8 +48,9 @@ if isempty(L)
 end
 assert(~isempty(L), 'cs_window_picker: no Tracks passed in, and no Tracks.mat / TrackStruct.mat in %s', anaDir);
 st.Tracks = L;
-st.grid = getf(opts,'grid', pickGrid());
-st.SF   = st.FOV / st.grid;
+st.gridOpt = getf(opts,'grid', []);              % an explicit grid overrides the per-cell one
+st.FOVproj = st.FOV; st.binProj = st.binNm;    % the project-level fallback, kept for cells with no stamp
+applyCellCalib(1);                             % st.FOV / st.binNm / st.grid / st.SF for the FIRST cell
 
 % per-cell state
 st.aX=[]; st.aY=[]; st.aF=[]; st.aMD=[]; st.haveMD=false; st.nDet=0; st.nAll=0; st.aT=[];   % st.aT = per-localization track id
@@ -196,14 +197,49 @@ onCell();
         nm = arrayfun(@(t) char(t.file), st.Tracks, 'uni', 0);
         if isempty(nm), nm = {'(no cells)'}; end
     end
-    function gsz = pickGrid()
+    function applyCellCalib(ci)
+        % Take THIS cell's field of view and density bin size, falling back to the project values for
+        % a build made before per-cell calibration existed. The grid and the micron-per-pixel scale
+        % both follow, so a cell recorded on a different camera is binned at its own scale instead of
+        % the project's. Mixing them silently mis-scales every site coordinate, area and enrichment —
+        % the density map is written per cell, so reading it back with the project FOV is simply wrong.
+        st.FOV = st.FOVproj; st.binNm = st.binProj;
+        if ci>=1 && ci<=numel(st.Tracks) && isfield(st.Tracks,'calib')
+            c = st.Tracks(ci).calib;
+            if isstruct(c)
+                if isfield(c,'fovUm')  && isscalar(c.fovUm)  && isfinite(c.fovUm)  && c.fovUm>0,  st.FOV   = c.fovUm;  end
+                % binNm (the density bin) first; precNm is the fallback for builds made before
+                % the two were separated, where one number served both.
+                if isfield(c,'precNm') && isscalar(c.precNm) && isfinite(c.precNm) && c.precNm>0, st.binNm = c.precNm; end
+                if isfield(c,'binNm')  && isscalar(c.binNm)  && isfinite(c.binNm)  && c.binNm>0,  st.binNm = c.binNm;  end
+            end
+        end
+        if ~isempty(st.gridOpt), st.grid = st.gridOpt; else, st.grid = pickGrid(ci); end
+        st.SF = st.FOV / st.grid;
+    end
+
+    function gsz = pickGrid(ci)
         gsz = ceil(st.FOV/(st.binNm/1000));
-        D = dir(fullfile(anaDir,'Densities','*_rho.tif'));
-        if ~isempty(D), try, info = imfinfo(fullfile(D(1).folder, D(1).name)); gsz = info(1).Height; catch, end, end
+        % The saved density map is authoritative when there is one FOR THIS CELL — its row count is
+        % what SF was computed against when it was written. Taking whichever file happened to be
+        % first would import another cell's grid, which is exactly the mis-scaling this guards.
+        f = '';
+        if nargin>=1 && ci>=1 && ci<=numel(st.Tracks)
+            b = char(st.Tracks(ci).file);
+            c = fullfile(anaDir,'Densities',[b '_rho.tif']);
+            if isfile(c), f = c; end
+        end
+        if isempty(f)
+            D = dir(fullfile(anaDir,'Densities','*_rho.tif'));
+            if ~isempty(D) && numel(D)==1, f = fullfile(D(1).folder, D(1).name); end   % unambiguous only
+        end
+        if ~isempty(f), try, info = imfinfo(f); gsz = info(1).Height; catch, end, end
     end
 
     function onCell()
         st.ci = max(1, find(strcmp(ddCell.Items, ddCell.Value), 1)); if isempty(st.ci), st.ci=1; end
+        applyCellCalib(st.ci);      % BEFORE anything reads st.SF: this cell may be a different camera
+        st.wnull = {};              % the null is per grid/scale, so a scale change invalidates it
         T = st.Tracks(st.ci);
         [st.aX, st.aY, st.aF, st.aMD, st.haveMD, st.aT] = cellLocs(T, true);   % density is ALWAYS tracked-only (matrix, not the cloud)
         st.nDet = numel(st.aX);                                          % tracked localizations (what the density is built from)

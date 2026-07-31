@@ -418,8 +418,8 @@ function c = cell_calib(xmlPath, proj, frameInt)
 % rather than presenting an inherited value as if it had been read off the file.
 
 DEF = struct('pixSizeUm',0.10785,'fovUm',27.61,'precNm',30);
-c = struct('pixSizeUm',NaN,'fovUm',NaN,'dt_s',frameInt,'precNm',NaN, ...
-           'src',struct('pixSizeUm','default','fovUm','default','dt_s','xml','precNm','default'));
+c = struct('pixSizeUm',NaN,'fovUm',NaN,'dt_s',frameInt,'precNm',NaN,'binNm',NaN, ...
+           'src',struct('pixSizeUm','default','fovUm','default','dt_s','xml','precNm','default','binNm','default'));
 if ~(isscalar(frameInt) && isfinite(frameInt) && frameInt > 0)
     c.dt_s = pick(proj,'dt_s',0.020064); c.src.dt_s = 'project';
 end
@@ -437,6 +437,14 @@ end
 % Localization precision is never in file metadata — it is a property of the fit, not the camera
 % geometry — so it can only come from the panel (or the default).
 [c.precNm,    c.src.precNm]    = resolve(NaN,                     pick(proj,'binNm',NaN),     DEF.precNm);
+
+% The DENSITY BIN is a separate number from the localization precision, even though one field used to
+% serve both. Precision is a property of the data — a coarser camera pixel localizes worse, and D's
+% noise floor must use that cell's real value. The bin size is an ANALYSIS choice, and the detector
+% smooths by a fixed number of BINS, so the physical scale it looks for is 8*(FOV/grid) microns.
+% Two datasets only measure the same object when the bin size matches, whatever their precisions are.
+% Defaulting binNm to precNm keeps every existing project bit-identical.
+[c.binNm, c.src.binNm] = resolve(NaN, pick(proj,'densBinNm',NaN), c.precNm);
 end
 
 function t = sibling_image(xmlPath)

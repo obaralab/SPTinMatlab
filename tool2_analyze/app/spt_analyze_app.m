@@ -278,13 +278,17 @@ end
         % rather than measured from that cell. The last four columns are editable, so a cell recorded
         % on a different camera or at a different frame rate can be corrected without touching the
         % others — which is what makes a comparison spanning two acquisitions come out in real units.
-        tblBuild = uitable(lp,'ColumnName',{'cell','tracks','med len','mito','ER','µm/px','FOV µm','dt s','prec nm'}, ...
-            'ColumnWidth',{'auto',52,64,44,44, 60,58,60,58}, ...
-            'ColumnEditable',[false false false false false true true true true], ...
+        tblBuild = uitable(lp,'ColumnName',{'cell','tracks','med len','mito','ER','µm/px','FOV µm','dt s','prec nm','bin nm'}, ...
+            'ColumnWidth',{'auto',52,64,44,44, 60,58,60,58,54}, ...
+            'ColumnEditable',[false false false false false true true true true true], ...
             'CellEditCallback',@(s2,e2) onCalEdit(e2), ...
             'Tooltip',['Per-cell calibration — edit any of the last four for one cell without disturbing ' ...
                        'the rest. ° = inherited from the Calibration panel above rather than read from ' ...
-                       'that cell''s own file. dt comes from each cell''s tracks XML.']);
+                       'that cell''s own file. dt comes from each cell''s tracks XML. ' ...
+                       'prec nm is this cell''s localization precision (it sets D''s noise floor); ' ...
+                       'bin nm is the DENSITY BIN, which sets the grid and so the physical size of ' ...
+                       'object the detector looks for. Match bin nm across cells you want to compare, ' ...
+                       'even when their precisions differ.']);
         axLen   = uiaxes(lp); title(axLen,'track length');
         axDist  = uiaxes(lp); title(axDist,'ER / mito distance');
         axDdist = uiaxes(lp); title(axDdist,'D distribution');
@@ -464,7 +468,7 @@ end
         % uses the full localization cloud instead.
         base = char(buildTracks(k).file);
         [X,Y] = densCoords(base, src);
-        PixSize = trackPrec(k);                                 % nm bin — THIS cell's precision
+        PixSize = trackBin(k);                                  % nm DENSITY BIN (not the precision)
         Bins = PixSize*(1:ceil(trackFov(k)/(PixSize/1000))+1);  % nm edges, identical to the advisor's grid
         okp = isfinite(X) & isfinite(Y);
         NumLoc = histcounts2(1000*X(okp), 1000*Y(okp), Bins, Bins);
@@ -2121,7 +2125,7 @@ end
     end
 
     function populateBuildSummary(Tracks, src, aDir)
-        n = numel(Tracks); D = cell(n,9); tot = 0; anyM=false; anyE=false;
+        n = numel(Tracks); D = cell(n,10); tot = 0; anyM=false; anyE=false;
         buildTracks = Tracks;                                    % set FIRST: the calibration accessors read it
         for k = 1:n
             L = double(Tracks(k).lengths(:)); nt = numel(L); tot = tot + nt;
@@ -2133,7 +2137,8 @@ end
                       sprintf('%.5g%s', trackPx(k),   inh('pixSizeUm')), ...
                       sprintf('%.5g%s', trackFov(k),  inh('fovUm')), ...
                       sprintf('%.5g%s', trackDt(k),   inh('dt_s')), ...
-                      sprintf('%.4g%s', trackPrec(k), inh('precNm'))};
+                      sprintf('%.4g%s', trackPrec(k), inh('precNm')), ...
+                      sprintf('%.4g%s', trackBin(k),  inh('binNm'))};
         end
         tblBuild.Data = D;
         ddQCcell.Items = [{'All (pooled)'}, cellfun(@char, {Tracks.file}, 'uni', 0)];
@@ -2149,7 +2154,7 @@ end
         % stored precision, so a correction that lived only in the table would silently not apply.
         try, r = ev.Indices(1); c = ev.Indices(2); catch, return; end
         if r < 1 || r > numel(buildTracks), return; end
-        fields = struct('x6','pixSizeUm','x7','fovUm','x8','dt_s','x9','precNm');
+        fields = struct('x6','pixSizeUm','x7','fovUm','x8','dt_s','x9','precNm','x10','binNm');
         fn = sprintf('x%d', c); if ~isfield(fields, fn), return; end
         f = fields.(fn);
         v = str2double(regexprep(char(string(ev.NewData)), '[^0-9eE.+-]', ''));   % tolerate a pasted '°'
@@ -2505,6 +2510,10 @@ end
     function v = trackPx(cellIdx),   v = trackCal(cellIdx,'pixSizeUm',PXUM);   end
     function v = trackFov(cellIdx),  v = trackCal(cellIdx,'fovUm',   FOVUM);   end
     function v = trackPrec(cellIdx), v = trackCal(cellIdx,'precNm',  PRECNM);  end
+    % The density BIN, which sets the grid and hence the physical detection scale. Separate from the
+    % precision above: two cameras with different precisions must still be binned the same way for
+    % their density maps to be comparable. Falls back to this cell's precision, then the panel.
+    function v = trackBin(cellIdx),  v = trackCal(cellIdx,'binNm', trackPrec(cellIdx)); end
 
     function s = calSrc(cellIdx)
         % 'measured' / 'inherited' per field, so the UI can say where a cell's numbers came from
