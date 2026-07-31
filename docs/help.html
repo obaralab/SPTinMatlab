@@ -129,7 +129,7 @@
   <a href="#t3members">&nbsp;&nbsp;The member-track list</a>
   <a href="#t3player">&nbsp;&nbsp;The raw-movie site player and its zoom</a>
   <a href="#t3trackedits">&nbsp;&nbsp;Removing a member track</a>
-  <a href="#t3step">&nbsp;&nbsp;The STEP diffusion bridge optional</a>
+  <a href="#t3step">&nbsp;&nbsp;The STEP diffusion bridge command line only</a>
   <a href="#t3siteout">&nbsp;&nbsp;What the mapper writes</a>
   <a href="#t3dwell">Tool 3 · Dwell — residence times and escape rate</a>
   <a href="#t3dwellevent">&nbsp;&nbsp;What a dwell event is</a>
@@ -1605,13 +1605,17 @@ ref(r) = ρ · A_ER(r)                                               % A_ER(r) =
 </ul>
 <div class="good">This player is the reality check on everything upstream. If a "dwelling" track visibly hops between two distinct puncta in the raw frames, the problem is a mis-link in Tool 1 or a too-loose curate filter in Tool 2 — not a site definition.</div>
 
-<h3 id="t3trackedits">Removing a member track</h3>
+<h3 id="t3trackedits">Removing a member track — or a whole site</h3>
 <p><kbd>🗑 Mark/unmark track for removal</kbd> toggles the selected member into a <b>pending</b> set. Marked tracks turn red in the list and on the density, and the pending set survives as you move between sites — nothing is applied yet, and the status line keeps a running count.</p>
 <p><kbd>💾 Save removals (re-run)</kbd> then writes every pending removal into <code>analysis/CS_trackedits.mat</code> (variable <code>CSexclude</code>, merged with anything already there, so earlier removals are never lost) and immediately re-runs the mapper once, applying them all in one go. The mapper drops those track columns from membership for the matching <code>file|csID|window</code>, again guarded by the <code>pickPx</code> check.</p>
 <div class="note">Removals live in their own file precisely so that they never clobber <code>CS_footprints.mat</code> — boundary edits and track exclusions are independent, and both are honoured together by the <b>use refined</b> toggle.</div>
 
-<h3 id="t3step">The STEP diffusion bridge <span class="tag you">optional</span></h3>
-<p>Two buttons connect the member tracks to a pointwise-diffusion analysis outside MATLAB. <kbd>⇢ Export tracks for STEP</kbd> writes <code>analysis/step/step_tracks.csv</code> (member trajectories plus inside-contact-site flags) and prints the exact <code>python3 …/drivers/run_step.py --in … --out …</code> command to run. <kbd>⇠ Import STEP D(t)</kbd> reads <code>analysis/step/step_predictions.csv</code> back and reports each member track's diffusion <b>inside vs outside</b> the site — the motion change attributable to the interaction — summarized on the status line (median D inside, median D outside, the ratio, and how many tracks are slower inside) and per track in the member list.</p>
+<p><kbd>🗑 Mark/unmark SITE for deletion</kbd> throws out the <b>whole site</b> rather than one of its tracks — for a detection that turns out not to be a contact site at all. It marks the selected site pending (the inspector title gains <code>✗ MARKED FOR DELETION</code>), and the same <kbd>💾 Save removals (re-run)</kbd> applies it. You can mark sites and tracks together; one save writes both and re-runs the mapper once.</p>
+<div class="note">This is deliberately the <b>same</b> deletion the <a href="#t3refine">Refine</a> tab performs — it merges into the identical <code>CSdeleted</code> list inside <code>CS_footprints.mat</code>, so the two tabs can never disagree about which sites exist, and a site deleted on either one is skipped by the mapper. Deleting from the Sites tab is simply the convenient place to do it when you have just looked at a site's member tracks and concluded it is spurious.</div>
+
+<h3 id="t3step">The STEP diffusion bridge <span class="tag you">command line only</span></h3>
+<div class="note"><b>No longer on the Sites tab.</b> The two STEP buttons were removed from the app — the bridge was out of date relative to the rest of the pipeline and was crowding a tab that needed the room. The drivers below still work and are still tested; call them from the command line if you want them.</div>
+<p>Two drivers connect the member tracks to a pointwise-diffusion analysis outside MATLAB. <code>cs_step_export(anaDir)</code> writes <code>analysis/step/step_tracks.csv</code> (member trajectories plus inside-contact-site flags) and prints the exact <code>python3 …/drivers/run_step.py --in … --out …</code> command to run. <code>cs_step_import(anaDir)</code> reads <code>analysis/step/step_predictions.csv</code> back and reports each member track's diffusion <b>inside vs outside</b> the site — the motion change attributable to the interaction — summarized on the status line (median D inside, median D outside, the ratio, and how many tracks are slower inside) and per track in the member list.</p>
 
 <h3 id="t3siteout">What the mapper writes</h3>
 <table>
@@ -1619,6 +1623,7 @@ ref(r) = ρ · A_ER(r)                                               % A_ER(r) =
   <tr><td><code>analysis/CSW_final.mat</code></td><td>Variable <code>CSW</code>: one flat record per <em>(site × window)</em>. Key fields — <code>file, cellIndex, csID, window, winFrames, siteUID, pickPx, center, refboundary, footprintMode, tracks, nTracks, LocIDs, nMemberLocs, trackLocsInside, trackLocsWin, trackPctInside, CSmatrix, MitoFlag, SF, grid, binAreaUm2, dt, areaUm2, nLocInside, cellTotalLocWin, probMass, peakProb, peakProbRaw, localDens, cellBgDens, enrichment, densSrc</code>. Units are µm throughout; <code>refboundary</code> and <code>CSmatrix</code> are relative to the site centre. <code>siteUID</code> is the stable key Dwell joins on.</td></tr>
   <tr><td><code>analysis/cs_window_metrics.csv</code></td><td>The flat human-readable summary: <code>file,cellIndex,csID,window,f0,f1,mitoCS,areaUm2,nLocInside,nMemberLocs,nTracks,probMass,peakProb,enrichment</code>.</td></tr>
   <tr><td><code>analysis/CS_trackedits.mat</code></td><td>Written by <kbd>💾 Save removals</kbd>: <code>CSexclude</code> with <code>file, csID, window, pickPx, trackCol</code> per excluded member track.</td></tr>
+  <tr><td><code>analysis/CS_footprints.mat</code></td><td>Also written by <kbd>💾 Save removals</kbd> when a whole site is marked: <code>CSdeleted</code> with <code>file, csID, window, pickPx</code> per deleted site — merged with whatever the Refine tab already put there.</td></tr>
 </table>
 <div class="good"><b>Next step.</b> <code>CSW_final.mat</code> exists → the <a href="#t3dwell">Dwell</a> tab can run. Re-running the mapper for any reason (a boundary edit, a removal, a different <b>frac</b>) invalidates the dwell results; recompute them.</div>
 
@@ -2264,15 +2269,15 @@ curation.exported       = 2026-07-29 11:02:13</code></pre>
 
   <tr>
     <td><code>step/step_tracks.csv</code><br><code>step/step_meta.json</code></td>
-    <td>Tool 3 · Sites · <kbd>⇢ Export tracks for STEP</kbd> (<code>cs_step_export</code>)</td>
+    <td><code>cs_step_export</code>, from the command line</td>
     <td><code>drivers/run_step.py</code> — this is its <code>--in</code> file</td>
     <td>One row per localization of every member track at least <code>minLen</code> (default 5) long: <code>track_uid,file,cellIndex,csID,window,trackCol,frame,t_s,x_um,y_um,inside_cs</code>, with <code>track_uid = &lt;file&gt;__cs&lt;csID&gt;_w&lt;window&gt;_t&lt;trackCol&gt;</code>. <code>inside_cs = 1</code> means that localization is inside the site boundary <em>and</em> in its window. The JSON sidecar restates units, counts and the column order for the Python side.</td>
   </tr>
 
   <tr>
     <td><code>step/step_predictions.csv</code></td>
-    <td><b>Not written by MATLAB.</b> <code>drivers/run_step.py</code> writes it. The exact command, with absolute paths, is printed on the status line when you export — you do not have to assemble it. Add <code>--weights &lt;checkpoint&gt;</code> for real STEP; with no weights it falls back to the same rolling estimator (<code>--win 7 --sigma 0.03 --mode lag1</code>).</td>
-    <td>Tool 3 · Sites · <kbd>⇠ Import STEP D(t)</kbd> (<code>cs_step_import</code>). It reads <em>this</em> file and nothing else — if it is missing, the button just says so on the status line.</td>
+    <td><b>Not written by MATLAB.</b> <code>drivers/run_step.py</code> writes it. The exact command, with absolute paths, is printed when you export — you do not have to assemble it. Add <code>--weights &lt;checkpoint&gt;</code> for real STEP; with no weights it falls back to the same rolling estimator (<code>--win 7 --sigma 0.03 --mode lag1</code>).</td>
+    <td><code>cs_step_import</code>, from the command line. It reads <em>this</em> file and nothing else — if it is missing, the button just says so on the status line.</td>
     <td>One row per localization: <code>track_uid,frame,D,alpha,inside_cs,method</code>. <code>D</code> is µm²/s per localization; <code>alpha</code>, the anomalous exponent, is <b>blank today</b> — neither the rolling fallback nor the bundled D-only STEP models return one; <code>method</code> is <code>step</code> or <code>rolling</code>. <code>cs_step_import</code> groups by <code>track_uid</code>, parses the cell/site/window/track back out of it, and reports per track <code>Din</code> / <code>Dout</code> (medians inside vs outside the footprint) and <code>ratio = Din/Dout</code> — below 1 means the molecule moved slower inside the site.</td>
   </tr>
 </table>

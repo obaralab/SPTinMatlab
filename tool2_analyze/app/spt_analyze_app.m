@@ -77,7 +77,8 @@ refErCache=struct('key',{},'erGrid',{});   % per-(cell,grid) ER support mask res
 % Sites tab handles
 eMaxR=[]; eFrac=[]; ddWinFilt=[]; tblSites=[]; axSite=[]; lstMembers=[]; lblSites=[]; lblSitesSrc=[]; siteRowMap=[]; eMinPctIn=[];
 sitePlayer=[]; siteSelIdx=0; btnPlaySite=[]; btnPlayOne=[]; btnDelTrack=[]; chkUseRefined=[]; siteMemberSel=0; stepRes=[];
-pendExcl=struct('file',{},'csID',{},'window',{},'pickPx',{},'trackCol',{});   % track removals marked but not yet applied
+pendExcl=struct('file',{},'csID',{},'window',{},'pickPx',{},'trackCol',{});
+pendDelSite=struct('file',{},'csID',{},'window',{},'pickPx',{});   % whole-site deletions marked but not yet saved   % track removals marked but not yet applied
 % Dwell tab handles
 axDwHist=[]; axKout=[]; tblDwell=[]; axDwTrace=[]; axDwDens=[]; lblDwell=[]; dwellRowMap=[];
 btnDwPlay=[]; sldDwFrame=[]; chkDwEr=[]; chkDwMito=[]; eDwFps=[]; lblDwAnim=[]; dwellAnim=[]; ddDwBg=[]; eDwContrast=[];
@@ -996,12 +997,17 @@ end
             'Tooltip','Play ONLY the track selected in the list, over the raw SPT movie.');
         btnDelTrack = uibutton(rp,'Text','🗑 Mark/unmark track for removal','FontColor',[0.75 0.1 0.1],'ButtonPushedFcn',@(s,e) onDeleteTrack(), ...
             'Tooltip','Toggle removal of the selected member track from THIS site. Marked tracks turn RED and stay pending across sites (nothing is applied yet). Click 💾 Save removals to apply them all at once.');
+        btnDelSite = uibutton(rp,'Text','🗑 Mark/unmark SITE for deletion','FontColor',[0.75 0.1 0.1], ...
+            'ButtonPushedFcn',@(s,e) onDeleteSite(), ...
+            'Tooltip',['Toggle deletion of the SELECTED site. This writes the SAME CSdeleted list the Refine ' ...
+                       'tab writes, so the two tabs cannot disagree about which sites exist — it is offered here ' ...
+                       'too because this is where you inspect a site''s member tracks and decide it is not real. ' ...
+                       'Applied by Save below.']);
         uibutton(rp,'Text','💾 Save removals (re-run)','ButtonPushedFcn',@(s,e) onSaveRemovals(), ...
-            'Tooltip','Write ALL pending track removals to analysis/CS_trackedits.mat and re-run the mapper once — applies every marked removal across all sites in one go.');
-        uibutton(rp,'Text','⇢ Export tracks for STEP','ButtonPushedFcn',@(s,e) onStepExport(), ...
-            'Tooltip','Write analysis/step/step_tracks.csv (all member-track trajectories + inside-CS flags), then run drivers/run_step.py to get pointwise D(t)/α(t) (STEP or a rolling-window fallback).');
-        uibutton(rp,'Text','⇠ Import STEP D(t)','ButtonPushedFcn',@(s,e) onStepImport(), ...
-            'Tooltip','Read analysis/step/step_predictions.csv (from run_step.py) and report each member track''s diffusion INSIDE vs OUTSIDE the contact site — the motion change due to interaction.');
+            'Tooltip','Write ALL pending edits — track removals to analysis/CS_trackedits.mat, deleted sites to analysis/CS_footprints.mat — and re-run the mapper once.');
+        % The STEP export/import buttons were here. Removed: the bridge is unused and the bundled
+        % models are D-only, so they were two controls leading nowhere. drivers/run_step.py,
+        % cs_step_export.m and cs_step_import.m are untouched — call them directly if wanted.
     end
 
     function onRunMapper()
@@ -1094,7 +1100,10 @@ end
         xlim(axSite,[min(bx)-pad max(bx)+pad]); ylim(axSite,[min(by)-pad max(by)+pad]);
         xlabel(axSite,'x (µm)'); ylabel(axSite,'y (µm)');
         if minPct>0, ftag = sprintf(' · %d/%d trk ≥%g%% in', nnz(keepT), e.nTracks, minPct); else, ftag = ''; end
-        title(axSite, sprintf('cell %d · site %d · win %d [%g–%g] · cloud %d locs · %d tracked (%d trk)%s · enrich %.2f', ...
+        % A site marked for deletion must LOOK marked, or the only feedback is a status line that the
+        % next click overwrites.
+        delTag = ''; if isPendDeletedSite(e), delTag = '   ✗ MARKED FOR DELETION'; end
+        title(axSite, sprintf(['cell %d · site %d · win %d [%g–%g] · cloud %d locs · %d tracked (%d trk)%s · enrich %.2f' delTag], ...
             e.cellIndex, e.csID, e.window, e.winFrames(1), e.winFrames(2), e.nLocInside, e.nMemberLocs, e.nTracks, ftag, e.enrichment));
         % member list: track · locs inside / the track's window locs (% inside), filtered by ≥% threshold
         kidx = find(keepT);
@@ -1145,34 +1154,7 @@ end
         if siteSelIdx>=1 && siteSelIdx<=numel(CSW), drawSiteInspector(siteSelIdx); end
     end
 
-    function onStepExport()
-        % Write member-track trajectories (+ inside-CS flags) for the STEP pointwise-diffusion bridge.
-        if isempty(CSW), lblSites.Text='Run the mapper first — no sites to export.'; return; end
-        anaDir = fullfile(projectDir,'analysis'); if ~isfolder(anaDir), lblSites.Text='No analysis/ folder in the project.'; return; end
-        if exist('cs_step_export','file')~=2, lblSites.Text='cs_step_export.m not on the path (drivers/).'; return; end
-        try
-            f = cs_step_export(CSW, anaDir);
-            lblSites.Text = sprintf('Exported → %s . Now run:  python3 %s/tool2_analyze/drivers/run_step.py --in "%s" --out "%s"', ...
-                f, spRoot(), f, fullfile(anaDir,'step','step_predictions.csv'));
-        catch ME, lblSites.Text = ['STEP export failed: ' ME.message]; end
-    end
 
-    function onStepImport()
-        % Read run_step.py's predictions -> per-track D INSIDE vs OUTSIDE the contact site (motion change).
-        anaDir = fullfile(projectDir,'analysis');
-        if ~isfile(fullfile(anaDir,'step','step_predictions.csv'))
-            lblSites.Text = 'No step_predictions.csv yet — Export tracks, then run run_step.py.'; return; end
-        if exist('cs_step_import','file')~=2, lblSites.Text='cs_step_import.m not on the path (drivers/).'; return; end
-        try
-            stepRes = cs_step_import(anaDir);
-            rat = [stepRes.ratio]; rat = rat(isfinite(rat) & rat>0);
-            din = median([stepRes.Din],'omitnan'); dout = median([stepRes.Dout],'omitnan');
-            meth = ''; if ~isempty(stepRes) && isfield(stepRes,'method'), meth = stepRes(1).method; end
-            lblSites.Text = sprintf('STEP (%s): %d tracks · median D inside %.3g vs outside %.3g µm²/s (ratio %.2f · %d/%d slower inside). Click a site for per-track.', ...
-                meth, numel(stepRes), din, dout, median(rat), nnz(rat<1), numel(rat));
-            if siteSelIdx>=1 && siteSelIdx<=numel(CSW), drawSiteInspector(siteSelIdx); end
-        catch ME, lblSites.Text = ['STEP import failed: ' ME.message]; end
-    end
 
     function e = stepForTrack(base, csID, win, col)   % find the imported STEP result for a member track, or []
         e = [];
@@ -1244,14 +1226,61 @@ end
         lblSites.Text = sprintf('Track %d %s at site %d · %d track(s) pending. Click 💾 Save removals to apply all.', siteMemberSel, act, e.csID, numel(pendExcl));
     end
 
+    function onDeleteSite()
+        % Mark/unmark the SELECTED site for deletion. Deliberately writes the SAME CSdeleted list the
+        % Refine tab writes, rather than a second mechanism — the mapper already skips those sites,
+        % so one list means one truth about which sites exist.
+        if isempty(CSW) || siteSelIdx < 1 || siteSelIdx > numel(CSW)
+            lblSites.Text = 'Select a site first.'; return;
+        end
+        e = CSW(siteSelIdx);
+        ppx = []; if isfield(e,'pickPx'), ppx = e.pickPx; end
+        dup = arrayfun(@(x) strcmp(x.file,e.file)&&x.csID==e.csID&&x.window==e.window, pendDelSite);
+        if any(dup), pendDelSite(dup) = []; act = 'unmarked';
+        else, pendDelSite(end+1) = struct('file',e.file,'csID',e.csID,'window',e.window,'pickPx',ppx); act = 'marked for DELETION'; end
+        drawSiteInspector(siteSelIdx);
+        lblSites.Text = sprintf('Site %d %s · %d site(s) and %d track(s) pending. 💾 Save removals to apply.', ...
+            e.csID, act, numel(pendDelSite), numel(pendExcl));
+    end
+
+    function tf = isPendDeletedSite(e)
+        tf = ~isempty(pendDelSite) && ...
+             any(arrayfun(@(x) strcmp(x.file,e.file)&&x.csID==e.csID&&x.window==e.window, pendDelSite));
+    end
+
     function tf = isPendRemoved(e, col)   % is this member track marked (pending) for removal?
         tf = ~isempty(pendExcl) && any(arrayfun(@(x) strcmp(x.file,e.file)&&x.csID==e.csID&&x.window==e.window&&x.trackCol==col, pendExcl));
     end
 
     function onSaveRemovals()
         % Write ALL pending removals into CS_trackedits.mat (merged) and re-run the mapper once to apply.
-        if isempty(pendExcl), lblSites.Text='No tracks marked for removal — mark some first (🗑).'; return; end
+        if isempty(pendExcl) && isempty(pendDelSite)
+            lblSites.Text='Nothing marked — mark a track or a site for removal first (🗑).'; return; end
         anaDir = ensureAnaDir(); if isempty(anaDir), return; end
+        % whole-site deletions first, MERGED into whatever Refine already wrote
+        nSite = numel(pendDelSite);
+        if nSite > 0
+            ff = fullfile(anaDir,'CS_footprints.mat');
+            CSfoot = struct([]); CSdeleted = struct('file',{},'csID',{},'window',{},'pickPx',{});
+            if isfile(ff)
+                try, Lf=load(ff);
+                    if isfield(Lf,'CSfoot'), CSfoot = Lf.CSfoot; end
+                    if isfield(Lf,'CSdeleted') && ~isempty(Lf.CSdeleted), CSdeleted = Lf.CSdeleted; end
+                catch, end
+            end
+            for q = 1:nSite
+                r = pendDelSite(q);
+                dup = arrayfun(@(x) strcmp(x.file,r.file)&&x.csID==r.csID&&x.window==r.window, CSdeleted);
+                if ~any(dup), CSdeleted(end+1) = r; end %#ok<AGROW>
+            end
+            try, save(ff,'CSfoot','CSdeleted','-v7.3'); %#ok<NASGU>
+            catch ME, lblSites.Text=['Save failed: ' ME.message]; return; end
+            pendDelSite(:) = [];
+        end
+        if isempty(pendExcl)
+            lblSites.Text = sprintf('Deleted %d site(s) → re-running the mapper…', nSite); drawnow;
+            onRunMapper(); return;
+        end
         f = fullfile(anaDir,'CS_trackedits.mat');
         CSexclude = struct('file',{},'csID',{},'window',{},'pickPx',{},'trackCol',{});
         if isfile(f), try, L=load(f); if isfield(L,'CSexclude'), CSexclude=L.CSexclude; end, catch, end, end
@@ -1262,7 +1291,7 @@ end
         end
         try, save(f,'CSexclude','-v7.3'); catch ME, lblSites.Text=['Save failed: ' ME.message]; return; end
         np = numel(pendExcl); pendExcl(:) = [];
-        lblSites.Text = sprintf('Saved %d removal(s) → re-running the mapper to apply…', np); drawnow;
+        lblSites.Text = sprintf('Saved %d track removal(s) + %d site deletion(s) → re-running the mapper…', np, nSite); drawnow;
         onRunMapper();   % rebuild CSW_final.mat once, without every removed track
     end
 

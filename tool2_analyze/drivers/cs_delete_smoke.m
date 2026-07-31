@@ -12,6 +12,7 @@ for L = dir(fullfile(src,'Densities','*_rho.tif'))', copyfile(fullfile(L.folder,
 CSW0 = cs_window_mapper(tmp, struct('save',false,'verbose',false,'useRefined',false));
 n0 = numel(CSW0);
 CSfoot = cs_footprints_build(tmp, struct('save',false,'verbose',false));
+CSfoot0 = CSfoot;   % keep the unedited list; CSfoot is emptied below
 
 % delete site #2 (record file/csID/window/pickPx)
 d = CSfoot(2);
@@ -31,6 +32,18 @@ save(fullfile(tmp,'CS_footprints.mat'),'CSfoot','CSdeleted');
 CSW2 = cs_window_mapper(tmp, struct('save',false,'verbose',false,'useRefined',true));
 assert(numel(CSW2)==n0, 'a stale (pickPx-mismatched) deletion wrongly dropped a site');
 fprintf('stale deletion ignored: sites = %d (expect %d)\n', numel(CSW2), n0);
+
+% The Sites tab writes into this SAME list, so the two tabs' entries must concatenate and both
+% apply. A Sites-tab entry with no pickPx deletes by file|csID|window alone (no position guard).
+d2 = CSfoot0(3);
+CSdeleted = struct('file',d.file,'csID',d.csID,'window',d.window,'pickPx',d.pickPx);      % Refine-shaped
+CSdeleted(2) = struct('file',d2.file,'csID',d2.csID,'window',d2.window,'pickPx',[]); %#ok<STRNU> % Sites-shaped
+save(fullfile(tmp,'CS_footprints.mat'),'CSfoot','CSdeleted');
+CSW3 = cs_window_mapper(tmp, struct('save',false,'verbose',false,'useRefined',true));
+fprintf('two mixed-shape deletions: sites = %d (expect %d)\n', numel(CSW3), n0-2);
+assert(numel(CSW3)==n0-2, 'a Refine + Sites deletion pair did not drop both sites');
+have = arrayfun(key,CSW3,'uni',0);
+assert(~any(strcmp(have,key(d))) && ~any(strcmp(have,key(d2))), 'a merged deletion left its site behind');
 
 fprintf('\nALL DELETE-SYNC ASSERTIONS PASSED.\n');
 end
