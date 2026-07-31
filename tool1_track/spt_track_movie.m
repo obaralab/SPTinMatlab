@@ -15,7 +15,7 @@ R = []; sel = []; S = struct('x',{},'y',{},'f',{}); K = 0;
 f0 = 1; f1 = 1; cur = 1; nfr = 1; lo = 0; hi = 1; cols = lines(8);   % nfr = true movie length (promoted from load_ so draw()/seek() can see it)
 haveEr = false; haveMi = false; erFg = 1; miFg = 1; erNfr = 0; miNfr = 0;
 erCol = [0.15 0.9 0.35]; erA = 0.28; miCol = [1 0.25 0.75]; miA = 0.42;
-tmr = []; playing = false;
+tmr = []; playing = false; inDraw = false;   % inDraw: see draw() — its own drawnow can re-enter it
 hImg = []; hTrail = gobjects(0); hHead = gobjects(0); hCS = gobjects(0);
 zoomBox = []; imgH = 1; imgW = 1;   % zoomBox = [xlo xhi ylo yhi] px framing the CS + played tracks
 
@@ -134,7 +134,22 @@ ctl = struct('load', @load_, 'stop', @stopAll, 'axes', ax, 'saveVideo', @saveVid
     function seek(fr), cur = min(max(fr, 1), nfr); draw(); end   % manual scrub across the whole movie
 
     function draw()
-        if isempty(hImg) || ~isvalid(hImg), return; end
+        % Guarded on two fronts, because this runs from a TIMER while the rest of the app is live.
+        %
+        % RE-ENTRANCY: the drawnow at the end flushes the graphics queue, which lets other callbacks
+        % — including the next timer tick — run inside this one. BusyMode='drop' stops ticks queueing
+        % but does not stop that.
+        %
+        % HANDLE VALIDITY: a tick can land in the middle of another callback that is rebuilding
+        % graphics. Observed: pressing Compute on the Compare tab calls legend(), and a tick fired
+        % during legend's removeAllEntries, touching objects mid-teardown —
+        %   "Warning: Error in state of SceneNode. Invalid or deleted object."
+        % Checking hImg alone was not enough; draw also writes to hTrail, hHead, hCS, chkT, chkCS,
+        % lblF and sld. If ANY of them has gone the player's world no longer exists: stop the timer
+        % and leave quietly rather than warn on every tick.
+        if inDraw, return; end
+        inDraw = true; guard = onCleanup(@() clearInDraw()); %#ok<NASGU>
+        if ~liveHandles(), stopT(); return; end
         hImg.CData = composite(cur);
         showTrail = chkT.Value;
         for j = 1:K
@@ -149,6 +164,22 @@ ctl = struct('load', @load_, 'stop', @stopAll, 'axes', ax, 'saveVideo', @saveVid
         if ~isempty(hCS) && all(isvalid(hCS)), set(hCS, 'Visible', onoff_(chkCS.Value)); end   % static CS outline toggle
         lblF.Text = sprintf('frame %d/%d', cur, nfr);
         drawnow limitrate;
+    end
+
+    function clearInDraw(), inDraw = false; end
+
+    function ok = liveHandles()
+        % Every graphics handle draw() writes to. One dead handle means the panel is being torn down
+        % or rebuilt underneath us.
+        ok = false;
+        if isempty(hImg) || ~all(isvalid(hImg)), return; end
+        if isempty(ax)   || ~all(isvalid(ax)),   return; end
+        for h = [chkT, chkCS, lblF, sld]
+            if isempty(h) || ~isgraphics(h), return; end
+        end
+        if ~isempty(hTrail) && ~all(isvalid(hTrail)), return; end
+        if ~isempty(hHead)  && ~all(isvalid(hHead)),  return; end
+        ok = true;
     end
 
     function rgb = composite(fr)

@@ -25,6 +25,29 @@ lbls = findobj(fp,'Type','uilabel'); ftxt = '';
 for L = lbls(:)', if contains(L.Text,'frame ') && contains(L.Text,'/'), ftxt = L.Text; break; end, end
 fprintf('frame label: %s\n', ftxt);
 assert(contains(ftxt,'/5981'), 'frame label does not show /5981: "%s"', ftxt);
+% ---- the player must not keep drawing into graphics that have gone -------------------------------
+% It runs on a timer while the rest of the app is live, so a tick can land inside another callback
+% that is rebuilding graphics. Observed in Tool 3: pressing Compute on the Compare tab calls
+% legend(), and a tick fired during legend's removeAllEntries —
+%   "Warning: Error in state of SceneNode. Invalid or deleted object."
+% repeating for as long as the timer ran. draw() checked only hImg; it also writes to the frame
+% label and the trail/head lines, so killing those (what a teardown does) left it spinning.
+lastwarn('');
+ctl.load(R, [1 2]);                                  % load auto-starts playback (button reads Pause)
+nRunBefore = 0; tt = timerfindall;
+for q = 1:numel(tt), if strcmp(tt(q).Running,'on'), nRunBefore = nRunBefore + 1; end, end
+assert(nRunBefore >= 1, 'fixture check: the player should be ticking after load');
+pause(0.25);
+delete(findobj(fp,'Type','uilabel'));                % handles draw() wrote to UNGUARDED
+delete(findobj(fp,'Type','line'));
+pause(0.5);                                          % let several ticks fire at the wreckage
+nRun = 0; tt = timerfindall;
+for q = 1:numel(tt), if strcmp(tt(q).Running,'on'), nRun = nRun + 1; end, end
+[wmsg,~] = lastwarn;
+assert(nRun == 0, 'the player kept ticking against dead graphics (%d timer(s) running)', nRun);
+assert(isempty(wmsg), 'a tick against dead graphics warned: %s', wmsg);
+fprintf('  PLAYER TEARDOWN OK — a tick into deleted graphics stops the timer, silently.\n');
+
 ctl.stop(); delete(fp);
 fprintf('  PLAYER OK — true length 5981 shown, span labelled, slider spans movie.\n\n');
 
