@@ -142,7 +142,11 @@ btnSweep = uibutton(rC,'Text','⇢ Sweep window length','ButtonPushedFcn',@(s,e)
 lblSweep = uilabel(rC,'Text','','FontColor',[0.35 0.35 0.45]);
 
 % ---- control row D: detection-quality gates + spot inspector (transparency) ----
-rD = uigridlayout(g,[1 9],'ColumnWidth',{92, 96,60, 82,54, 56,150, 118, '1x'},'Padding',[0 0 0 0],'ColumnSpacing',5);
+% 7 columns for 7 children. This was [1 9] from when a density-CHANNEL label and dropdown sat here;
+% removing those shifted every remaining control two columns left, so the explain checkbox landed in
+% a 56 px slot (its own label did not fit, which is why it was awkward to hit) and the explanation
+% text landed in a fixed 150 px one instead of the elastic column, cutting it off.
+rD = uigridlayout(g,[1 7],'ColumnWidth',{92, 96,60, 82,54, 132, '1x'},'Padding',[0 0 0 0],'ColumnSpacing',5);
 chkSplit = uicheckbox(rD,'Text','split peaks','Value',st.splitPeaks,'ValueChangedFcn',@(s,e) onSplit(), ...
     'Tooltip','Marker-controlled watershed: two touching real peaks become two sites instead of one blob centroid at the saddle. Re-run Detect to apply.');
 uilabel(rD,'Text','min enrich ×','HorizontalAlignment','right');
@@ -158,7 +162,7 @@ eMinTrk = uispinner(rD,'Limits',[1 1e4],'Value',st.minTracks,'Step',1,'ValueChan
 % question comes back.
 chkExplain = uicheckbox(rD,'Text','🔍 explain spot','Value',false, ...
     'Tooltip','When on, clicking the density map reports that location''s density, null percentile, enrichment, #tracks and p — even for non-detected spots (no site is added/selected).');
-lblExplain = uilabel(rD,'Text','','FontColor',[0.30 0.30 0.45]);
+lblExplain = uilabel(rD,'Text','','FontColor',[0.30 0.30 0.45],'WordWrap','on');
 
 % ---- main: [ thumbnails | detail+colorbar | site list ] ----
 % ---- status line: full width, wraps rather than truncating ----
@@ -174,8 +178,8 @@ axDet.ButtonDownFcn = @(s,e) onDetailClick(e);
 axCbar = uiaxes(dc); axCbar.Toolbar.Visible='off'; disableDefaultInteractivity(axCbar); axCbar.XTick=[];
 rp = uigridlayout(mn,[3 1],'RowHeight',{20,'1x',30},'Padding',[0 0 0 0],'RowSpacing',4);
 lblList = uilabel(rp,'Text','Sites in window','FontWeight','bold');
-tblSites = uitable(rp,'ColumnName',{'#','p','enr×','trk','dw%','stab'}, ...
-    'ColumnWidth',{30,52,44,34,44,'auto'},'RowName',{},'SelectionType','row', ...
+tblSites = uitable(rp,'ColumnName',{'#','mito','p','enr×','trk','dw%','stab'}, ...
+    'ColumnWidth',{30,46,52,44,34,44,'auto'},'RowName',{},'SelectionType','row', ...   % # mito p enr trk dw stab
     'SelectionChangedFcn',@(s,e) onTableSel(e), ...
     'Tooltip',['Per-site stats. p = significance (fraction of MC null peaks ≥ the site; smaller = stronger). ' ...
                'enr× = peak density / ER-median background. trk = distinct contributing tracks. ' ...
@@ -465,7 +469,14 @@ onCell();
         if ~isempty(chkExplain) && isgraphics(chkExplain) && chkExplain.Value, explainSpot(p(1),p(2)); return; end
         w=st.cw; P=st.sites{w};
         if st.addMode
-            fl=classifyOne(p(1),p(2)); st.sites{w}=[P; p(1) p(2) fl 1 nan(1,NCOL-4)];   % manual site: no auto stats
+            % Measure the manual site the same way the spot inspector does, instead of storing a row
+            % of NaN — that row rendered as '—' in every column, which is the empty table you get
+            % after picking your own site. Everything here is computable at an arbitrary point; only
+            % split-half stability is not, because it is defined on a detected footprint.
+            fl=classifyOne(p(1),p(2));
+            m = measureAt(w, p(1), p(2));
+            % stability alone stays NaN: a split-half score is defined on a DETECTED footprint.
+            st.sites{w}=[P; p(1) p(2) fl 1 m.peak m.pval m.enr m.nloc m.ntrk NaN m.area m.dwell];
             drawDetail(); drawThumb(w); refreshList();
         else
             if isempty(P), return; end
@@ -474,6 +485,35 @@ onCell();
                 if ismember(mi,st.selList), st.selList=setdiff(st.selList,mi); else, st.selList=union(st.selList,mi); end
                 syncListFromSel(); drawDetail();
             end
+        end
+    end
+
+    function m = measureAt(w, xc, yc)
+        % Density, enrichment, localizations, distinct tracks, p and footprint area at an arbitrary
+        % point. Shared by the spot inspector and by a manually added site so the two cannot report
+        % different numbers for the same place.
+        m = struct('peak',NaN,'pval',NaN,'enr',NaN,'nloc',NaN,'ntrk',NaN,'area',NaN,'dwell',NaN);
+        ci=round(xc); ri=round(yc);
+        if ci<1||ci>st.grid||ri<1||ri>st.grid, return; end
+        D=windowDensity(w); m.peak=D(ri,ci);
+        bg=median(D(werMask(w))); if ~(bg>0), bg=eps; end
+        m.enr=m.peak/bg;
+        if strcmp(st.method,'ermc'), [~,nm]=windowNull(w); m.pval=mean(nm>=m.peak); end
+        rpx=max(2,round(max(st.contactUm,0.15)/st.SF));
+        inw=st.aF>=st.win(w,1)&st.aF<=st.win(w,2);
+        lx=st.aX(inw)/st.SF; ly=st.aY(inw)/st.SF; lt=st.aT(inw);
+        near=hypot(lx-xc,ly-yc)<=rpx;
+        m.nloc=nnz(near); m.ntrk=numel(unique(lt(near)));
+        m.area=pi*(rpx*st.SF)^2;              % the inspection disc, not a detected footprint
+        % Dwell %, defined exactly as siteTrackStability defines it for a detected site: for each
+        % track contributing here, the fraction of ITS window localizations that fall inside; take
+        % the median. Only the footprint differs — an inspection disc rather than a detected blob.
+        if any(near)
+            [~,~,ic] = unique(lt);
+            totPer = accumarray(ic,1);
+            icIn = ic(near); uu = unique(icIn);
+            insPer = accumarray(icIn, 1, [numel(totPer) 1]);
+            m.dwell = median(100*insPer(uu)./totPer(uu));
         end
     end
 
@@ -712,15 +752,19 @@ onCell();
 
     % ---- site table (per-site stats, transparency) ----
     function refreshList()
-        P=st.sites{st.cw}; n=size(P,1); D=cell(n,6);
+        P=st.sites{st.cw}; n=size(P,1); D=cell(n,7);
         for i=1:n
-            D(i,:)={ sprintf('%d',i), fmtStat(P(i,SC.pval),'%.2g'), fmtStat(P(i,SC.enr),'%.1f'), ...
+            D(i,:)={ sprintf('%d',i), mitoTag(P(i,SC.flag)), fmtStat(P(i,SC.pval),'%.2g'), fmtStat(P(i,SC.enr),'%.1f'), ...
                      fmtStat(P(i,SC.ntrk),'%d'), fmtStat(P(i,SC.dwell),'%.0f'), fmtStat(P(i,SC.stab),'%.2f') };
         end
         tblSites.Data=D;
         lblList.Text=sprintf('Sites in window %d (%d) — click a row to see its tracks',st.cw,n); syncListFromSel();
     end
     function s=fmtStat(v,f), if isnan(v), s='—'; else, s=sprintf(f,v); end, end
+    function s=mitoTag(fl)
+        % cs_mito_from_dist: 1 = on/at mito, 2 = not (or undecidable when no MITO_DIST_UM).
+        if ~isfinite(fl), s='—'; elseif fl==1, s='mito'; elseif st.haveMD, s='no'; else, s='?'; end
+    end
     function onTableSel(e), try, st.selList=e.Selection(:)'; catch, st.selList=[]; end, drawDetail(); end
     function syncListFromSel()
         try, if isempty(st.selList), tblSites.Selection=[]; else, tblSites.Selection=intersect(st.selList,1:size(tblSites.Data,1)); end, catch, end
