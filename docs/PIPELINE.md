@@ -31,7 +31,7 @@ mapper → dwell → compare, reusing the advisor's ContactSites suite (`Contact
 Nature-2024 `ContactSites_original`). A shared **Experiment** tab (`spt_experiment_panel`) is **tab 1 in all three
 tools** — the multi-folder / per-condition manifest (day, condition, exclude, notes, derived tracked/curated/built/
 picked/mapped/dwelled status and the per-stage spot/track counts behind it) that ties the dataset together and
-drives Tool 3's cross-condition Compare. It lives with the project as `<project>/experiment_manifest.mat`.
+drives Tool 3's cross-condition Compare. It lives with the project as `<project>/experiment_details.mat`.
 
 ---
 
@@ -92,7 +92,7 @@ SPTinMatlab/
 │   ├── detection_summary.csv       project-level: one row per cell (§5)
 │   ├── batch_filter_report.html    Tool 2 batch-filter summary
 │   └── cs_calib.mat                per-dataset calibration (written by Tool 2)
-├── experiment_manifest.mat     the shared Experiment tab's manifest (day/condition/exclude/notes)
+├── experiment_details.mat     the shared Experiment tab's manifest (day/condition/exclude/notes)
 └── analysis/                   ← Tool 2 writes the build here, Tool 3 reads it
     ├── <name>.mat              a NAMED build (Tracks struct); TrackStruct.mat by default, several may coexist
     ├── active_trackstruct.txt  one line: the basename of the build IN FORCE (§7.2)

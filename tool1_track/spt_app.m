@@ -180,10 +180,10 @@ tg.SelectedTab = tMatch;   % ...but open on Match files: that is where a fresh s
             if ~isempty(er), eEr.Value  = er; end
             if ~isempty(mi), eMi.Value  = mi; end
             if ~isempty(eProj) && isgraphics(eProj), eProj.Value = d; end   % output project = the same folder
-            % The manifest lives WITH the project: load <project>/experiment_manifest.mat if it is
+            % The manifest lives WITH the project: load <project>/experiment_details.mat if it is
             % there and keep saving to it, so conditions set in any tool are already here next time.
             try, if ~isempty(exptCtl) && isstruct(exptCtl) && isfield(exptCtl,'setAutoPath')
-                    exptCtl.setAutoPath(fullfile(d,'experiment_manifest.mat'));
+                    exptCtl.setAutoPath(d);
                  end, catch, end
             try, if ~isempty(exptCtl) && isstruct(exptCtl), exptCtl.addFolder(d); end, catch, end   % add to the Experiment manifest
             if ~isempty(sp)

@@ -133,8 +133,11 @@ end
 close(f2);
 
 %% the manifest lives at the PROJECT top level and round-trips ------------
-mf = fullfile(proj,'experiment_manifest.mat');
-assert(isfile(mf), 'no experiment_manifest.mat written at the project top level');
+% The canonical name is experiment_details.mat; experiment_manifest.mat is the pre-rename name and
+% is still READ so existing projects keep working. cs_experiment_file is the one place that decides.
+[mfNew, mfHave] = cs_experiment_file(proj);
+mf = mfHave; if isempty(mf), mf = mfNew; end
+assert(isfile(mf), 'no experiment details file written at the project top level (looked for %s)', mfNew);
 Lm = load(mf);
 assert(isfield(Lm,'manifest') && isfield(Lm.manifest,'cells'), 'manifest has no cells');
 fprintf('manifest auto-saved at the project root (%d cell record(s))\n', numel(Lm.manifest.cells));

@@ -213,10 +213,10 @@ end
         end
         onCalAuto();          % try to read dt from a tracks XML
         embedImportCurate();
-        % The manifest lives WITH the project (<project>/experiment_manifest.mat), so whichever tool
+        % The manifest lives WITH the project (<project>/experiment_details.mat), so whichever tool
         % opens this folder sees the same cells and conditions without an explicit Load/Save.
         try, if ~isempty(exptCtl) && isstruct(exptCtl) && isfield(exptCtl,'setAutoPath')
-                exptCtl.setAutoPath(fullfile(d,'experiment_manifest.mat'));
+                exptCtl.setAutoPath(d);
              end, catch, end
         % Add the PROJECT ROOT, the same thing Tool 1 adds. This used to add <project>/analysis,
         % which resolves to the same project — so a manifest touched by both tools named one project
@@ -319,7 +319,7 @@ end
         % project has, named or not. whos('-file') is ~1 ms, so this is cheap enough to refresh.
         names = {};
         if isempty(anaDir) || ~isfolder(anaDir), return; end
-        skip = {'cs_calib.mat','CSW_final.mat','cs_window_dwell.mat','cs_footprints.mat','experiment_manifest.mat'};
+        skip = {'cs_calib.mat','CSW_final.mat','cs_window_dwell.mat','cs_footprints.mat','experiment_details.mat','experiment_manifest.mat'};
         d = dir(fullfile(anaDir,'*.mat'));
         for k = 1:numel(d)
             if any(strcmpi(d(k).name, skip)), continue; end
@@ -2013,7 +2013,7 @@ end
             a = fullfile(projectDir,'analysis');
             nBuilds = 0;
             d = dir(fullfile(a,'*.mat'));
-            skip = {'cs_calib.mat','CSW_final.mat','cs_window_dwell.mat','cs_footprints.mat','experiment_manifest.mat'};
+            skip = {'cs_calib.mat','CSW_final.mat','cs_window_dwell.mat','cs_footprints.mat','experiment_details.mat','experiment_manifest.mat'};
             for q = 1:numel(d)
                 if any(strcmpi(d(q).name,skip)), continue; end
                 try, w = whos('-file', fullfile(a,d(q).name)); if any(strcmp({w.name},'Tracks')), nBuilds = nBuilds + 1; end, catch, end

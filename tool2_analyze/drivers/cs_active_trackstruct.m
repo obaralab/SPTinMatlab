@@ -35,7 +35,7 @@ for f = {'TrackStruct.mat','Tracks.mat'}
 end
 % last resort: a named build with no pointer. whos('-file') is ~1 ms, so scanning the handful of
 % .mat files in an analysis folder is cheap; skip the ones we know are not builds.
-skip = {'cs_calib.mat','CSW_final.mat','cs_window_dwell.mat','cs_footprints.mat','experiment_manifest.mat'};
+skip = {'cs_calib.mat','CSW_final.mat','cs_window_dwell.mat','cs_footprints.mat','experiment_details.mat','experiment_manifest.mat'};
 d = dir(fullfile(anaDir,'*.mat'));
 for k = 1:numel(d)
     if any(strcmpi(d(k).name, skip)), continue; end

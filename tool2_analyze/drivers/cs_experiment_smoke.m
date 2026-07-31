@@ -67,7 +67,7 @@ assert(~any(strcmp({DDx.events.condition},'FFAT')), 'excluded FFAT events still 
 
 %% one project named two ways must yield ONE set of cells --------------------------------------
 % Tool 1 adds the project root; Tools 2 and 3 used to add <project>/analysis. Both land in the same
-% <project>/experiment_manifest.mat and both resolve to the same project, so every cell was listed
+% <project>/experiment_details.mat and both resolve to the same project, so every cell was listed
 % twice — which is what showed up as duplicate rows when opening Analyze after Track and Curate.
 pj = fileparts(dayA);                       % the PROJECT root; dayA is its analysis/
 nRoot = numel(cs_experiment_scan({pj}));

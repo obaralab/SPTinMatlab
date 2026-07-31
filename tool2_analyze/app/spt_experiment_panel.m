@@ -12,7 +12,7 @@ function ctl = spt_experiment_panel(parent, opts)
 %
 % opts (all optional):
 %   .seedFolders  cellstr of folders to scan on open (no dialog needed — for headless/host wiring).
-%   .manifestPath auto-load this experiment_manifest.mat on open.
+%   .manifestPath auto-load this experiment_details.mat on open.
 %   .tool         'track'|'curate'|'analyze' (labels only).
 %   .actionLabel  text for a host "process selected" button (e.g. 'Build selected'); '' hides it.
 %   .actionFcn    @(cells) ... called with the SELECTED cell records when the action button is hit.
@@ -33,7 +33,7 @@ here = fileparts(mfilename('fullpath'));                 % make cs_experiment_* 
 d1 = fullfile(fileparts(here),'drivers'); if isfolder(d1), addpath(d1); end
 
 folders = {}; sf = getf(opts,'seedFolders',{}); if ~isempty(sf), folders = cellstr(sf); end   % canonicalised on first scan/add
-autoPath = '';   % canonical <project>/experiment_manifest.mat — auto-loaded on open and
+autoPath = '';   % canonical <project>/experiment_details.mat — auto-loaded on open and
                  % auto-saved on every change, so the manifest lives WITH the project and no
                  % one has to remember to save it.
 cells = []; rowMap = [];
@@ -57,8 +57,8 @@ ctl = struct('getCells',@getCellsLive, 'getManifest',@getManifest, 'getSelected'
         uibutton(r1,'Text','➕ Add folder…','FontWeight','bold','BackgroundColor',[0.18 0.45 0.70],'FontColor','w', ...
             'Tooltip','Add a day/batch folder (project root or its analysis/). Its cells appear below.','ButtonPushedFcn',@(s,e) onAdd());
         uibutton(r1,'Text','↻ Rescan','ButtonPushedFcn',@(s,e) doScan(),'Tooltip','Re-scan folders (refresh status), keeping condition/day/exclude/notes.');
-        uibutton(r1,'Text','💾 Save','ButtonPushedFcn',@(s,e) onSaveBtn(),'Tooltip','Save the experiment manifest.');
-        uibutton(r1,'Text','📂 Load','ButtonPushedFcn',@(s,e) onLoadBtn(),'Tooltip','Load a saved experiment manifest.');
+        uibutton(r1,'Text','💾 Save','ButtonPushedFcn',@(s,e) onSaveBtn(),'Tooltip','Save the experiment details.');
+        uibutton(r1,'Text','📂 Load','ButtonPushedFcn',@(s,e) onLoadBtn(),'Tooltip','Load saved experiment details.');
         if ~isempty(actionLabel) && ~isempty(actionFcn)
             uibutton(r1,'Text',actionLabel,'FontWeight','bold','BackgroundColor',[0.40 0.30 0.55],'FontColor','w', ...
                 'ButtonPushedFcn',@(s,e) onAction(),'Tooltip','Run this tool''s step on the rows selected in the table.');
@@ -113,7 +113,7 @@ ctl = struct('getCells',@getCellsLive, 'getManifest',@getManifest, 'getSelected'
     function F = canon_folders(F)
         % One entry per PROJECT. A project can be named two ways — its root, or its analysis/
         % subfolder — and both were being added: Tool 1 added the root, Tools 2 and 3 added
-        % analysis/. Both land in the same <project>/experiment_manifest.mat, so the manifest ended
+        % analysis/. Both land in the same <project>/experiment_details.mat, so the manifest ended
         % up naming one project twice and every cell was listed twice. Collapse to the root, resolve
         % symlinks and trailing separators, then keep the first of each.
         out = {};
@@ -221,7 +221,7 @@ ctl = struct('getCells',@getCellsLive, 'getManifest',@getManifest, 'getSelected'
 
     function onSaveBtn()
         if isempty(cells), setStatus('Nothing to save.'); return; end
-        [fn,fp] = uiputfile({'*.mat','Experiment manifest'},'Save experiment manifest','experiment_manifest.mat');
+        [fn,fp] = uiputfile({'*.mat','Experiment details'},'Save experiment details','experiment_details.mat');
         if isequal(fn,0), return; end
         doSave(fullfile(fp,fn));
     end
@@ -230,13 +230,13 @@ ctl = struct('getCells',@getCellsLive, 'getManifest',@getManifest, 'getSelected'
         try, save(p,'manifest','-v7.3'); setStatus(['Saved ' p]); catch ME, setStatus(['Save failed: ' ME.message]); end
     end
     function onLoadBtn()
-        [fn,fp] = uigetfile({'*.mat','Experiment manifest'},'Load experiment manifest');
+        [fn,fp] = uigetfile({'*.mat','Experiment details'},'Load experiment details');
         if isequal(fn,0), return; end
         doLoad(fullfile(fp,fn));
     end
     function doLoad(p)
         try, L = load(p); catch ME, setStatus(['Load failed: ' ME.message]); return; end
-        if ~isfield(L,'manifest') || ~isfield(L.manifest,'cells'), setStatus('Not an experiment manifest.'); return; end
+        if ~isfield(L,'manifest') || ~isfield(L.manifest,'cells'), setStatus('Not an experiment details file.'); return; end
         folders = L.manifest.folders; if ischar(folders), folders = cellstr(folders); end
         % Repair a manifest already carrying the same project under two names — every one written
         % before this fix does, because Tool 1 stored the project root and Tools 2/3 stored analysis/.
@@ -257,11 +257,14 @@ ctl = struct('getCells',@getCellsLive, 'getManifest',@getManifest, 'getSelected'
         try, save(autoPath,'manifest','-v7.3'); catch, end   % silent: this is a background save
     end
 
-    function setAutoPath(p)
-        % Point the panel at a project's canonical manifest: load it if it is there, and from now
-        % on save every change straight back to it.
-        autoPath = char(p);
-        if ~isempty(autoPath) && isfile(autoPath), doLoad(autoPath); end
+    function setAutoPath(projectDir)
+        % Point the panel at a project's canonical details file: load whatever is there, and from now
+        % on save every change straight back to the CANONICAL name. cs_experiment_file resolves both
+        % spellings — a project written before the rename still has experiment_manifest.mat, so it is
+        % loaded from the old name and the next save writes the new one, migrating it silently.
+        % Callers pass the PROJECT FOLDER, not a file, so all three tools cannot drift on the name.
+        [autoPath, existing] = cs_experiment_file(projectDir);
+        if ~isempty(existing), doLoad(existing); end
     end
     function setStatus(t), if ~isempty(lbl)&&isgraphics(lbl), lbl.Text = t; end, end
 end

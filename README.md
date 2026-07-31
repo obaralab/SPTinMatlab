@@ -14,7 +14,7 @@ match · detect · track · filter   import · curate · build             conta
          <base>_settings.txt                 <base>_track_metrics.csv
                                              <base>_filter_log.csv
 
-  <project>/experiment_manifest.mat  ← the manifest all three tools share (cells, conditions, stage counts)
+  <project>/experiment_details.mat  ← the manifest all three tools share (cells, conditions, stage counts)
 ```
 
 Every hand-off is a file on disk, so you can stop after any stage, inspect what it wrote, and resume in a
@@ -30,7 +30,7 @@ run_analyze    % Tool 3  spt_analyze_app — Experiment · Contact sites · Refi
 ```
 
 **Experiment is tab 1 in all three tools**, and the tabs are numbered in the title bar so the order is
-visible. The manifest itself lives at the project top level (`<project>/experiment_manifest.mat`, not
+visible. The manifest itself lives at the project top level (`<project>/experiment_details.mat`, not
 inside `analysis/`) and is loaded as soon as a project folder is set, so whichever tool you open next
 already knows the cells and conditions. Tools 2 and 3 open on it. Tool 1 is the exception: it moves the
 selection to *Match files*, because on a fresh project there is nothing in the manifest yet and matching

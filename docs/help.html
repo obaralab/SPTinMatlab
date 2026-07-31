@@ -265,7 +265,7 @@
   <li>auto-fills <b>ER seg folder</b> from <code>er_seg</code> or <code>erseg</code>;</li>
   <li>auto-fills <b>Mito seg folder</b> from <code>mito_seg</code> or <code>mitoseg</code>;</li>
   <li>sets the Track tab's <b>Project</b> (output) field to the <em>same</em> folder, so <code>tracks/</code> is written inside the dataset;</li>
-  <li>points the Experiment panel at <code>&lt;project&gt;/experiment_manifest.mat</code> and adds the folder to the manifest, so conditions live with the data.</li>
+  <li>points the Experiment panel at <code>&lt;project&gt;/experiment_details.mat</code> and adds the folder to the manifest, so conditions live with the data.</li>
 </ol>
 The subfolder lookup is exact-name first, then a case-insensitive directory scan, so <code>ER_seg</code> is found too. Each of the three fields is still overridable with its own <kbd>Pick…</kbd>. If <code>spt/</code> was found, <b>Scan</b> runs automatically; if not you get <em>"No spt/ subfolder found — set the SPT folder manually."</em>
 </div>
@@ -673,7 +673,7 @@ n_spots,n_tracks,er_aware,run_time</code></pre>
 <div class="note">A third, rarer cause worth ruling out: an <b>inverted ER mask</b>. If <code>spt_load_seg</code> warned that the foreground covers more than 90 % of the field, the label was read the wrong way round, and strict linking will have enforced the constraint against the complement of the ER — keeping precisely the off-ER detections. Check that warning before concluding anything about the biology.</div>
 
 <h3 id="t1expt">Tab 1 · Experiment</h3>
-<p>This is the <b>same shared panel</b> that Tools 2 and 3 embed (<code>spt_experiment_panel</code>, which lives in <code>tool2_analyze/app/</code> and is added to the path when Tool 1 starts). It is tab 1 in all three tools so the manifest is always in the same place, and it is here — <em>before</em> tracking — so conditions can be assigned up front, straight from the raw movies. Picking a <b>Project folder</b> on the Match tab points it at <code>&lt;project&gt;/experiment_manifest.mat</code> and adds that folder to the table, so the conditions you set in any tool are already there in the next one. If the panel file cannot be found you get a plain label saying so instead of the panel, and the rest of Tool 1 works normally.</p>
+<p>This is the <b>same shared panel</b> that Tools 2 and 3 embed (<code>spt_experiment_panel</code>, which lives in <code>tool2_analyze/app/</code> and is added to the path when Tool 1 starts). It is tab 1 in all three tools so the manifest is always in the same place, and it is here — <em>before</em> tracking — so conditions can be assigned up front, straight from the raw movies. Picking a <b>Project folder</b> on the Match tab points it at <code>&lt;project&gt;/experiment_details.mat</code> and adds that folder to the table, so the conditions you set in any tool are already there in the next one. If the panel file cannot be found you get a plain label saying so instead of the panel, and the rest of Tool 1 works normally.</p>
 <h2 id="t2curate">2 · Import &amp; Curate — every control</h2>
 <p class="lead">The second tab of <code>run_curate</code> is a full track-inspection workbench (<code>tool2_analyze/app/track_viewer.m</code>, embedded into the tab). It reads Tool 1's curated pair, scores every track for mis-linkage, lets you overrule the automatic decision track by track, and writes the <code>_curated</code> pair that <b>Build &amp; QC</b> then turns into a named build. Nothing here recomputes MSD — this stage is only about <em>which tracks you trust</em>.</p>
 
@@ -1060,7 +1060,10 @@ Nothing in the shipped app is wired so that these fire — the read suffix and t
 <div class="good"><b>Everything downstream resolves through that one function</b>, never through a hardcoded filename: Tool 3's own loader, the contact-site picker (<code>cs_window_picker</code>), the window mapper (<code>cs_window_mapper</code>), the footprint builder (<code>cs_footprints_build</code>), <code>cs_refine</code>, the experiment scan (<code>cs_experiment_scan</code>) and the Experiment tab's <b>built</b> lamp (<code>cs_experiment_status</code>). They therefore cannot disagree about which file a folder is working from, and a separately launched <code>run_analyze</code> opens the build the Curate tool last wrote or loaded.</div>
 
 <h4 id="t2buildselector">The top-bar <b>Build</b> selector</h4>
-<p>The <b>Build</b> dropdown in the top bar (present in <em>both</em> tools, so Tool 3 states which build it is analysing rather than only implying it) lists every <code>.mat</code> in <code>analysis/</code> that genuinely contains a <code>Tracks</code> variable — it checks with <code>whos('-file')</code>, which is about a millisecond per file, and skips the known non-builds (<code>cs_calib.mat</code>, <code>CSW_final.mat</code>, <code>cs_window_dwell.mat</code>, <code>CS_footprints.mat</code>, <code>experiment_manifest.mat</code>). The active one is marked with a trailing <b>●</b>:</p>
+<p>The <b>Build</b> dropdown in the top bar (present in <em>both</em> tools, so Tool 3 states which build it is analysing rather than only implying it) lists every <code>.mat</code> in <code>analysis/</code> that genuinely contains a <code>Tracks</code> variable — it checks with <code>whos('-file')</code>, which is about a millisecond per file, and skips the known non-builds (<code>cs_calib.mat</code>, <code>CSW_final.mat</code>, <code>cs_window_dwell.mat</code>, <code>CS_footprints.mat</code>, <code>experiment_details.mat</code>). The active one is marked with a trailing <b>●</b>:</p>
+<div class="note"><b>The file was renamed.</b> It is <code>experiment_details.mat</code>; projects created before the rename carry <code>experiment_manifest.mat</code>. Both are read — <code>cs_experiment_file</code> resolves them and prefers the new name — and only the new one is written, so opening an older project migrates it on the next change. The old file is left in place, not deleted.</div>
+
+
 <pre><code>Day1_KO.mat  ●        &lt;- active
 Day1_WT.mat
 TrackStruct.mat</code></pre>
@@ -1700,10 +1703,10 @@ ref(r) = ρ · A_ER(r)                                               % A_ER(r) =
 
 <h3 id="exptmanifest">Where the manifest lives — and why there is no Save step to forget</h3>
 <p>The manifest is a single file at the <b>project top level</b>:</p>
-<pre><code>&lt;project&gt;/experiment_manifest.mat        % one variable, 'manifest', with .folders and .cells</code></pre>
+<pre><code>&lt;project&gt;/experiment_details.mat        % one variable, 'manifest', with .folders and .cells</code></pre>
 <p>It is wired up automatically:</p>
 <ul>
-  <li><b>Auto-loaded when a project is set.</b> In Tool 1, picking the <b>Project folder</b> on the Match-files tab points the panel at <code>&lt;project&gt;/experiment_manifest.mat</code> and adds that folder to the table. In Tools 2 and 3, the top-bar project picker also points the panel at that file, but the folder it adds is <code>&lt;project&gt;/analysis</code> (only if that subfolder already exists), not the project root. If the file is there it is loaded; if not, nothing happens and the first change creates it.</li>
+  <li><b>Auto-loaded when a project is set.</b> In Tool 1, picking the <b>Project folder</b> on the Match-files tab points the panel at <code>&lt;project&gt;/experiment_details.mat</code> and adds that folder to the table. In Tools 2 and 3, the top-bar project picker also points the panel at that file, but the folder it adds is <code>&lt;project&gt;/analysis</code> (only if that subfolder already exists), not the project root. If the file is there it is loaded; if not, nothing happens and the first change creates it.</li>
   <li><b>Auto-saved on every change.</b> Every edit — assigning a condition or day, toggling exclude, typing a note, a rescan, a load — writes the whole manifest straight back to that path (silently, <code>-v7.3</code>). There is no unsaved state to lose.</li>
 </ul>
 <p>The two explicit buttons are for moving a manifest around, not for routine work:</p>
@@ -1711,10 +1714,10 @@ ref(r) = ρ · A_ER(r)                                               % A_ER(r) =
   <tr><th>Button</th><th>Does</th></tr>
   <tr><td><kbd>➕ Add folder…</kbd></td><td>Add a day/batch folder — its project root <em>or</em> its <code>analysis/</code>. Its cells appear as new rows.</td></tr>
   <tr><td><kbd>↻ Rescan</kbd></td><td>Re-read the filesystem to refresh every lamp and count, <b>keeping</b> your condition / day / exclude / notes. Run it after a build or a mapper pass.</td></tr>
-  <tr><td><kbd>💾 Save</kbd></td><td>Save a copy somewhere of your choosing (the dialog defaults to the name <code>experiment_manifest.mat</code>). Useful for archiving or handing the manifest to someone else.</td></tr>
+  <tr><td><kbd>💾 Save</kbd></td><td>Save a copy somewhere of your choosing (the dialog defaults to the name <code>experiment_details.mat</code>). Useful for archiving or handing the manifest to someone else.</td></tr>
   <tr><td><kbd>📂 Load</kbd></td><td>Load a manifest file. Its folder list and per-cell assignments replace what is in the table, then a rescan refreshes the status.</td></tr>
 </table>
-<div class="warn"><b>Load overwrites the project's own manifest.</b> Because every change auto-saves to <code>&lt;project&gt;/experiment_manifest.mat</code>, loading a <em>different</em> manifest while a project is open writes that content over the project's file. If you want to inspect someone else's manifest without disturbing yours, open it in a tool with no project set.</div>
+<div class="warn"><b>Load overwrites the project's own manifest.</b> Because every change auto-saves to <code>&lt;project&gt;/experiment_details.mat</code>, loading a <em>different</em> manifest while a project is open writes that content over the project's file. If you want to inspect someone else's manifest without disturbing yours, open it in a tool with no project set.</div>
 <div class="good">Nothing in the manifest is heavy: it stores <b>folder paths and per-cell records</b> (name, day, condition, exclude, notes, resolved paths, status + counts). No localizations, no tracks, no TrackStruct. See <a href="#scale">Scale</a> for why that matters.</div>
 
 <h3 id="exptfolders">Scanning several day/batch folders into one table</h3>
@@ -1831,12 +1834,12 @@ localisations in those surviving tracks.</code></pre>
   <li>re-pairs <code>spt/</code> ↔ <code>er_seg/</code> ↔ <code>mito_seg/</code> (via <code>spt_match</code>, <code>_VAPB</code> token) for the overlays;</li>
   <li>runs <kbd>Auto</kbd> to pick up <code>dt</code> from a tracks XML, and writes <code>cs_calib.mat</code>;</li>
   <li>(Tool 2) embeds the Import &amp; Curate viewer on the tracks folder;</li>
-  <li>points the Experiment panel at <code>&lt;project&gt;/experiment_manifest.mat</code> and adds <code>&lt;project&gt;/analysis</code> to the manifest;</li>
+  <li>points the Experiment panel at <code>&lt;project&gt;/experiment_details.mat</code> and adds <code>&lt;project&gt;/analysis</code> to the manifest;</li>
   <li>refreshes the Build selector.</li>
 </ol>
 
 <h3 id="tbbuild">The Build selector</h3>
-<p>The <b>Build</b> dropdown names the TrackStruct this project is working from. It lists <em>every</em> <code>.mat</code> in <code>analysis/</code> that actually contains a variable called <code>Tracks</code> — found with <code>whos('-file', …)</code>, which is about a millisecond per file — skipping the files that are known not to be builds (<code>cs_calib.mat</code>, <code>CSW_final.mat</code>, <code>cs_window_dwell.mat</code>, <code>cs_footprints.mat</code>, <code>experiment_manifest.mat</code>). With no build yet it shows <code>(no build yet)</code>.</p>
+<p>The <b>Build</b> dropdown names the TrackStruct this project is working from. It lists <em>every</em> <code>.mat</code> in <code>analysis/</code> that actually contains a variable called <code>Tracks</code> — found with <code>whos('-file', …)</code>, which is about a millisecond per file — skipping the files that are known not to be builds (<code>cs_calib.mat</code>, <code>CSW_final.mat</code>, <code>cs_window_dwell.mat</code>, <code>cs_footprints.mat</code>, <code>experiment_details.mat</code>). With no build yet it shows <code>(no build yet)</code>.</p>
 <p>The build currently <b>in force</b> is marked with a <code>●</code> after its name. Its tooltip:</p>
 <div class="card">"The TrackStruct build in force for this project (<code>analysis/&lt;name&gt;.mat</code>). Tool 2 writes named builds; picking one here makes it active, so Tool 3 — and a separately launched Analyze tool — analyse exactly this file."</div>
 <p>Picking a different entry is a real switch, not a display change: it writes the name into <code>analysis/active_trackstruct.txt</code>, discards the in-session build, <b>resets all downstream state</b> (sites, dwell and Compare results belong to the old build), reloads the new file, repopulates the QC cell list, and logs <code>Active build -&gt; Day1_KO.mat  (n cell(s))</code>. Everything that asks "which build?" — the picker, the mapper, the footprints, the Experiment tab's <b>built</b> lamp — resolves through the same pointer, so they cannot disagree.</p>
@@ -2148,7 +2151,7 @@ curation.exported       = 2026-07-29 11:02:13</code></pre>
     <td><code>active_trackstruct.txt</code></td>
     <td>Tool 2, on every build and every load (<code>setActiveTs</code>)</td>
     <td><code>cs_active_trackstruct.m</code> — the single resolver every other stage calls</td>
-    <td>One line: the <b>basename</b> of the build in force, e.g. <code>Day1_WT.mat</code>. Resolution order when it is missing or names a file that no longer exists: <code>TrackStruct.mat</code> → <code>Tracks.mat</code> (legacy) → any other <code>.mat</code> in the folder that actually contains a <code>Tracks</code> variable, skipping <code>cs_calib.mat</code>, <code>CSW_final.mat</code>, <code>cs_window_dwell.mat</code>, <code>cs_footprints.mat</code> and <code>experiment_manifest.mat</code>.</td>
+    <td>One line: the <b>basename</b> of the build in force, e.g. <code>Day1_WT.mat</code>. Resolution order when it is missing or names a file that no longer exists: <code>TrackStruct.mat</code> → <code>Tracks.mat</code> (legacy) → any other <code>.mat</code> in the folder that actually contains a <code>Tracks</code> variable, skipping <code>cs_calib.mat</code>, <code>CSW_final.mat</code>, <code>cs_window_dwell.mat</code>, <code>cs_footprints.mat</code> and <code>experiment_details.mat</code>.</td>
   </tr>
 
   <tr>
@@ -2275,7 +2278,7 @@ curation.exported       = 2026-07-29 11:02:13</code></pre>
 <table>
   <tr><th>File</th><th>Written by</th><th>Read by</th><th>Contents</th></tr>
   <tr>
-    <td><code>&lt;project&gt;/experiment_manifest.mat</code></td>
+    <td><code>&lt;project&gt;/experiment_details.mat</code></td>
     <td>The shared Experiment panel, <b>automatically on every change</b> (condition edits, exclude toggles, notes) once a tool has pointed it at the project, plus explicitly via its Save button</td>
     <td>The same panel in all three tools — whichever tool you open next loads the same manifest, so conditions assigned before tracking are visible during analysis</td>
     <td>One variable <code>manifest</code> with <code>.folders</code> (the day/batch folders in the table) and <code>.cells</code>, one record per cell: <code>file, day, condition, exclude, reason, notes</code>; resolved paths <code>project, analysis, tracks, spt, erSeg, mitoSeg, trackstruct</code>; <code>nTracks</code>; and <code>status</code> — the six stage lamps (<code>tracked, curated, built, picked, mapped, dwelled</code>) plus the per-stage counts <code>nSpotsRaw, nTracksRaw, nTracksFiltered, nTracksCurated, nTracksMetrics, nTracksKept, nSpotsInTracks, nSpotsKept, nTracksBuilt, nSpotsBuilt, nCellsBuilt</code>. The <b>lamps and counts are re-derived from the filesystem on every scan</b> — a rescan carries over only what you typed (<code>condition</code>, <code>day</code>, <code>exclude</code>, <code>notes</code>, matched on <code>folder</code>+<code>file</code>) and replaces everything else with fresh values, so a manifest can never claim a stage ran when its file is gone.</td>
