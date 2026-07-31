@@ -272,7 +272,19 @@ end
         % row 3 — main: [ left pooled | middle clickable tracks | right: embedded player + small MSD ]
         mn = uigridlayout(g,[1 3],'ColumnWidth',{'0.78x','1.15x','1.05x'},'Padding',[0 0 0 0],'ColumnSpacing',8);
         lp = uigridlayout(mn,[6 1],'RowHeight',{92,'1x','1x','1x','1x','1x'},'Padding',[0 0 0 0],'RowSpacing',6);
-        tblBuild = uitable(lp,'ColumnName',{'cell','tracks','med len','mito','ER'},'ColumnWidth',{'auto',52,64,44,44});
+        % Calibration is PER CELL, and it lives here because this is the per-cell inventory of the
+        % build. Each cell is stamped at import from its own file metadata where the acquisition chain
+        % kept it, and from the Calibration panel otherwise; a ° marks a value inherited from the panel
+        % rather than measured from that cell. The last four columns are editable, so a cell recorded
+        % on a different camera or at a different frame rate can be corrected without touching the
+        % others — which is what makes a comparison spanning two acquisitions come out in real units.
+        tblBuild = uitable(lp,'ColumnName',{'cell','tracks','med len','mito','ER','µm/px','FOV µm','dt s','prec nm'}, ...
+            'ColumnWidth',{'auto',52,64,44,44, 60,58,60,58}, ...
+            'ColumnEditable',[false false false false false true true true true], ...
+            'CellEditCallback',@(s2,e2) onCalEdit(e2), ...
+            'Tooltip',['Per-cell calibration — edit any of the last four for one cell without disturbing ' ...
+                       'the rest. ° = inherited from the Calibration panel above rather than read from ' ...
+                       'that cell''s own file. dt comes from each cell''s tracks XML.']);
         axLen   = uiaxes(lp); title(axLen,'track length');
         axDist  = uiaxes(lp); title(axDist,'ER / mito distance');
         axDdist = uiaxes(lp); title(axDdist,'D distribution');
@@ -452,8 +464,8 @@ end
         % uses the full localization cloud instead.
         base = char(buildTracks(k).file);
         [X,Y] = densCoords(base, src);
-        PixSize = PRECNM;                                       % nm bin
-        Bins = PixSize*(1:ceil(FOVUM/(PixSize/1000))+1);        % nm edges, identical to the advisor's grid
+        PixSize = trackPrec(k);                                 % nm bin — THIS cell's precision
+        Bins = PixSize*(1:ceil(trackFov(k)/(PixSize/1000))+1);  % nm edges, identical to the advisor's grid
         okp = isfinite(X) & isfinite(Y);
         NumLoc = histcounts2(1000*X(okp), 1000*Y(okp), Bins, Bins);
         sm = imgaussfilt(NumLoc,[2 2])';                        % row = y, col = x (image convention)
@@ -1297,11 +1309,13 @@ end
 
     function R = buildSiteR(e, onlyCols)
         % Build a spt_track_movie R struct from a site's member tracks (all, or only onlyCols). CSmatrix
-        % is µm RELATIVE to the site centre → absolute µm (+centre) → raw-movie pixels (x = X/PXUM + 1).
+        % is µm RELATIVE to the site centre → absolute µm (+centre) → raw-movie pixels (x = X/px + 1,
+        % px being THIS cell's pixel size, which need not match the rest of the project).
         if nargin<2, onlyCols = []; end
         R = [];
         [sp,er,mi] = matchedPaths(e.file);
         if isempty(sp) || ~isfile(sp), return; end
+        pxc = trackPx(e.cellIndex);
         dtc = trackDt(e.cellIndex); secs = secsMode();
         cx = e.center(1); cy = e.center(2);
         xAll=[]; yAll=[]; fAll=[]; idAll=[];
@@ -1311,13 +1325,13 @@ end
             keep = isfinite(x) & isfinite(y) & isfinite(fr);
             if ~any(keep), continue; end
             if secs, f0 = round(fr(keep)/max(dtc,eps)); else, f0 = round(fr(keep)); end
-            xAll = [xAll; x(keep)/PXUM + 1]; yAll = [yAll; y(keep)/PXUM + 1]; %#ok<AGROW>
+            xAll = [xAll; x(keep)/pxc + 1]; yAll = [yAll; y(keep)/pxc + 1]; %#ok<AGROW>
             fAll = [fAll; f0(:)]; idAll = [idAll; e.tracks(jj)*ones(nnz(keep),1)]; %#ok<AGROW>
         end
         if isempty(xAll), return; end
         csPx = [];   % contact-site outline in raw-movie pixels (same µm->px map) — overlaid via the player's CS toggle
         if isfield(e,'refboundary') && size(e.refboundary,1)>=3
-            csPx = [(e.refboundary(:,1)+cx)/PXUM + 1, (e.refboundary(:,2)+cy)/PXUM + 1];
+            csPx = [(e.refboundary(:,1)+cx)/pxc + 1, (e.refboundary(:,2)+cy)/pxc + 1];
         end
         R = struct('base',e.file,'sptPath',sp,'erPath',er,'mitoPath',mi, ...
                    'x',xAll,'y',yAll,'frame',fAll,'trackId',idAll,'csPolyPx',csPx);
@@ -1566,7 +1580,8 @@ end
             % per-frame raw SPT backdrop (image filled in dwellRedraw); µm extent so track/outline register
             try, info = imfinfo(da.sptPath); da.rawH = info(1).Height; da.rawW = info(1).Width; da.rawN = numel(info); catch, da.rawH = []; end
             if ~isempty(da.rawH)
-                da.h.bg = imagesc(ax, [0 (da.rawW-1)*PXUM], [0 (da.rawH-1)*PXUM], zeros(da.rawH,da.rawW)); colormap(ax,gray); da.rawLo = []; da.rawHi = [];
+                pxc = trackPx(da.cellIndex);
+                da.h.bg = imagesc(ax, [0 (da.rawW-1)*pxc], [0 (da.rawH-1)*pxc], zeros(da.rawH,da.rawW)); colormap(ax,gray); da.rawLo = []; da.rawHi = [];
             end
         elseif ~isempty(da.dens)
             da.h.bg = imagesc(ax,[da.SF da.grid*da.SF],[da.SF da.grid*da.SF],da.dens); colormap(ax,turbo);
@@ -1671,7 +1686,8 @@ end
             im = imread(p, segIdx); if size(im,3)==3, im = rgb2gray(im); end
             v = unique(im(:)); nz = v(v>0); fg = 1; if ~isempty(nz), fg = double(min(nz)); end
             mask = (im == fg);
-            segH = size(mask,1); segW = size(mask,2); ux = FOVUM/segW; uy = FOVUM/segH;
+            fovc = trackFov(da.cellIndex);
+            segH = size(mask,1); segW = size(mask,2); ux = fovc/segW; uy = fovc/segH;
             c0 = max(1,floor(da.xlim(1)/ux)); c1 = min(segW,ceil(da.xlim(2)/ux));
             r0 = max(1,floor(da.ylim(1)/uy)); r1 = min(segH,ceil(da.ylim(2)/uy));
             if c1>c0 && r1>r0
@@ -1991,7 +2007,13 @@ end
         for k = 1:numel(Tracks)
             dtk = DTS; if isfield(Tracks,'frameInterval') && ~isempty(Tracks(k).frameInterval) && Tracks(k).frameInterval>0, dtk = Tracks(k).frameInterval; end
             try
-                Tk = spt_track_diffusion(Tracks(k), struct('dt',dtk,'sigmaUm',PRECNM/1000));
+                % this cell's own localization precision where the build stamped one
+                prk = PRECNM;
+                if isfield(Tracks,'calib') && isstruct(Tracks(k).calib) && isfield(Tracks(k).calib,'precNm') ...
+                        && isscalar(Tracks(k).calib.precNm) && Tracks(k).calib.precNm > 0
+                    prk = Tracks(k).calib.precNm;
+                end
+                Tk = spt_track_diffusion(Tracks(k), struct('dt',dtk,'sigmaUm',prk/1000));
                 % Only the rolling D is stored. confined / stateChange are NOT written: nothing reads
                 % them any more (Tool 3's diffusion-state density channels are gone), and carrying
                 % flags derived from a confinement criterion nobody is setting invites them being
@@ -2019,6 +2041,7 @@ end
         try
             % Prefer='raw' is a benign placeholder so the auto-detect doesn't error; Pattern overrides it.
             Tracks = build_trackstruct(tracksDir, 'Prefer', 'raw', 'Pattern', pat, 'TimeUnit', tu, 'Save', false, ...
+                'Calib', struct('pixSizeUm',PXUM,'fovUm',FOVUM,'dt_s',DTS,'binNm',PRECNM), ...
                 'Verbose', false, 'ProgressFcn', @(i,n,name) setBuild(sprintf('Building %d/%d: %s (MSD)…', i, n, name),[0.2 0.4 0.5]));
         catch ME
             setBuild(['Build failed: ' ME.message],[0.75 0.1 0.1]); return;
@@ -2098,16 +2121,21 @@ end
     end
 
     function populateBuildSummary(Tracks, src, aDir)
-        n = numel(Tracks); D = cell(n,5); tot = 0; anyM=false; anyE=false;
+        n = numel(Tracks); D = cell(n,9); tot = 0; anyM=false; anyE=false;
+        buildTracks = Tracks;                                    % set FIRST: the calibration accessors read it
         for k = 1:n
             L = double(Tracks(k).lengths(:)); nt = numel(L); tot = tot + nt;
             hm = isfield(Tracks,'mitoDist') && ~isempty(Tracks(k).mitoDist);
             he = isfield(Tracks,'erDist')   && ~isempty(Tracks(k).erDist);
             anyM = anyM||hm; anyE = anyE||he;
-            D(k,:) = {char(Tracks(k).file), nt, round(median(L)), tern(hm,'✓','–'), tern(he,'✓','–')};
+            sc = calSrc(k); inh = @(f) tern(strcmp(gs(sc,f),'image')||strcmp(gs(sc,f),'xml'),'','°');
+            D(k,:) = {char(Tracks(k).file), nt, round(median(L)), tern(hm,'✓','–'), tern(he,'✓','–'), ...
+                      sprintf('%.5g%s', trackPx(k),   inh('pixSizeUm')), ...
+                      sprintf('%.5g%s', trackFov(k),  inh('fovUm')), ...
+                      sprintf('%.5g%s', trackDt(k),   inh('dt_s')), ...
+                      sprintf('%.4g%s', trackPrec(k), inh('precNm'))};
         end
         tblBuild.Data = D;
-        buildTracks = Tracks;
         ddQCcell.Items = [{'All (pooled)'}, cellfun(@char, {Tracks.file}, 'uni', 0)];
         ddQCcell.Value = 'All (pooled)';
         drawQC('All (pooled)');
@@ -2115,6 +2143,47 @@ end
             n, tot, fullfile(aDir,tsName), src, tern(anyM,'yes','no'), tern(anyE,'yes','no')));
         setBuild(sprintf('Done — %d cell(s), %d tracks. %s in analysis/ (active). QC below.', n, tot, tsName),[0.2 0.5 0.2]);
     end
+
+    function onCalEdit(ev)
+        % Write one cell's calibration back into the build. Saving matters: D is re-derived from the
+        % stored precision, so a correction that lived only in the table would silently not apply.
+        try, r = ev.Indices(1); c = ev.Indices(2); catch, return; end
+        if r < 1 || r > numel(buildTracks), return; end
+        fields = struct('x6','pixSizeUm','x7','fovUm','x8','dt_s','x9','precNm');
+        fn = sprintf('x%d', c); if ~isfield(fields, fn), return; end
+        f = fields.(fn);
+        v = str2double(regexprep(char(string(ev.NewData)), '[^0-9eE.+-]', ''));   % tolerate a pasted '°'
+        if ~(isscalar(v) && isfinite(v) && v > 0)
+            setBuild('Calibration must be a positive number — reverting that cell.',[0.7 0.2 0.2]);
+            tblBuild.Data{r,c} = ev.PreviousData; return;
+        end
+        if ~isfield(buildTracks,'calib'), [buildTracks.calib] = deal(struct()); end
+        cal = buildTracks(r).calib; if ~isstruct(cal), cal = struct(); end
+        cal.(f) = v;
+        if ~isfield(cal,'src') || ~isstruct(cal.src), cal.src = struct(); end
+        cal.src.(f) = 'edited';
+        buildTracks(r).calib = cal;
+        if strcmp(f,'dt_s'), buildTracks(r).frameInterval = v; end   % the one field read from two places
+        tblBuild.Data{r,c} = sprintf('%.5g', v);
+        saveActiveBuild(sprintf('%s of %s → %.5g', f, char(buildTracks(r).file), v));
+    end
+
+    function saveActiveBuild(what)
+        aDir = fullfile(projectDir,'analysis');
+        f = fullfile(aDir, activeTsName(aDir));
+        if ~isfolder(aDir) || isempty(buildTracks)
+            setBuild('Nothing to save — build or load a TrackStruct first.',[0.7 0.2 0.2]); return;
+        end
+        Tracks = buildTracks; %#ok<NASGU>
+        try
+            save(f,'Tracks','-v7.3');
+            setBuild(sprintf('Saved %s → %s. Rebuild to re-derive D with it.', what, activeTsName(aDir)),[0.2 0.5 0.2]);
+        catch ME
+            setBuild(['Could not save: ' ME.message],[0.7 0.2 0.2]);
+        end
+    end
+
+    function v = gs(s2,f), v = ''; if isstruct(s2)&&isfield(s2,f)&&(ischar(s2.(f))||isstring(s2.(f))), v = char(s2.(f)); end, end
 
     function onQCcell()
         if ~isempty(ddQCcell) && isgraphics(ddQCcell), drawQC(ddQCcell.Value); end
@@ -2403,10 +2472,10 @@ end
         R = [];
         [sp,er,mi] = matchedPaths(s.base);
         if isempty(sp) || ~isfile(sp), return; end
-        dt = trackDt(s.cellIdx);
+        dt = trackDt(s.cellIdx); pxc = trackPx(s.cellIdx);
         if secsMode(), fr = round(s.F/dt); else, fr = round(s.F); end
         R = struct('base',s.base,'sptPath',sp,'erPath',er,'mitoPath',mi, ...
-            'x', s.X/PXUM + 1, 'y', s.Y/PXUM + 1, 'frame', fr(:), 'trackId', zeros(numel(s.X),1));
+            'x', s.X/pxc + 1, 'y', s.Y/pxc + 1, 'frame', fr(:), 'trackId', zeros(numel(s.X),1));
     end
 
     function dt = trackDt(cellIdx)
@@ -2414,6 +2483,36 @@ end
         if cellIdx>=1 && cellIdx<=numel(buildTracks) && isfield(buildTracks,'frameInterval') ...
                 && ~isempty(buildTracks(cellIdx).frameInterval) && buildTracks(cellIdx).frameInterval>0
             dt = buildTracks(cellIdx).frameInterval;
+        end
+    end
+
+    % ---- per-CELL calibration -------------------------------------------------------------------
+    % dt has always been per cell (above), read from each cell's own XML. These three are the rest of
+    % it. A cell carries its own values when the build stamped them (Tracks(k).calib, from the cell's
+    % image metadata or from the panel at build time); the panel fields below are the fallback for
+    % cells built before this existed. That is what lets ONE comparison span acquisitions from
+    % different cameras and frame rates — e.g. a collaborator's data as a null — without retyping the
+    % calibration between cells.
+    function v = trackCal(cellIdx, field, dflt)
+        v = dflt;
+        if cellIdx>=1 && cellIdx<=numel(buildTracks) && isfield(buildTracks,'calib')
+            c = buildTracks(cellIdx).calib;
+            if isstruct(c) && isfield(c,field) && isscalar(c.(field)) && isfinite(c.(field)) && c.(field)>0
+                v = c.(field);
+            end
+        end
+    end
+    function v = trackPx(cellIdx),   v = trackCal(cellIdx,'pixSizeUm',PXUM);   end
+    function v = trackFov(cellIdx),  v = trackCal(cellIdx,'fovUm',   FOVUM);   end
+    function v = trackPrec(cellIdx), v = trackCal(cellIdx,'precNm',  PRECNM);  end
+
+    function s = calSrc(cellIdx)
+        % 'measured' / 'inherited' per field, so the UI can say where a cell's numbers came from
+        % rather than showing an inherited value as though it had been read off the file.
+        s = struct('pixSizeUm','panel','fovUm','panel','dt_s','xml','precNm','panel');
+        if cellIdx>=1 && cellIdx<=numel(buildTracks) && isfield(buildTracks,'calib')
+            c = buildTracks(cellIdx).calib;
+            if isstruct(c) && isfield(c,'src') && isstruct(c.src), s = c.src; end
         end
     end
 

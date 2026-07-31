@@ -53,6 +53,7 @@ p.addParameter('Save',      true,           @islogical);
 p.addParameter('Verbose',   true,           @islogical);
 p.addParameter('IncludeFiles',{},            @iscell);   % only import these cell bases ({}=all)
 p.addParameter('ProgressFcn',[]);            % @(i,nFiles,name) called before each cell imports
+p.addParameter('Calib', struct());           % project-level calibration used where a cell has none
 p.parse(varargin{:});
 opt = p.Results;
 useFrame = strcmpi(opt.TimeUnit,'frame');
@@ -249,6 +250,12 @@ for i = 1:nFiles
     Tracks(k).erDist   = erDist;     % [m x n] signed µm to nearest ER pixel per tracked spot ([] if no column)
     Tracks(k).trackIDs = trackIDs(:);   % TrackMate TRACK_ID per matrix column (NaN if the XML omits it)
     Tracks(k).frameInterval = frameInt; % seconds per frame from the XML root (1 if absent) — real-time clock
+    % Per-CELL calibration. dt already came from this cell's own XML; pixel size and field of view
+    % come from this cell's own image where the acquisition chain kept the TIFF resolution tags, and
+    % otherwise from the project-level Calibration panel. Storing all four per cell is what lets one
+    % project (or one comparison) hold acquisitions from DIFFERENT cameras and frame rates — the
+    % downstream code reads Tracks(k).*, never a single global.
+    Tracks(k).calib = cell_calib(xmlPath, opt.Calib, frameInt);
 
     if opt.Verbose
         fprintf('   %d tracks, max length %d, frameInterval=%g\n', n, m, frameInt);
@@ -397,4 +404,69 @@ else
         end
     end
 end
+end
+
+function c = cell_calib(xmlPath, proj, frameInt)
+%CELL_CALIB  This cell's own calibration, with the project panel as the fallback.
+%
+% Resolution order, most specific first:
+%   1. the cell's own image metadata (TIFF resolution tags next to its XML)
+%   2. the project-level Calibration panel ('Calib' option)
+%   3. the historical defaults, so an old project imports exactly as it always did
+%
+% .src records which one won per field, so the app can SAY whether a cell was measured or inherited
+% rather than presenting an inherited value as if it had been read off the file.
+
+DEF = struct('pixSizeUm',0.10785,'fovUm',27.61,'precNm',30);
+c = struct('pixSizeUm',NaN,'fovUm',NaN,'dt_s',frameInt,'precNm',NaN, ...
+           'src',struct('pixSizeUm','default','fovUm','default','dt_s','xml','precNm','default'));
+if ~(isscalar(frameInt) && isfinite(frameInt) && frameInt > 0)
+    c.dt_s = pick(proj,'dt_s',0.020064); c.src.dt_s = 'project';
+end
+
+% 1. the cell's own image, where the acquisition chain kept the tags
+meta = struct('pixSizeUm',NaN,'fovUm',NaN);
+try
+    tif = sibling_image(xmlPath);
+    if ~isempty(tif), meta = read_calibration('Image', tif); end
+catch
+end
+
+[c.pixSizeUm, c.src.pixSizeUm] = resolve(getfd(meta,'pixSizeUm'), pick(proj,'pixSizeUm',NaN), DEF.pixSizeUm);
+[c.fovUm,     c.src.fovUm]     = resolve(getfd(meta,'fovUm'),     pick(proj,'fovUm',NaN),     DEF.fovUm);
+% Localization precision is never in file metadata — it is a property of the fit, not the camera
+% geometry — so it can only come from the panel (or the default).
+[c.precNm,    c.src.precNm]    = resolve(NaN,                     pick(proj,'binNm',NaN),     DEF.precNm);
+end
+
+function t = sibling_image(xmlPath)
+% The cell's raw image, if it sits beside its XML under any of the usual names.
+t = '';
+[d, b] = fileparts(xmlPath);
+base = regexprep(b, '_tracks(_filtered|_curated)?$', '');
+roots = {d, fullfile(d,'..'), fullfile(d,'..','raw'), fullfile(d,'..','images')};
+for i = 1:numel(roots)
+    if ~isfolder(roots{i}), continue; end
+    for ext = {'.tif','.tiff','.ome.tif'}
+        f = fullfile(roots{i}, [base ext{1}]);
+        if isfile(f), t = f; return; end
+    end
+end
+end
+
+function [v, src] = resolve(fromImage, fromProject, fallback)
+if isfinite(fromImage) && fromImage > 0
+    v = fromImage;   src = 'image';
+elseif isfinite(fromProject) && fromProject > 0
+    v = fromProject; src = 'project';
+else
+    v = fallback;    src = 'default';
+end
+end
+
+function v = pick(s, f, d)
+v = d; if isstruct(s) && isfield(s,f) && isscalar(s.(f)) && isfinite(s.(f)) && s.(f) > 0, v = s.(f); end
+end
+function v = getfd(s, f)
+v = NaN; if isstruct(s) && isfield(s,f) && isscalar(s.(f)), v = s.(f); end
 end

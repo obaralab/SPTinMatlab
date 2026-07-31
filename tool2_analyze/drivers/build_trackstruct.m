@@ -60,6 +60,7 @@ p.addParameter('Save',true);
 p.addParameter('Verbose',true);
 p.addParameter('IncludeFiles',{});  % only build these cell bases ({}=all) — session selection
 p.addParameter('ProgressFcn',[]);   % @(i,nFiles,name) forwarded to TrackImporter_direct
+p.addParameter('Calib',struct());    % project-level calibration; each cell falls back to it
 p.addParameter('Pattern','',@ischar);  % explicit XML glob (overrides Prefer) — e.g. dual-colour '*_ch24_spt_tracks.xml'
 p.parse(varargin{:});
 opt = p.Results;
@@ -134,7 +135,8 @@ Tracks = TrackImporter_direct(inputDir, ...
     'Save',       opt.Save, ...
     'Verbose',    opt.Verbose, ...
     'IncludeFiles',opt.IncludeFiles, ...
-    'ProgressFcn',opt.ProgressFcn);
+    'ProgressFcn',opt.ProgressFcn, ...
+    'Calib',      opt.Calib);
 
 if opt.Verbose
     fprintf('build_trackstruct: done — %d file(s) in Tracks.\n', numel(Tracks));

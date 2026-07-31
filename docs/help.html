@@ -154,6 +154,7 @@
   <a href="#tbproject">&nbsp;&nbsp;The project picker — what setting a project actually does</a>
   <a href="#tbbuild">&nbsp;&nbsp;The Build selector</a>
   <a href="#tbcalib">&nbsp;&nbsp;The four calibration fields</a>
+  <a href="#tbpercell">&nbsp;&nbsp;Calibration is per cell</a>
   <a href="#tbauto">&nbsp;&nbsp;The Auto button</a>
   <a href="#compare">Compare — grouped statistics across sites, cells and conditions</a>
   <a href="#cmpsource">&nbsp;&nbsp;Data source: this project vs the whole experiment</a>
@@ -1867,6 +1868,21 @@ localisations in those surviving tracks.</code></pre>
         -&gt; &lt;tracks folder&gt;/cs_calib.mat        % copied into analysis/ when you Build</code></pre>
 <p><code>cs_config</code> picks that file up automatically and overrides the built-in defaults <em>for that run only</em>, which is how the whole downstream suite follows your camera without anyone editing code. Conversely, loading a build from a folder that already has <code>analysis/cs_calib.mat</code> adopts its values back into these four fields.</p>
 <div class="warn">Get FOV and pixel size right <b>before</b> picking sites. They set the µm scale of the density map, so changing them afterwards changes what every site coordinate, area and enrichment means — and picks already saved were made on the old scale.</div>
+
+
+<h4 id="tbpercell">Calibration is per <em>cell</em>, not per project</h4>
+<p>The four fields above are the project-level <b>default</b>. Each cell additionally carries its own calibration, stamped into the TrackStruct at build time as <code>Tracks(k).calib</code> — <code>pixSizeUm, fovUm, dt_s, precNm</code>, plus a <code>src</code> record of where each value came from. Everything downstream reads the cell's own values, never a single global.</p>
+<p>Each field is resolved most-specific-first:</p>
+<table>
+  <tr><th>Source</th><th>Applies to</th><th>Marked</th></tr>
+  <tr><td>The cell's own tracks XML (<code>frameInterval</code>)</td><td><b>dt</b> — always, and always has been</td><td><code>xml</code></td></tr>
+  <tr><td>The cell's own image metadata (TIFF resolution tags beside its XML)</td><td><b>pixel size</b>, <b>FOV</b>, where the acquisition chain kept the tags</td><td><code>image</code></td></tr>
+  <tr><td>The Calibration panel at build time</td><td>anything not measured — always <b>localization precision</b>, which is a property of the fit and is never in file metadata</td><td><code>project</code></td></tr>
+  <tr><td>You, editing the build table</td><td>any field, one cell at a time</td><td><code>edited</code></td></tr>
+</table>
+<p>The <b>Build &amp; QC</b> cell table shows all four per cell in its last four columns, and they are <b>editable</b>. A <code>°</code> after a value means it was inherited from the panel rather than measured from that cell's own file — so you can see at a glance which cells were actually calibrated. Editing one writes it into the active build and saves immediately.</p>
+<div class="good"><b>Why this matters.</b> It is what lets a single comparison span acquisitions from <b>different cameras at different frame rates</b> — a collaborator's dataset alongside your own, say, as a null for contact-site detection. Previously the panel applied one camera's numbers to every cell in view, so opening a second project silently re-scaled the first one's cached data. Now each cell answers in its own units, and <a href="#compare">Compare</a> — which already works in µm and s — puts them side by side correctly.</div>
+<div class="note">Editing a cell's <b>precision</b> or <b>dt</b> changes the diffusion coefficient, because <code>D = &lang;Δr²&rang;/(4·dt) − σ²/dt</code> reads both. The stored <code>Dt</code> is <em>not</em> retroactively recomputed — rebuild (or re-derive on the Build &amp; QC tab) to pick the correction up.</div>
 
 <h3 id="tbauto">The Auto button</h3>
 <p><kbd>Auto</kbd> reads the first <code>*_tracks*.xml</code> in the tracks folder and takes its <code>frameInterval="…"</code> attribute into the <b>dt s</b> field (only if it parses to a finite positive number), then rewrites <code>cs_calib.mat</code>. It leaves pixel size, FOV and loc precision as they are — those you set yourself. It runs automatically whenever you set a project, so in the normal flow <code>dt</code> is already correct from Tool 1's own record and you never touch the button.</p>
