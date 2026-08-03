@@ -22,6 +22,10 @@ ddThrMode=[]; spnQual=[]; lblQual=[];   % threshold mode: Top % (percentile) vs 
 dCell=0; dInfo=[]; dNfr=0; dPool=zeros(0,1); hRateMk=[]; dRateF=[]; dRateC=[]; imW=0; imH=0;
 sldCMin=[]; sldCMax=[]; btnPlay=[]; playTimer=[];               % contrast sliders + play button/timer
 dispLo=0; dispHi=1; gMin=0; gMax=1; dLastIm=[]; dLastXY=zeros(0,3); dLastShp=zeros(0,4);   % display range + cached frame/detections/shape
+autoThr=[];   % ImageJ B&C auto-threshold; halves on repeated Auto, resets on frame/cell change
+dLastOff=false(0,1);   % per-detection off-ER flag for the cached frame
+erNfr=[];              % ER stack page count, cached per cell (imfinfo is O(pages))
+gStack=[];    % per-cell intensity stats + pooled sample (stack_stats) — Auto works on this, not one frame
 ELONG_BLUR = 1.5;   % elongation above this flags a likely motion-blurred (streaked) spot
 % Track-tab handles + state
 spnLink=[]; spnGap=[]; spnInt=[]; ddMode=[]; spnLam=[]; eProj=[]; lblTrk=[]; lblTrkDet=[]; txtLog=[]; trkBusy=false; spnSampN=[]; playerCtl=[];
@@ -49,9 +53,13 @@ eCalPx = uieditfield(top,'numeric','Value',PXUM,'ValueDisplayFormat','%.5g','Lim
     'Tooltip','µm per pixel — auto-read from the TIFF where possible; edit to override.', ...
     'ValueChangedFcn',@(s,e) onCalChange());
 uilabel(top,'Text','Frame interval (s)','HorizontalAlignment','right');
-eCalDt = uieditfield(top,'numeric','Value',DTS,'ValueDisplayFormat','%.5g','Limits',[1e-6 100], ...
+eCalDt = uieditfield(top,'numeric','Value',DTS,'ValueDisplayFormat','%.5g','Limits',[1e-6 3600], ...
+    'Tooltip',['Seconds per frame. Auto reads it from the TIFF (ImageJ ''finterval''). The upper ' ...
+               'limit matches what the reader accepts, so a slow timelapse cannot throw here.'], ...
     'ValueChangedFcn',@(s,e) onCalChange());
-uibutton(top,'Text','Auto','Tooltip','Re-read the pixel size from the current cell''s TIFF', ...
+uibutton(top,'Text','Auto','Tooltip',['Read the calibration from the current cell''s TIFF: pixel ' ...
+    'size, frame interval, and the display range Fiji saved. Understands ImageJ/Fiji files, where ' ...
+    'the scale is in XResolution and the unit is in the ImageDescription text block.'], ...
     'ButtonPushedFcn',@(s,e) onCalAuto());
 uilabel(top,'Text','Map axes','HorizontalAlignment','right');
 ddUnits = uidropdown(top,'Items',{'µm','px'},'ItemsData',{'um','px'},'Value',ovUnits, ...
@@ -234,7 +242,13 @@ tg.SelectedTab = tMatch;   % ...but open on Match files: that is where a fresh s
         sldCMax = uislider(cp,'Limits',[0 1],'Value',1,'MajorTicks',[],'ValueChangedFcn',@(s,e) onContrast(), ...
             'Tooltip','White point — pixels at/above this display as white.'); p(sldCMax,4,[4 5]);
         btnAuto = uibutton(cp,'Text','Auto','ButtonPushedFcn',@(s,e) onAutoContrast(), ...
-            'Tooltip','Auto-stretch black/white to this frame''s 1–99.8 percentile.'); p(btnAuto,4,6); %#ok<NASGU>
+            'Tooltip',['Fiji''s Brightness&Contrast Auto, over a sample of the WHOLE STACK so the ' ...
+                       'brightness does not change as you scrub. Click again to stretch further ' ...
+                       '(the threshold halves, exactly as ImageJ does). Right-click or use Reset ' ...
+                       'for the full stack min–max, which is what Fiji shows when it opens the file.']); p(btnAuto,4,6);
+        btnAuto.ContextMenu = uicontextmenu(fig);
+        uimenu(btnAuto.ContextMenu,'Text','Reset to full stack min–max (Fiji Reset)', ...
+            'MenuSelectedFcn',@(s,e) onResetContrast()); %#ok<NASGU>
         lblDet = uilabel(g,'Text','Scan on Tab 1, then pick a cell.','FontColor',[0.45 0.45 0.45]);
         ap = uigridlayout(g,[1 2],'ColumnWidth',{'1.4x','1x'},'Padding',[0 0 0 0],'ColumnSpacing',8);
         axPrev = uiaxes(ap); axPrev.Toolbar.Visible = 'off'; title(axPrev,'preview');
@@ -273,11 +287,31 @@ tg.SelectedTab = tMatch;   % ...but open on Match files: that is where a fresh s
         sldFrame.Limits = [1 max(dNfr,1)];
         sldFrame.Value  = min(max(round(sldFrame.Value),1), dNfr);
         stopPlay();
-        [gMin,gMax] = stack_range(c.spt, 6);                       % intensity range for the contrast sliders
+        erNfr = []; dLastOff = false(0,1);                         % new cell -> drop the ER caches
+        gStack = stack_stats(c.spt, 12);                           % limits + a pooled stack sample
+        % The slider limits must CONTAIN every range we might set, or applyDisplayRange silently
+        % truncates it. The percentile pair alone does not: on the user's file it is 167–946, while
+        % the stack really spans 138–1125 and the range Fiji saved is 131–1904. Clamping to the
+        % percentiles turned "open on exactly what Fiji shows" into a 2x-too-bright preview, and made
+        % Reset unable to reach the stack min–max even by dragging.
+        gMin = gStack.lo; gMax = gStack.hi;
+        fc0 = spt_tiff_calib(c.spt);
+        gMin = min([gMin, gStack.rawLo, fc0.dispLo], [], 'omitnan');
+        gMax = max([gMax, gStack.rawHi, fc0.dispHi], [], 'omitnan');
+        if ~(gMax > gMin), gMax = gMin + 1; end
         setSliderLimits(sldCMin,[gMin gMax]); setSliderLimits(sldCMax,[gMin gMax]);
-        im1 = double(imread(c.spt, round(sldFrame.Value)));
-        dispLo = clampv(prctile(im1(:),1),    gMin, gMax);
-        dispHi = clampv(prctile(im1(:),99.8), dispLo+eps, gMax);
+        % Open on the range Fiji would show. If the file carries one (a Fiji-saved stack does), use
+        % exactly that; otherwise run ImageJ's Auto over the stack sample. Either way it is a
+        % STACK-wide range, so scrubbing does not change the brightness — which is the part that did
+        % not look like Fiji before.
+        autoThr = [];
+        fc = fc0;
+        if isfinite(fc.dispLo) && isfinite(fc.dispHi)
+            dispLo = clampv(fc.dispLo, gMin, gMax); dispHi = clampv(max(fc.dispHi,dispLo+eps), dispLo+eps, gMax);
+        else
+            [aLo, aHi] = ij_auto(gStack.sample, 5000);
+            dispLo = clampv(aLo, gMin, gMax); dispHi = clampv(max(aHi,dispLo+eps), dispLo+eps, gMax);
+        end
         setSlider(sldCMin, dispLo); setSlider(sldCMax, dispHi);
         poolAndDraw();
     end
@@ -339,19 +373,48 @@ tg.SelectedTab = tMatch;   % ...but open on Match files: that is where a fresh s
     end
 
     function onCalAuto()
+        % Read BOTH numbers off the movie. The pixel size used to come from the TIFF resolution tags
+        % alone, which is the one thing a Fiji-saved file does not provide in a readable form: Fiji
+        % puts the scale in XResolution and the UNIT in a text block, and sets ResolutionUnit to
+        % None. spt_tiff_calib understands that block, so it also recovers the frame interval — which
+        % this button never touched even though it sits right next to the field.
         p = '';
         if dCell >= 1 && dCell <= numel(matched), p = matched(dCell).spt;
         elseif ~isempty(matched),                 p = matched(1).spt; end
         if isempty(p), return; end
-        px = spt_pixel_size(p);
-        if ~isempty(px)
-            if ~isempty(eCalPx) && isgraphics(eCalPx), eCalPx.Value = px; end
-            PXUM = px;
-            if dCell >= 1, poolAndDraw(); end
-        elseif ~isempty(lblDet) && isgraphics(lblDet) && dCell >= 1
-            lblDet.Text = 'No pixel-size tag in the TIFF — set µm/px manually in the top bar.';
-            lblDet.FontColor = [0.6 0.4 0.1];
+        c = spt_tiff_calib(p);
+        got = {}; miss = {};
+        if isfinite(c.pixUm)
+            if ~isempty(eCalPx) && isgraphics(eCalPx), eCalPx.Value = c.pixUm; end
+            PXUM = c.pixUm;
+            got{end+1} = sprintf('%.5g µm/px', c.pixUm); %#ok<AGROW>
+        else
+            miss{end+1} = 'pixel size'; %#ok<AGROW>
         end
+        if isfinite(c.dt_s)
+            if ~isempty(eCalDt) && isgraphics(eCalDt), eCalDt.Value = c.dt_s; end
+            DTS = c.dt_s;
+            got{end+1} = sprintf('%.5g s/frame (%.4g Hz)', c.dt_s, 1/c.dt_s); %#ok<AGROW>
+        else
+            miss{end+1} = 'frame interval'; %#ok<AGROW>
+        end
+        % Fiji's own display range travels in the same block. Offer it — the user asked for contrast
+        % that matches Fiji, and this is literally the range Fiji was showing when the file was saved.
+        if isfinite(c.dispLo) && isfinite(c.dispHi) && ~isempty(dLastIm)
+            applyDisplayRange(c.dispLo, c.dispHi);
+            got{end+1} = sprintf('display %g–%g (as saved in Fiji)', c.dispLo, c.dispHi); %#ok<AGROW>
+        end
+        if ~isempty(lblDet) && isgraphics(lblDet)
+            if isempty(got)
+                lblDet.Text = 'Nothing readable in this TIFF — set µm/px and frame interval manually above.';
+                lblDet.FontColor = [0.6 0.4 0.1];
+            else
+                tail = ''; if ~isempty(miss), tail = sprintf('  ·  no %s in the file — set it manually', strjoin(miss,' or ')); end
+                lblDet.Text = ['Read from the TIFF: ' strjoin(got,'  ·  ') tail];
+                lblDet.FontColor = [0.2 0.5 0.2]; if ~isempty(miss), lblDet.FontColor = [0.6 0.4 0.1]; end
+            end
+        end
+        if dCell >= 1, poolAndDraw(); end
     end
 
     function thr = curDetThr()
@@ -371,13 +434,23 @@ tg.SelectedTab = tMatch;   % ...but open on Match files: that is where a fresh s
         thr = curDetThr(); matched(dCell).thrAbs = thr;
         matched(dCell).thrMode = ddThrMode.Value; matched(dCell).qualThr = spnQual.Value;   % persist the policy with the cell
         [dLastXY, dLastShp] = spt_detect(dLastIm, spnDiam.Value, PXUM, thr);
+        dLastOff = detOffEr(dLastXY, fr);   % once per detection; redrawDisplay reuses it
         redrawDisplay();
         if strcmpi(ddThrMode.Value,'qual'), gateStr = sprintf('quality ≥ %.4g', spnQual.Value);
         else,                               gateStr = sprintf('top %.3g%%', spnPct.Value); end
         nBlur = 0; medEl = NaN;
         if ~isempty(dLastShp), medEl = median(dLastShp(:,3)); nBlur = sum(dLastShp(:,3) >= ELONG_BLUR); end
-        lblDet.Text = sprintf('%s · %d×%d px (%.1f×%.1f µm) · diam %.2f µm · %s · thr %s · %d spots · %d likely motion-blur (elong≥%.1f, med %.2f) · pooled n=%d', ...
-            matched(dCell).key, imW, imH, imW*PXUM, imH*PXUM, spnDiam.Value, gateStr, thrStr(thr), size(dLastXY,1), nBlur, ELONG_BLUR, medEl, numel(dPool));
+        % Off-ER matters as much as motion blur when the target is an ER protein — under ER-geodesic
+        % linking these detections are DISCARDED, so seeing how many there are is how you tell a
+        % registration problem or a bad segmentation from genuine off-ER signal.
+        offStr = '';
+        if haveErSeg()
+            nOff = sum(dLastOff(:));
+            offStr = sprintf(' · %d off-ER (%.0f%%, dropped by ER-geodesic linking)', ...
+                nOff, 100*nOff/max(size(dLastXY,1),1));
+        end
+        lblDet.Text = sprintf('%s · %d×%d px (%.1f×%.1f µm) · diam %.2f µm · %s · thr %s · %d spots · %d likely motion-blur (elong≥%.1f, med %.2f)%s · pooled n=%d', ...
+            matched(dCell).key, imW, imH, imW*PXUM, imH*PXUM, spnDiam.Value, gateStr, thrStr(thr), size(dLastXY,1), nBlur, ELONG_BLUR, medEl, offStr, numel(dPool));
         lblDet.FontColor = [0.2 0.4 0.5];
         updateTrkDet();   % keep the Track-tab detection readout in sync
     end
@@ -390,21 +463,58 @@ tg.SelectedTab = tMatch;   % ...but open on Match files: that is where a fresh s
         if ~isempty(dLastXY)
             r = max((spnDiam.Value/PXUM)/2, 0.75);          % spot RADIUS in image pixels (true diameter)
             th = linspace(0, 2*pi, 24);
-            % rings coloured by shape: green = round, red = elongated (likely motion-blur)
+            % Two INDEPENDENT properties, so they get two independent channels rather than fighting
+            % over colour: COLOUR is shape (green round / red elongated, unchanged), LINE STYLE is
+            % ER membership (solid on / dashed off). A spot can easily be both, and with one channel
+            % that case is invisible.
             isBlur = false(size(dLastXY,1),1);
             if ~isempty(dLastShp) && size(dLastShp,1)==size(dLastXY,1), isBlur = dLastShp(:,3) >= ELONG_BLUR; end
-            drawRings(dLastXY(~isBlur,:), r, th, [0.15 1 0.3]);   % round spots (green)
-            drawRings(dLastXY(isBlur,:),  r, th, [1 0.25 0.15]);  % motion-blur candidates (red)
+            if numel(dLastOff) ~= size(dLastXY,1), dLastOff = false(size(dLastXY,1),1); end
+            GRN = [0.15 1 0.3]; RED = [1 0.25 0.15];
+            drawRings(dLastXY(~isBlur & ~dLastOff,:), r, th, GRN, '-');
+            drawRings(dLastXY( isBlur & ~dLastOff,:), r, th, RED, '-');
+            drawRings(dLastXY(~isBlur &  dLastOff,:), r, th, GRN, ':');
+            drawRings(dLastXY( isBlur &  dLastOff,:), r, th, RED, ':');
         end
         hold(axPrev,'off');
-        title(axPrev, sprintf('frame %d/%d — %d spots (red = elong≥%.1f, likely motion-blur)', round(sldFrame.Value), dNfr, size(dLastXY,1), ELONG_BLUR));
+        nOff = sum(dLastOff(:)); offTxt = '';
+        if haveErSeg(), offTxt = sprintf(', dotted = off-ER: %d', nOff); end
+        title(axPrev, sprintf('frame %d/%d — %d spots (red = elong≥%.1f, likely motion-blur%s)', ...
+            round(sldFrame.Value), dNfr, size(dLastXY,1), ELONG_BLUR, offTxt));
     end
 
-    function drawRings(xy, r, th, col)   % one NaN-separated ring per spot, in one plot call
+    function drawRings(xy, r, th, col, sty)   % one NaN-separated ring per spot, in one plot call
         if isempty(xy), return; end
+        if nargin < 5 || isempty(sty), sty = '-'; end
         cx = xy(:,1) + r*cos(th); cy = xy(:,2) + r*sin(th);
         X = [cx, nan(size(cx,1),1)].'; Y = [cy, nan(size(cy,1),1)].';
-        plot(axPrev, X(:), Y(:), 'Color', col, 'LineWidth', 0.8);
+        plot(axPrev, X(:), Y(:), sty, 'Color', col, 'LineWidth', 0.8);
+    end
+
+    function tf = haveErSeg()
+        tf = dCell >= 1 && dCell <= numel(matched) && ~isempty(matched(dCell).erSeg) && isfile(matched(dCell).erSeg);
+    end
+
+    function off = detOffEr(xy, frame)
+        % Which detections are NOT on this frame's ER — by the SAME definition strict geodesic
+        % linking uses (spt_er_support's 1 px dilation, then spt_on_er), so what the preview marks is
+        % exactly what tracking would discard. Deriving it any other way here would let the picture
+        % and the tracker disagree.
+        %
+        % One page is read per frame rather than the whole stack: the ER stack is as long as the
+        % movie, and the preview only ever shows one frame. spt_seg_fg_label caches the stack-wide
+        % foreground label per file, so the page read is the only cost.
+        off = false(size(xy,1),1);
+        if isempty(xy) || ~haveErSeg(), return; end
+        ep = matched(dCell).erSeg;
+        try
+            if isempty(erNfr) || erNfr < 1, erNfr = numel(imfinfo(ep)); end   % O(pages) — once per cell
+            t = min(max(round(frame),1), erNfr);
+            m = (imread(ep, t) == spt_seg_fg_label(ep));
+            off = ~spt_on_er(xy(:,1:2), spt_er_support(m));
+        catch
+            off = false(size(xy,1),1);
+        end
     end
 
     function onContrast()
@@ -414,9 +524,46 @@ tg.SelectedTab = tMatch;   % ...but open on Match files: that is where a fresh s
     end
 
     function onAutoContrast()
+        % Fiji's Brightness&Contrast "Auto" ALGORITHM, transcribed exactly — but deliberately fed a
+        % sample of the whole stack rather than the current frame. Fiji applied to one slice gives a
+        % different range for every slice; holding one range across the movie is what "looks like
+        % Fiji" means when you are scrubbing a 5703-frame acquisition. On this data that is the
+        % difference between 167–561 held throughout and 190–819 that changes under the cursor.
+        %
+        % The old rule was a 1–99.8 percentile stretch, and on a single-molecule movie that is the
+        % wrong shape of rule: the frame is almost entirely dark background, so the 99.8th percentile
+        % lands inside the noise and every actual spot saturates. ImageJ instead thresholds on the
+        % HISTOGRAM COUNT — it walks in from each end until it finds a bin holding more than
+        % pixelCount/autoThreshold pixels — which steps over the sparse bright tail instead of
+        % clipping it. That is why the preview never looked like Fiji.
+        %
+        % Repeated clicks halve autoThreshold exactly as ImageJ does, so pressing Auto again
+        % stretches further; it resets when the frame or cell changes.
         if isempty(dLastIm), return; end
-        lo = prctile(dLastIm(:),1); hi = prctile(dLastIm(:),99.8);
-        dispLo = clampv(lo, gMin, gMax); dispHi = clampv(max(hi,dispLo+eps), dispLo+eps, gMax);
+        if isempty(autoThr) || autoThr < 10, autoThr = 5000; else, autoThr = autoThr/2; end
+        v = dLastIm;                                    % fall back to this frame if the cell sample is gone
+        if isstruct(gStack) && isfield(gStack,'sample') && ~isempty(gStack.sample), v = gStack.sample; end
+        [lo, hi] = ij_auto(v, autoThr);
+        if ~isfinite(lo) || ~isfinite(hi) || hi <= lo, lo = gMin; hi = gMax; end
+        applyDisplayRange(lo, hi);
+    end
+
+    function onResetContrast()
+        % Fiji's Reset: the stack's true min–max. A Fiji-saved file stores exactly this range, so
+        % prefer the file's own numbers when it has them.
+        if dCell < 1 || dCell > numel(matched), return; end
+        lo = []; hi = [];
+        fc = spt_tiff_calib(matched(dCell).spt);
+        if isfinite(fc.dispLo) && isfinite(fc.dispHi), lo = fc.dispLo; hi = fc.dispHi; end
+        if isempty(lo) && isstruct(gStack) && isfield(gStack,'rawLo'), lo = gStack.rawLo; hi = gStack.rawHi; end
+        if isempty(lo), return; end
+        autoThr = [];                                   % a Reset restarts Auto's halving, as in ImageJ
+        applyDisplayRange(lo, hi);
+    end
+
+    function applyDisplayRange(lo, hi)
+        dispLo = clampv(lo, gMin, gMax);
+        dispHi = clampv(max(hi, dispLo+eps), dispLo+eps, gMax);
         setSlider(sldCMin, dispLo); setSlider(sldCMax, dispHi);
         redrawDisplay();
     end
@@ -489,7 +636,7 @@ tg.SelectedTab = tMatch;   % ...but open on Match files: that is where a fresh s
     % ---------------- Tab 3: Track (TrackMate-style params + project + batch) ----------------
     function buildTrackTab(parent)
         g = uigridlayout(parent,[3 1],'RowHeight',{150,'1x',58},'Padding',[8 8 8 8],'RowSpacing',6);
-        cp = uigridlayout(g,[4 1],'RowHeight',{26,26,26,22},'Padding',[0 0 0 0],'RowSpacing',6);
+        cp = uigridlayout(g,[4 1],'RowHeight',{26,26,26,38},'Padding',[0 0 0 0],'RowSpacing',6);
 
         % row 1 — tracking (linking) params
         r1 = uigridlayout(cp,[1 11],'ColumnWidth',{92,54,112,54,78,44,118,14,46,140,'1x'}, ...
@@ -547,6 +694,7 @@ tg.SelectedTab = tMatch;   % ...but open on Match files: that is where a fresh s
         % row 4 — one shared status line (bold + larger: this is the only live progress readout)
         lblTrk = uilabel(cp,'Text','Set a project folder, then Run. Filter by length / displacement, then Export the _filtered pair for the Analyze tool.', ...
             'FontColor',[0.45 0.45 0.45],'FontSize',13.5,'FontWeight','bold');
+        try, lblTrk.WordWrap = 'on'; catch, end   % the filter summary is long; never clip its tail
         lblCur = lblTrk;   % the filter code writes to this same status line
 
         % ---- main: left = filter feedback plots, right = embedded player ----
@@ -782,6 +930,18 @@ tg.SelectedTab = tMatch;   % ...but open on Match files: that is where a fresh s
 
     function onCurParam(), drawCurHist(); end
 
+    function dt = curDt()
+        % The loaded cell's own seconds-per-frame, from the spots CSV rather than the top bar.
+        dt = NaN;
+        if isempty(curC) || ~istable(curC.spots), return; end
+        V = curC.spots.Properties.VariableNames;
+        if ~all(ismember({'FRAME','T_s'}, V)), return; end
+        FR = double(curC.spots.FRAME); Ts = double(curC.spots.T_s);
+        ok = isfinite(FR) & isfinite(Ts) & FR > 0;
+        if any(ok), dt = median(Ts(ok)./FR(ok)); end
+        if ~(isfinite(dt) && dt > 0), dt = NaN; end
+    end
+
     function m = curKept()
         m = false(0,1);
         if isempty(curC) || isempty(curC.len), return; end
@@ -792,16 +952,51 @@ tg.SelectedTab = tMatch;   % ...but open on Match files: that is where a fresh s
         if isempty(axCur) || ~isgraphics(axCur), return; end
         cla(axCur);
         if isempty(curC) || isempty(curC.len), title(axCur,'(no tracks)'); return; end
+        km = curKept(); nk = sum(km); nAll = numel(curC.len);
+        % Split the histogram at the threshold instead of drawing one colour across it. The removed
+        % population has to stay visible — this histogram IS the control you set the threshold with —
+        % but every NUMBER quoted from here on describes the tracks you keep. A median of 3 frames
+        % under a 50-frame filter describes only what was discarded, which is not what you are
+        % looking at anywhere else in the pipeline.
         nb = min(60, max(10, round(max(curC.len))));
-        histogram(axCur, curC.len, nb, 'FaceColor',[0.5 0.6 0.8], 'EdgeColor','none');
+        edges = linspace(0, max(curC.len)+1, nb+1);
+        hold(axCur,'on');
+        histogram(axCur, curC.len(~km), edges, 'FaceColor',[0.78 0.78 0.78], 'EdgeColor','none');
+        histogram(axCur, curC.len(km),  edges, 'FaceColor',[0.13 0.6 0.25], 'EdgeColor','none');
+        hold(axCur,'off');
         try, set(axCur,'YScale','log'); catch, end
         xline(axCur, spnMinLen.Value, 'r-', 'LineWidth',1.5, 'Label','min len');
         xlabel(axCur,'track length (frames)'); ylabel(axCur,'count');
-        km = curKept(); nk = sum(km);
-        title(axCur, sprintf('%d tracks -> %d kept  (median len %.0f)', numel(curC.len), nk, median(curC.len)));
-        lblCur.Text = sprintf('%s: %d tracks, %d kept (length>=%d, disp>=%.2f µm) · %d detections (all preserved)', ...
-            matched(dCurCell).key, numel(curC.len), nk, round(spnMinLen.Value), spnMinDisp.Value, height(curC.spots));
+
+        % everything below describes the KEPT set
+        if nk > 0
+            kl   = curC.len(km);
+            medL = median(kl); maxL = max(kl);
+            nDet = sum(cellfun(@numel, curC.rows(km)));
+        else
+            medL = NaN; maxL = NaN; nDet = 0;
+        end
+        % THIS cell's frame interval, recovered from its own CSV (T_s = FRAME*dt), the same way
+        % spt_curate_write.m:23 does it. The app-wide DTS belongs to the Detect tab's cell, which is
+        % selected independently — using it here reported 1.50 s for a 0.79 s median on the user's
+        % file, a 1.9x error inside the very summary this was meant to fix.
+        dtc = curDt();
+        dtl = ''; if nk > 0 && isfinite(dtc) && dtc > 0, dtl = sprintf(' = %.2f s', medL*dtc); end
+        if nk > 0
+            title(axCur, sprintf('%d kept (green) of %d  ·  median %.0f fr%s, longest %.0f', ...
+                nk, nAll, medL, dtl, maxL));
+        else
+            title(axCur, sprintf('0 kept of %d — the filter removes everything', nAll));
+        end
+        nDetAll = height(curC.spots);
+        % Kept in one line and under ~150 characters: this label is shared with the track log, it is
+        % not word-wrapped by default, and anything past the right edge is simply gone — which last
+        % time silently ate the clause the change existed to add.
+        lblCur.Text = sprintf('%s: %d/%d tracks kept (len≥%d, disp≥%.2f µm) · median %.0f fr%s, longest %.0f · %d/%d detections in kept tracks', ...
+            matched(dCurCell).key, nk, nAll, round(spnMinLen.Value), spnMinDisp.Value, ...
+            medL, dtl, maxL, nDet, nDetAll);
         lblCur.FontColor = [0.2 0.4 0.5];
+        if nk == 0, lblCur.FontColor = [0.75 0.1 0.1]; end
         drawCurOverview();
     end
 
@@ -955,14 +1150,64 @@ sld.Limits = lim;
 sld.Value  = min(max(sld.Value, lim(1)), lim(2));
 end
 
-function [lo, hi] = stack_range(sptPath, nSample)   % robust intensity range over sampled frames
-if nargin < 2, nSample = 6; end
+function [lo, hi] = ij_auto(im, autoThreshold)
+%IJ_AUTO  ImageJ's ContrastAdjuster.autoAdjust, transcribed.
+%
+% ImageJ builds a 256-bin histogram over the image's own min..max, then walks in from each end until
+% it finds a bin holding MORE than pixelCount/autoThreshold pixels. The bin edges of the first such
+% bin at each end become the display range. autoThreshold starts at 5000 (so the threshold is 0.02%
+% of the pixels) and halves on each repeated click.
+%
+% The count-based rule is the whole point. A percentile rule asks "where does the top 0.2% of the
+% INTENSITY DISTRIBUTION start", which on a mostly-empty single-molecule frame is still background.
+% The count rule asks "which is the first intensity level that is actually POPULATED", which walks
+% past the sparse spot tail and leaves the spots unsaturated.
+lo = NaN; hi = NaN;
+v = double(im(:)); v = v(isfinite(v));
+if isempty(v), return; end
+mn = min(v); mx = max(v);
+if ~(mx > mn), lo = mn; hi = mn + 1; return; end          % flat frame: any non-degenerate range
+
+nb = 256;
+edges = linspace(mn, mx, nb+1);
+h = histcounts(v, edges);
+thr = numel(v) / max(autoThreshold, 1);
+
+i = find(h > thr, 1, 'first');
+j = find(h > thr, 1, 'last');
+if isempty(i) || isempty(j)                                % threshold too high for every bin
+    lo = mn; hi = mx; return;
+end
+% ImageJ maps the found BIN INDICES back through the histogram's own scale.
+lo = edges(i);
+hi = edges(j+1);
+if hi <= lo, lo = mn; hi = mx; end                         % degenerate -> full range, as ImageJ does
+end
+
+function st = stack_stats(sptPath, nSample)
+%STACK_STATS  What the contrast controls need, read once per cell.
+%
+%   .lo/.hi     robust range for the SLIDER LIMITS (0.05/99.95 pct over sampled frames). Kept
+%               percentile-based on purpose: one hot pixel must not make the sliders unusable.
+%   .rawLo/.rawHi   the TRUE min/max over the sample — Fiji's Reset, and what a Fiji-saved file
+%               stores in its ImageDescription.
+%   .sample     a pooled subsample of pixel values across the sampled frames.
+%
+% The sample is why this exists. Auto used to run on the CURRENT FRAME, so the stretch changed
+% every time you scrubbed; Fiji computes one range for the stack and holds it. Pooling a spread of
+% frames here makes Auto stack-representative and stable, at the cost of one read per cell.
+if nargin < 2, nSample = 12; end
+st = struct('lo',0,'hi',1,'rawLo',0,'rawHi',1,'sample',[]);
 info = imfinfo(sptPath); nfr = numel(info);
 idx = unique(round(linspace(1, nfr, min(nfr, nSample))));
-lo = inf; hi = -inf;
-for k = idx
-    im = double(imread(sptPath, k));
-    lo = min(lo, prctile(im(:),0.05)); hi = max(hi, prctile(im(:),99.95));
+lo = inf; hi = -inf; rlo = inf; rhi = -inf; acc = cell(1,numel(idx));
+for q = 1:numel(idx)
+    im = double(imread(sptPath, idx(q))); v = im(:);
+    lo = min(lo, prctile(v,0.05)); hi = max(hi, prctile(v,99.95));
+    rlo = min(rlo, min(v));        rhi = max(rhi, max(v));
+    acc{q} = v(1:3:end);                       % every 3rd pixel is plenty for a 256-bin histogram
 end
-if ~(hi > lo), hi = lo + 1; end
+if ~(hi > lo),   hi = lo + 1;   end
+if ~(rhi > rlo), rhi = rlo + 1; end
+st.lo = lo; st.hi = hi; st.rawLo = rlo; st.rawHi = rhi; st.sample = vertcat(acc{:});
 end
