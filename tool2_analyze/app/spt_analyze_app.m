@@ -2644,20 +2644,62 @@ end
         writeCalib();
     end
 
-    function onCalAuto()
-        if isempty(tracksDir) || ~isfolder(tracksDir), return; end
-        L = dir(fullfile(tracksDir,'*_tracks*.xml'));
-        if isempty(L), return; end
-        try
-            txt = fileread(fullfile(L(1).folder, L(1).name));
-            fi = regexp(txt, 'frameInterval="([\d.eE+-]+)"', 'tokens', 'once');
-            if ~isempty(fi)
-                v = str2double(fi{1});
-                if isfinite(v) && v > 0, DTS = v; if isgraphics(eCalDt), eCalDt.Value = v; end, end
-            end
-        catch
+    function onCalAuto(quiet)
+        % Adopt what TOOL 1 actually used. This read only frameInterval out of a tracks XML, so the
+        % pixel size and field of view kept whatever the panel held — for a new dataset, the previous
+        % dataset's numbers — even though tracks/<base>_settings.txt records the real ones.
+        %
+        % Localization precision and the density bin are NOT touched: nothing Tool 1 writes can
+        % supply them, so they stay yours.
+        if nargin < 1, quiet = false; end
+        if isempty(projectDir) || ~isfolder(projectDir), return; end
+        if exist('spt_project_calib','file')~=2, return; end
+        try, pc = spt_project_calib(projectDir); catch, return; end
+        changed = false;
+        if isfinite(pc.pixUm) && abs(pc.pixUm-PXUM) > 1e-9
+            PXUM = pc.pixUm;  if isgraphics(eCalPx),  eCalPx.Value  = PXUM;  end, changed = true;
         end
-        writeCalib();
+        if isfinite(pc.dt_s) && abs(pc.dt_s-DTS) > 1e-12
+            DTS = pc.dt_s;    if isgraphics(eCalDt),  eCalDt.Value  = DTS;   end, changed = true;
+        end
+        if isfinite(pc.fovUm) && abs(pc.fovUm-FOVUM) > 1e-9
+            FOVUM = pc.fovUm; if isgraphics(eCalFov), eCalFov.Value = FOVUM; end, changed = true;
+        end
+        if changed
+            % Only persist once something real was adopted. writeCalib used to run unconditionally
+            % here, on project OPEN, which wrote the panel's untouched defaults into the project as
+            % cs_calib.mat before the user had done anything — and the next read believed them.
+            writeCalib();
+        end
+        if ~quiet, setCalStatus(pc); end
+    end
+
+    function setCalStatus(pc)
+        % Say where each number came from, on the field itself. Not being able to see that is what
+        % made this invisible: the panel showed a confident 0.10785 that nothing in the project
+        % supported, and looked exactly like a value someone had chosen.
+        %
+        % The top bar has no room for a status line, so the provenance rides on the tooltips — the
+        % one place already attached to the number in question.
+        srcTxt = @(f) tern(strcmp(f,'settings'), 'read from Tool 1''s _settings.txt', ...
+                    tern(strcmp(f,'movie'),      'read from the movie''s own metadata', ...
+                    tern(strcmp(f,'xml'),        'read from the tracks XML', ...
+                    tern(strcmp(f,'derived'),    'computed as (width−1) × pixel size', ...
+                                                 'NOT found in this project — this is your value'))));
+        if isgraphics(eCalPx)
+            eCalPx.Tooltip = sprintf('Camera pixel size (µm/px). %s.', srcTxt(pc.src.pixUm));
+        end
+        if isgraphics(eCalDt)
+            eCalDt.Tooltip = sprintf('Seconds per frame. %s.', srcTxt(pc.src.dt_s));
+        end
+        if isgraphics(eCalFov)
+            eCalFov.Tooltip = sprintf(['Field of view (µm) — drives the density-map scale factor. %s. ' ...
+                'Tool 1 does not record a FOV, so it can only be computed from the movie.'], srcTxt(pc.src.fovUm));
+        end
+        if ~isempty(lblProj) && isgraphics(lblProj)
+            if isempty(pc.why), lblProj.Text = 'No tracked cells here yet — calibration is yours to set.';
+            else,               lblProj.Text = ['Calibration: ' pc.why]; end
+        end
     end
 
     function writeCalib()
