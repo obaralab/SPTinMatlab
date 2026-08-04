@@ -22,6 +22,7 @@ zoomBox = []; imgH = 1; imgW = 1;   % zoomBox = [xlo xhi ylo yhi] px framing the
 % ---- UI ----
 g  = uigridlayout(parent, [2 1], 'RowHeight', {'1x', 34}, 'Padding', [0 0 0 0], 'RowSpacing', 4);
 ax = uiaxes(g); ax.Toolbar.Visible = 'on'; title(ax, 'run or pick a cell, then Play random tracks');   % toolbar on → pan/zoom/home for manual zoom-out
+spt_axes_policy(ax);   % timer-driven redraw + hover data tip = a listener holding a deleted handle
 cr = uigridlayout(g, [1 10], 'ColumnWidth', {84, '1x', 86, 48, 52, 40, 46, 40, 92, 'fit'}, 'Padding', [0 0 0 0], 'ColumnSpacing', 6);
 btnP  = uibutton(cr, 'Text', '▶ Play', 'ButtonPushedFcn', @(s,e) toggle());
 sld   = uislider(cr, 'Limits', [1 2], 'Value', 1, 'MajorTicks', [], 'ValueChangedFcn', @(s,e) seek(round(s.Value)));

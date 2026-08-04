@@ -173,10 +173,10 @@ mn = uigridlayout(g,[1 3],'ColumnWidth',{'1.0x','1.5x',290},'Padding',[0 0 0 0],
 pnThumbs = uipanel(mn,'Title','Windows — click one to zoom','BorderType','line');
 dc = uigridlayout(mn,[1 2],'ColumnWidth',{'1x',66},'Padding',[0 0 0 0],'ColumnSpacing',4);
 axDet = uiaxes(dc); axDet.Toolbar.Visible='on'; title(axDet,'window detail'); axDet.YDir='reverse';
-disableDefaultInteractivity(axDet); axDet.Interactions = [zoomInteraction panInteraction];
+spt_axes_policy(axDet);   % zoom+pan alongside the click; the hover data tip is the hazard
 try, axDet.Toolbar = axtoolbar(axDet,{'zoomin','zoomout','restoreview'}); catch, end
 axDet.ButtonDownFcn = @(s,e) onDetailClick(e);
-axCbar = uiaxes(dc); axCbar.Toolbar.Visible='off'; disableDefaultInteractivity(axCbar); axCbar.XTick=[];
+axCbar = uiaxes(dc); axCbar.Toolbar.Visible='off'; spt_axes_policy(axCbar,'display'); axCbar.XTick=[];
 rp = uigridlayout(mn,[3 1],'RowHeight',{20,'1x',30},'Padding',[0 0 0 0],'RowSpacing',4);
 lblList = uilabel(rp,'Text','Sites in window','FontWeight','bold');
 tblSites = uitable(rp,'ColumnName',{'#','mito','p','enr×','trk','dw%','stab'}, ...
@@ -375,7 +375,7 @@ onCell();
         tg2=uigridlayout(pnThumbs,[nr nc],'Padding',[4 4 4 4],'RowSpacing',3,'ColumnSpacing',3);
         st.thumbAx=gobjects(1,st.nW);
         for w=1:st.nW
-            ax=uiaxes(tg2); ax.Toolbar.Visible='off'; disableDefaultInteractivity(ax); ax.YDir='reverse';
+            ax=uiaxes(tg2); ax.Toolbar.Visible='off'; spt_axes_policy(ax); ax.YDir='reverse';
             ax.XTick=[]; ax.YTick=[]; ax.ButtonDownFcn=@(s,e) selectWindow(w);
             st.thumbAx(w)=ax; drawThumb(w);
         end
@@ -710,6 +710,7 @@ onCell();
         fp=uifigure('Name','Window-length sweep','Position',[200 200 780 500]);
         gg=uigridlayout(fp,[2 1],'RowHeight',{'1x',70},'Padding',[10 10 10 10]);
         ax=uiaxes(gg);
+        spt_axes_policy(ax);
         yyaxis(ax,'left');
         plot(ax,fs,nSites,'-o','LineWidth',1.7,'MarkerFaceColor',[0.13 0.40 0.66]);
         for i=1:numel(fs), text(ax,fs(i),nSites(i),sprintf('  %dwin',nWins(i)),'FontSize',7,'Color',[0.2 0.3 0.5]); end

@@ -85,6 +85,7 @@ btnSave = uibutton(top,'Text','Save figure…','Enable','off','ButtonPushedFcn',
 body = uigridlayout(gl,[1 2],'ColumnWidth',{380,'1x'},'Padding',[0 0 0 0],'ColumnSpacing',10);
 left = uigridlayout(body,[2 1],'RowHeight',{250,'1x'},'Padding',[0 0 0 0],'RowSpacing',6);
 axBar = uiaxes(left); axBar.Toolbar.Visible='off'; title(axBar,'tracks per method'); ylabel(axBar,'# tracks');
+spt_axes_policy(axBar);
 txt = uitextarea(left,'Editable','off','Value',{'Run the comparison to see track counts and where the methods differ.'}, ...
     'FontName','Menlo');
 
@@ -95,7 +96,7 @@ right = uigridlayout(body,[3 1],'RowHeight',{'1x',34,232},'Padding',[0 0 0 0],'R
 pnPlay = uipanel(right,'BorderType','none');
 pg = uigridlayout(pnPlay,[2 3],'RowHeight',{'1x',52},'Padding',[4 4 4 4],'ColumnSpacing',6,'RowSpacing',2);
 for i = 1:3
-    a = uiaxes(pg); a.Toolbar.Visible='off'; a.XTick=[]; a.YTick=[]; a.YDir='reverse';
+    a = uiaxes(pg); a.Toolbar.Visible='off'; a.XTick=[]; a.YTick=[]; a.YDir='reverse'; spt_axes_policy(a,'display');
     a.Box='on'; title(a, MLBL{i}, 'Color', COLM(i,:), 'FontWeight','bold');
     hold(a,'on');
     hImg(i)  = image(a,'CData',zeros(2,2,3),'XData',[1 2],'YData',[1 2]);
@@ -114,6 +115,7 @@ for i = 1:3      % divergence strips: WHEN in the window this method differs fro
     hStrip(i) = image(a,'CData',repmat(reshape(STRIPQ,1,1,3),1,2),'XData',[1 2],'YData',[0 1]);
     hTick(i)  = plot(a,nan,nan,'-','Color',[0.1 0.1 0.1],'LineWidth',1.4);   % frames where the methods disagree
     hCur(i)   = plot(a,[nan nan],[0 1],'-','Color','k','LineWidth',1.5);
+    spt_axes_policy(a);
     a.ButtonDownFcn = @(s,e) stripClick(s);
     hStrip(i).ButtonDownFcn = @(s,e) stripClick(a);
     axS(i) = a;

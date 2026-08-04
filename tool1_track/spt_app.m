@@ -252,9 +252,11 @@ tg.SelectedTab = tMatch;   % ...but open on Match files: that is where a fresh s
         lblDet = uilabel(g,'Text','Scan on Tab 1, then pick a cell.','FontColor',[0.45 0.45 0.45]);
         ap = uigridlayout(g,[1 2],'ColumnWidth',{'1.4x','1x'},'Padding',[0 0 0 0],'ColumnSpacing',8);
         axPrev = uiaxes(ap); axPrev.Toolbar.Visible = 'off'; title(axPrev,'preview');
+        spt_axes_policy(axPrev);   % redrawn on every frame — see the helper for why hover tips break
         rp = uigridlayout(ap,[2 1],'RowHeight',{'1x','1x'},'Padding',[0 0 0 0],'RowSpacing',8);
         axHist = uiaxes(rp); title(axHist,'pooled spot quality');
         axRate = uiaxes(rp); title(axRate,'spots / frame');
+        spt_axes_policy([axHist axRate]);
     end
 
     function refreshDetectCells()
@@ -618,6 +620,7 @@ tg.SelectedTab = tMatch;   % ...but open on Match files: that is where a fresh s
         hold(axRate,'off');
         xlim(axRate,[1 max(dNfr,2)]); xlabel(axRate,'frame'); ylabel(axRate,'#spots');
         title(axRate, sprintf('spots / frame · median %.0f  (click to jump)', median(dRateC)));
+        spt_axes_policy(axRate);   % click-to-seek coexists with zoom/pan — see spt_axes_policy
         axRate.ButtonDownFcn = @(s,e) onRateClick();   % click the trace -> go to that frame
     end
 
@@ -702,6 +705,7 @@ tg.SelectedTab = tMatch;   % ...but open on Match files: that is where a fresh s
         lp = uigridlayout(mn,[2 1],'RowHeight',{'0.85x','1.15x'},'Padding',[0 0 0 0],'RowSpacing',6);
         axCur = uiaxes(lp); title(axCur,'track length distribution');
         axCurTrk = uiaxes(lp); axCurTrk.Toolbar.Visible = 'off'; title(axCurTrk,'tracks: kept vs removed');
+        spt_axes_policy([axCur axCurTrk]);
         rp = uigridlayout(mn,[2 1],'RowHeight',{28,'1x'},'Padding',[0 0 0 0],'RowSpacing',4);
         ph = uigridlayout(rp,[1 3],'ColumnWidth',{196,58,'1x'},'Padding',[0 0 0 0],'ColumnSpacing',6);
         uibutton(ph,'Text','🎲 Play N random','ButtonPushedFcn',@(s,e) sampleVideo(), ...

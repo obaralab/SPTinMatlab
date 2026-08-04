@@ -301,6 +301,11 @@ end
         axMSD = uiaxes(rp); title(axMSD,'MSD + D fit');
         axDtrace = uiaxes(rp); title(axDtrace,'stepwise D(t) (click a track)');   % the per-loc D over time
         axSweep = uiaxes(rp); title(axSweep,'D & R² vs fit window (click a track)');   % the fit-fraction sweep
+        % One policy for every plot in this tab: zoom and pan stay, the hover data tip goes. It is
+        % the tip that arms a linger timer against a specific object, and every one of these axes is
+        % cleared and rebuilt under the pointer.
+        spt_axes_policy([axLen axDist axDdist axDloc axCSD axMSD axDtrace axSweep]);
+        spt_axes_policy(axCov);   % click-to-select a track coexists with zoom/pan
         txtBuild = uitextarea(g,'Editable','off','Value',{'Build log:'});
     end
 
@@ -585,7 +590,8 @@ end
         % centre: contact-site editor (top) with the radial concentration plot beneath it (full width, no cut-off)
         cnR = uigridlayout(mn,[2 1],'RowHeight',{'1.55x','1x'},'Padding',[0 0 0 0],'RowSpacing',6);
         axRef = uiaxes(cnR); title(axRef,'contact-site editor (load, then pick a site)'); axRef.Toolbar.Visible='off';
-        axRad = uiaxes(cnR); box(axRad,'on'); axRad.FontSize = 9; try, disableDefaultInteractivity(axRad); catch, end
+        spt_axes_policy(axRef);
+        axRad = uiaxes(cnR); box(axRad,'on'); axRad.FontSize = 9; spt_axes_policy(axRad);
         title(axRad,'radial concentration (load, then pick a site)');
         % right: display + auto-outline + manual-draw + delete controls
         cc = uigridlayout(mn,[14 1],'RowHeight',{24, 16,26, 44, 16,32, 16,26,30,28, 40,28, 30, '1x'}, ...
@@ -1001,6 +1007,7 @@ end
             'SelectionType','row','CellSelectionCallback',@(s,e) onSiteSelect(e));
         cn = uigridlayout(mn,[2 1],'RowHeight',{'1x','1x'},'Padding',[0 0 0 0],'RowSpacing',6);
         axSite = uiaxes(cn); title(axSite,'site inspector — density + footprint (Run mapper, click a row)'); axSite.Toolbar.Visible='off';
+        spt_axes_policy(axSite);
         pcS = uigridlayout(cn,[1 1],'Padding',[0 0 0 0]);          % embedded member-track player
         if exist('spt_track_movie','file')==2, sitePlayer = spt_track_movie(pcS); end
         rp = uigridlayout(mn,[8 1],'RowHeight',{22,'1x',28,28,28,28,28,28},'Padding',[0 0 0 0],'RowSpacing',4);
@@ -1438,6 +1445,7 @@ end
         bc = uigridlayout(rc,[1 2],'ColumnWidth',{'1x','1x'},'Padding',[0 0 0 0],'ColumnSpacing',6);
         axDwDens = uiaxes(bc); title(axDwDens,'track on contact-site density (click a row)'); axDwDens.Toolbar.Visible='off'; axDwDens.Tag='dwDens';
         axDwTrace = uiaxes(bc); title(axDwTrace,'distance-to-centre vs frame');
+        spt_axes_policy([axDwHist axKout axDwDens axDwTrace]);
         % animation controls for the density panel: play the track over the density + ER/mito overlay + save video
         ac = uigridlayout(rc,[1 11],'ColumnWidth',{58,'1x',124,30,42, 52,52, 26,46, 84,'1x'},'Padding',[0 0 0 0],'ColumnSpacing',6);
         btnDwPlay = uibutton(ac,'Text','▶ Play','Tag','dwPlay','ButtonPushedFcn',@(s,e) onDwellPlay(), ...
@@ -1804,6 +1812,7 @@ end
         rc = uigridlayout(mn,[2 1],'RowHeight',{'1x','1x'},'Padding',[0 0 0 0],'RowSpacing',6);
         axCmpScatter = uiaxes(rc); title(axCmpScatter,'per-site values by group');
         axCmpCdf     = uiaxes(rc); title(axCmpCdf,'pooled dwell-time CDF');
+        spt_axes_policy([axCmpScatter axCmpCdf]);
     end
 
     function onCompareCompute()
@@ -2224,7 +2233,7 @@ end
         cla(axCov); Xa=[]; Ya=[];
         for i=1:numel(qcTracks), Xa=[Xa; qcTracks{i}.X; NaN]; Ya=[Ya; qcTracks{i}.Y; NaN]; end %#ok<AGROW>
         if ~isempty(Xa), plot(axCov, Xa, Ya, '-','Color',[0.55 0.6 0.75],'LineWidth',0.4,'HitTest','off'); end
-        axis(axCov,'equal'); set(axCov,'YDir','reverse'); disableDefaultInteractivity(axCov);
+        axis(axCov,'equal'); set(axCov,'YDir','reverse');   % interactions are set once at construction
         xlabel(axCov,'x (µm)'); ylabel(axCov,'y (µm)'); title(axCov, sprintf('tracks (click one) — %d', numel(qcTracks)));
 
         % ---- pooled length + ER/mito distance ----
