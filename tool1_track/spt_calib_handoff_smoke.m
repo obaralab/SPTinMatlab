@@ -80,6 +80,22 @@ assert(contains(blk,'if changed'), ...
     'onCalAuto still calls writeCalib unconditionally — opening a project would overwrite it again');
 fprintf('Tool 2 adopts the project calibration and only persists when it changed\n');
 
+% ---- 7. the cross-project case: opening B after A must not stamp A's scale into B ----------------
+% This is the user's complaint in its sharpest form. B has no settings file and no movie, so nothing
+% can supply a pixel size — but its tracks XML DOES supply dt, and an earlier version treated "I
+% adopted something" as licence to persist all four fields, writing A's pixel size into B.
+pb = fullfile(tmp,'B'); mkdir(fullfile(pb,'tracks'));
+write_xml(fullfile(pb,'tracks',[base '_tracks.xml']), 0.02);
+cb = spt_project_calib(pb);
+fprintf('project with only an XML: pix %g (%s) · dt %g (%s)\n', cb.pixUm,cb.src.pixUm, cb.dt_s,cb.src.dt_s);
+assert(isnan(cb.pixUm) && strcmp(cb.src.pixUm,'missing'), 'a pixel size appeared from nowhere');
+assert(abs(cb.dt_s-0.02) < 1e-9, 'dt should still be adopted from the XML');
+% and the app must tie persistence to the SPATIAL scale, not to "something changed"
+assert(contains(blk,'isfinite(pc.pixUm), calibKnown = true'), ...
+    ['persistence is not tied to a supported pixel size — adopting dt alone would license writing ' ...
+     'a pixel size the project never stated']);
+fprintf('persisting a calibration requires a supported pixel size, not merely any adopted field\n');
+
 fprintf('\nALL CALIBRATION-HANDOFF ASSERTIONS PASSED.\n');
 end
 

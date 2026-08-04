@@ -444,6 +444,10 @@ end
 % smooths by a fixed number of BINS, so the physical scale it looks for is 8*(FOV/grid) microns.
 % Two datasets only measure the same object when the bin size matches, whatever their precisions are.
 % Defaulting binNm to precNm keeps every existing project bit-identical.
+% 'densBinNm' is the explicit project-level bin; 'binNm' is what the panel has always sent and is
+% the LOCALIZATION PRECISION, already consumed above. Reading only densBinNm meant the bin could
+% never be set at import — it always silently fell back to the precision, which is the right DEFAULT
+% but left no way to state a different one.
 [c.binNm, c.src.binNm] = resolve(NaN, pick(proj,'densBinNm',NaN), c.precNm);
 end
 

@@ -54,6 +54,7 @@ tg=[]; tImport=[]; tBuild=[]; tCS=[];                                 % tabs
 tRefine=[]; tSites=[]; tDwell=[]; tExpt=[]; tCompare=[];              % downstream tabs (Refine/Sites/Dwell/Experiment/Compare)
 ddTimeUnit=[]; lblBuild=[]; tblBuild=[]; txtBuild=[];                 % Build handles
 chanTok=''; chanWhy='';   % SPT channel token derived per project (see spt_channel_token)
+calibKnown=false;   % is the panel calibration supported by THIS project (adopted or typed)?
 buildTracks=[]; ddQCcell=[]; axLen=[]; axMSD=[]; axCov=[]; axDist=[]; axDdist=[]; lblQCm=[]; eMsdFrac=[];   % QC handles
 tsName=''; eTsName=[]; ddBuild=[];   % the ACTIVE TrackStruct basename in analysis/ (named builds)
 axDloc=[]; axDtrace=[];   % stepwise-diffusion QC: pooled per-localization D, and D(t) for the clicked track
@@ -229,6 +230,7 @@ end
         %
         % The derived token is anchored and escaped; '_VAPB' is passed raw, as it always was, because
         % anchoring it would defeat the infix case it exists for.
+        calibKnown = false;   % a new project has not justified these numbers yet
         chanTok = ''; chanWhy = ''; matched = [];
         if exist('spt_match','file')==2
             cands = {};
@@ -2090,7 +2092,7 @@ end
         try
             % Prefer='raw' is a benign placeholder so the auto-detect doesn't error; Pattern overrides it.
             Tracks = build_trackstruct(tracksDir, 'Prefer', 'raw', 'Pattern', pat, 'TimeUnit', tu, 'Save', false, ...
-                'Calib', struct('pixSizeUm',PXUM,'fovUm',FOVUM,'dt_s',DTS,'binNm',PRECNM), ...
+                'Calib', struct('pixSizeUm',PXUM,'fovUm',FOVUM,'dt_s',DTS,'binNm',PRECNM,'densBinNm',PRECNM), ...
                 'Verbose', false, 'ProgressFcn', @(i,n,name) setBuild(sprintf('Building %d/%d: %s (MSD)…', i, n, name),[0.2 0.4 0.5]));
         catch ME
             setBuild(['Build failed: ' ME.message],[0.75 0.1 0.1]); return;
@@ -2637,6 +2639,7 @@ end
     end
 
     function onCal()
+        calibKnown = true;   % the user typed it, so it is supported by definition
         if isgraphics(eCalPx),   PXUM   = eCalPx.Value;   end
         if isgraphics(eCalFov),  FOVUM  = eCalFov.Value;  end
         if isgraphics(eCalDt),   DTS    = eCalDt.Value;   end
@@ -2665,6 +2668,12 @@ end
         if isfinite(pc.fovUm) && abs(pc.fovUm-FOVUM) > 1e-9
             FOVUM = pc.fovUm; if isgraphics(eCalFov), eCalFov.Value = FOVUM; end, changed = true;
         end
+        % Only a supported PIXEL SIZE justifies persisting a calibration file. cs_calib.mat asserts a
+        % spatial scale to everything downstream, and adopting dt from a tracks XML — which almost
+        % every project can supply — must not license writing a pixel size the project never stated.
+        % That is precisely how the previous project's 0.16 ended up in a folder that had no movie
+        % and no settings file.
+        if isfinite(pc.pixUm), calibKnown = true; end
         if changed
             % Only persist once something real was adopted. writeCalib used to run unconditionally
             % here, on project OPEN, which wrote the panel's untouched defaults into the project as
@@ -2686,15 +2695,24 @@ end
                     tern(strcmp(f,'xml'),        'read from the tracks XML', ...
                     tern(strcmp(f,'derived'),    'computed as (width−1) × pixel size', ...
                                                  'NOT found in this project — this is your value'))));
+        % A value nothing in the project supports is TINTED, not just tooltipped. When you open a
+        % second project the panel still holds the first one's numbers — it has to hold something —
+        % and a confident white box is what made that invisible in the first place. Amber means "this
+        % came from your previous session, not from this data".
+        UNSUP = [1 0.96 0.86]; OK = [1 1 1];
+        tint = @(h,f) set(h,'BackgroundColor', tern(strcmp(f,'missing'), UNSUP, OK));
         if isgraphics(eCalPx)
             eCalPx.Tooltip = sprintf('Camera pixel size (µm/px). %s.', srcTxt(pc.src.pixUm));
+            tint(eCalPx, pc.src.pixUm);
         end
         if isgraphics(eCalDt)
             eCalDt.Tooltip = sprintf('Seconds per frame. %s.', srcTxt(pc.src.dt_s));
+            tint(eCalDt, pc.src.dt_s);
         end
         if isgraphics(eCalFov)
             eCalFov.Tooltip = sprintf(['Field of view (µm) — drives the density-map scale factor. %s. ' ...
                 'Tool 1 does not record a FOV, so it can only be computed from the movie.'], srcTxt(pc.src.fovUm));
+            tint(eCalFov, pc.src.fovUm);
         end
         if ~isempty(lblProj) && isgraphics(lblProj)
             if isempty(pc.why), lblProj.Text = 'No tracked cells here yet — calibration is yours to set.';
@@ -2703,6 +2721,17 @@ end
     end
 
     function writeCalib()
+        % Guard first: this is called on project OPEN, from embedImportCurate, before the user has
+        % touched anything. Writing then means stamping whatever the panel happens to hold — which,
+        % one project into a session, is the PREVIOUS project's calibration — into a folder that may
+        % have had the right answer or no answer at all.
+        %
+        % So it writes only when the numbers are SUPPORTED: adopted from the project by onCalAuto, or
+        % typed by the user in onCal. Otherwise it will correct a file that already exists but will
+        % never create one. calibKnown is what separates those.
+        if ~calibKnown && ~isfile(fullfile(tern(isempty(tracksDir)||~isfolder(tracksDir),projectDir,tracksDir),'cs_calib.mat'))
+            return;
+        end
         dst = tracksDir; if isempty(dst) || ~isfolder(dst), dst = projectDir; end
         if isempty(dst) || ~isfolder(dst), return; end
         calib = struct('pixSizeUm',PXUM,'fovUm',FOVUM,'dt_s',DTS,'binNm',PRECNM,'snapFovUm',FOVUM); %#ok<NASGU>
