@@ -1880,7 +1880,7 @@ localisations in those surviving tracks.</code></pre>
   <li>drops the previously loaded build and resolves the new folder's <b>active build name</b> — so carrying <code>Day1_KO.mat</code> into the next project cannot open the wrong build;</li>
   <li>clears the per-project density cache and <b>resets all downstream state</b> — sites, footprints, mapper results, dwell results, the Monte-Carlo null caches, the Refine/Sites/Dwell panels. Nothing from the previous project can leak into the new one;</li>
   <li>re-pairs <code>spt/</code> ↔ <code>er_seg/</code> ↔ <code>mito_seg/</code> (via <code>spt_match</code>, <code>_VAPB</code> token) for the overlays;</li>
-  <li>runs <kbd>Auto</kbd> to pick up <code>dt</code> from a tracks XML, and writes <code>cs_calib.mat</code>;</li>
+  <li>reads the project's calibration — pixel size, frame interval and field of view — from what <b>Tool 1</b> recorded, and writes <code>cs_calib.mat</code> only if it found something;</li>
   <li>(Tool 2) embeds the Import &amp; Curate viewer on the tracks folder;</li>
   <li>points the Experiment panel at <code>&lt;project&gt;/experiment_details.mat</code> and adds <code>&lt;project&gt;/analysis</code> to the manifest;</li>
   <li>refreshes the Build selector.</li>
@@ -1906,6 +1906,20 @@ localisations in those surviving tracks.</code></pre>
 <pre><code>calib = struct('pixSizeUm', …, 'fovUm', …, 'dt_s', …, 'binNm', …, 'snapFovUm', fovUm)
         -&gt; &lt;tracks folder&gt;/cs_calib.mat        % copied into analysis/ when you Build</code></pre>
 <p><code>cs_config</code> picks that file up automatically and overrides the built-in defaults <em>for that run only</em>, which is how the whole downstream suite follows your camera without anyone editing code. Conversely, loading a build from a folder that already has <code>analysis/cs_calib.mat</code> adopts its values back into these four fields.</p>
+<h4 id="tbhandoff">How the calibration reaches Tools 2 and 3</h4>
+<p>You set it once, in Tool 1. Tools 2 and 3 read it back rather than asking again — and, importantly, rather than keeping whatever the panel happened to hold from the last project you opened.</p>
+<table>
+  <tr><th>Value</th><th>Where it comes from, most trustworthy first</th></tr>
+  <tr><td><b>Pixel size</b></td><td><code>tracks/&lt;base&gt;_settings.txt</code> → <code>calibration.pixel_um</code>, then the movie's own TIFF metadata. The settings file wins because it is <em>what produced the µm coordinates already in the XML</em> — nothing may contradict it without making those coordinates wrong.</td></tr>
+  <tr><td><b>Frame interval</b></td><td>the same settings key, then the movie, then the tracks XML's <code>frameInterval</code>.</td></tr>
+  <tr><td><b>Field of view</b></td><td>computed as <code>(width − 1) × pixel size</code> from the movie. Tool 1 records no FOV, so this is the only source. It is <code>width − 1</code> because the image spans the <em>centres</em> of its first and last columns, matching <code>X_um = (0-based col) × pixel</code>.</td></tr>
+  <tr><td><b>Localization precision</b><br><b>Density bin</b></td><td><b>You.</b> Nothing Tool 1 writes can supply either — precision is a property of the fit, the bin is an analysis choice — so they are never auto-filled, and a value that guessed at them would be inventing data.</td></tr>
+</table>
+<p>Each field's <b>tooltip names its source</b>, and a value nothing in the project supports is <b>tinted amber</b>. That matters when you open a second project: the panel has to show <em>something</em>, so it keeps the previous project's number, and a confident white box is exactly what made a wrong pixel size invisible before.</p>
+<div class="warn"><b>Opening a project no longer writes to it.</b> <code>writeCalib</code> used to run unconditionally on open, saving the panel's untouched state into the project — so opening a correctly-tracked folder <em>replaced</em> its calibration with the previous dataset's, and every later read believed the file. It now writes only when the numbers are supported: adopted from the project, or typed by you. It will correct a stale <code>cs_calib.mat</code>, but it will never create one out of defaults. Persisting is tied specifically to a supported <b>pixel size</b> — almost every project can supply <code>dt</code> from its XML, and adopting that must not license asserting a spatial scale the project never stated.</div>
+<div class="note"><b>Where the file goes.</b> Nothing reads <code>tracks/cs_calib.mat</code> — it is staging, copied into <code>analysis/</code> at build time, and <code>analysis/</code> is the only copy <code>cs_config</code> loads. It is now written to both, so correcting a calibration reaches Tool 3 immediately instead of waiting for the next rebuild.</div>
+<div class="warn"><b>If <code>cs_config</code> finds no calibration at all</b> it falls back to the reference rig's numbers — 27.61 µm over 256 px at 0.10785 µm/px, 0.020064 s — and <b>now warns once per run</b> when it does. On any other microscope those are simply wrong, the run still completes, and every site coordinate, area, density and dwell time comes out mis-scaled. A 128 px camera at 0.16 µm/px is off by 1.35×.</div>
+
 <div class="warn">Get FOV and pixel size right <b>before</b> picking sites. They set the µm scale of the density map, so changing them afterwards changes what every site coordinate, area and enrichment means — and picks already saved were made on the old scale.</div>
 
 

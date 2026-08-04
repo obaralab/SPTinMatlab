@@ -2736,6 +2736,14 @@ end
         if isempty(dst) || ~isfolder(dst), return; end
         calib = struct('pixSizeUm',PXUM,'fovUm',FOVUM,'dt_s',DTS,'binNm',PRECNM,'snapFovUm',FOVUM); %#ok<NASGU>
         try, save(fullfile(dst,'cs_calib.mat'),'calib'); catch, end
+        % analysis/ as well, when it exists. NOTHING reads tracks/cs_calib.mat — it is staging, copied
+        % into analysis/ at build time, and analysis/ is the only copy cs_config ever loads. Writing
+        % just the staging file meant a calibration correction did not reach Tool 3 until the next
+        % rebuild, so the tool went on using the previous numbers with nothing on screen to say so.
+        ana = fullfile(projectDir,'analysis');
+        if isfolder(ana)
+            try, save(fullfile(ana,'cs_calib.mat'),'calib'); catch, end
+        end
     end
 
     function placeholder(parent, msg)

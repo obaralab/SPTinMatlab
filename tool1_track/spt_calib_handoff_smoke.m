@@ -96,6 +96,39 @@ assert(contains(blk,'isfinite(pc.pixUm), calibKnown = true'), ...
      'a pixel size the project never stated']);
 fprintf('persisting a calibration requires a supported pixel size, not merely any adopted field\n');
 
+% ---- 8. the per-cell stamp must find the movie ---------------------------------------------------
+% sibling_image searched tracks/, the project root, raw/ and images/ — but not <project>/spt/, which
+% is where this pipeline actually puts movies. So the stamp never found one and fell back to the
+% panel, which is how a cell recorded at 0.16 got stamped with the panel's 0.10785.
+if exist('TrackImporter_direct','file')==2
+    Tk = TrackImporter_direct(fullfile(proj,'tracks'), 'AttachCSV',false, 'Save',false, 'Verbose',false, ...
+        'Calib', struct('pixSizeUm',0.10785,'fovUm',27.61,'binNm',30,'densBinNm',30));
+    if ~isempty(Tk) && isfield(Tk,'calib')
+        cc = Tk(1).calib;
+        fprintf('per-cell stamp: pix %.6g (%s), fov %.6g (%s)\n', cc.pixSizeUm,cc.src.pixSizeUm, cc.fovUm,cc.src.fovUm);
+        assert(abs(cc.pixSizeUm - PX) < 1e-9 && strcmp(cc.src.pixSizeUm,'image'), ...
+            'the per-cell stamp did not find <project>/spt/ — it fell back to the panel (%g, %s)', ...
+            cc.pixSizeUm, cc.src.pixSizeUm);
+    end
+end
+imp = fileread(fullfile(fileparts(here),'tool2_analyze','drivers','TrackImporter_direct.m'));
+assert(contains(imp,"fullfile(d,'..','spt')"), 'sibling_image still does not look in <project>/spt/');
+
+% ---- 9. a calibration edit must reach Tool 3 without a rebuild ------------------------------------
+% Nothing reads tracks/cs_calib.mat; it is staging, copied into analysis/ at build. Writing only the
+% staging file meant a correction did not reach cs_config until the next rebuild.
+app = fileread(fullfile(fileparts(here),'tool2_analyze','app','spt_analyze_app.m'));
+assert(contains(app,"ana = fullfile(projectDir,'analysis');"), ...
+    'writeCalib still writes only the staging copy — a fix would not reach Tool 3 until a rebuild');
+
+% ---- 10. cs_config must say when it is guessing ---------------------------------------------------
+% Its defaults are the reference rig's. On any other microscope a run completes with every
+% coordinate, area, density and dwell time mis-scaled, and nothing said so.
+cfgsrc = fileread(fullfile(fileparts(here),'tool2_analyze','ContactSites_robust','cs_config.m'));
+assert(contains(cfgsrc,'cs_config:defaultCalibration'), ...
+    'cs_config still falls back to the reference rig''s calibration silently');
+fprintf('per-cell stamp finds the movie · edits reach analysis/ · cs_config warns on defaults\n');
+
 fprintf('\nALL CALIBRATION-HANDOFF ASSERTIONS PASSED.\n');
 end
 

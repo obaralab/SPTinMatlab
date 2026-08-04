@@ -456,7 +456,11 @@ function t = sibling_image(xmlPath)
 t = '';
 [d, b] = fileparts(xmlPath);
 base = regexprep(b, '_tracks(_filtered|_curated)?$', '');
-roots = {d, fullfile(d,'..'), fullfile(d,'..','raw'), fullfile(d,'..','images')};
+% <project>/spt/ FIRST: the XML lives in <project>/tracks/, so the movie is a SIBLING folder away,
+% and that is the layout every project in this pipeline uses. Omitting it meant the per-cell stamp
+% never found the movie and silently fell back to the project panel — which is exactly how a cell
+% recorded at 0.16 um/px ended up stamped with the panel's 0.10785.
+roots = {fullfile(d,'..','spt'), d, fullfile(d,'..'), fullfile(d,'..','raw'), fullfile(d,'..','images')};
 for i = 1:numel(roots)
     if ~isfolder(roots{i}), continue; end
     for ext = {'.tif','.tiff','.ome.tif'}

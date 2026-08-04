@@ -96,6 +96,29 @@ if ~isempty(calib) && isstruct(calib)
         cfg.CalibSource = 'calib struct (in memory)';
     end
 end
+
+% Falling back to the defaults is the one case worth saying out loud. They are the Nature rig's
+% numbers — 27.61 um over 256 px at 0.10785 um/px, 0.020064 s — and on any other microscope they are
+% simply wrong, yet the run completes and every site coordinate, area, density and dwell time comes
+% out mis-scaled with nothing on screen to say why. A 128 px camera at 0.16 um/px is off by 1.35x.
+%
+% Warned once per source per session: cs_config is called inside loops, and a warning on every call
+% would train you to ignore it.
+if strcmp(cfg.CalibSource,'defaults')
+    persistent warned
+    if isempty(warned), warned = containers.Map('KeyType','char','ValueType','logical'); end
+    if ischar(calibSource) || isstring(calibSource), k = char(calibSource); else, k = '<struct>'; end
+    if ~isKey(warned, k)
+        warned(k) = true;
+        warning('cs_config:defaultCalibration', ...
+            ['No cs_calib.mat found for this run (looked at %s), so the DEFAULT calibration is in ' ...
+             'use: %.5g um FOV, %.5g um/px, %.5g s/frame. These are the reference rig''s values. If ' ...
+             'your data came off a different microscope, every site coordinate, area, density and ' ...
+             'dwell time from this run is mis-scaled. Open the project in Tool 2 to write its ' ...
+             'calibration, or drop a cs_calib.mat in the analysis folder.'], ...
+            k, cfg.FOV_um, cfg.PixSize_um, cfg.FrameInt_s);
+    end
+end
 end
 
 % ===========================================================================
