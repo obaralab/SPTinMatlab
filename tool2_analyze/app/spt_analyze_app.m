@@ -53,6 +53,7 @@ eProj=[]; eCalPx=[]; eCalFov=[]; eCalDt=[]; eCalPrec=[]; lblProj=[];   % top-bar
 tg=[]; tImport=[]; tBuild=[]; tCS=[];                                 % tabs
 tRefine=[]; tSites=[]; tDwell=[]; tExpt=[]; tCompare=[];              % downstream tabs (Refine/Sites/Dwell/Experiment/Compare)
 ddTimeUnit=[]; lblBuild=[]; tblBuild=[]; txtBuild=[];                 % Build handles
+chanTok=''; chanWhy='';   % SPT channel token derived per project (see spt_channel_token)
 buildTracks=[]; ddQCcell=[]; axLen=[]; axMSD=[]; axCov=[]; axDist=[]; axDdist=[]; lblQCm=[]; eMsdFrac=[];   % QC handles
 tsName=''; eTsName=[]; ddBuild=[];   % the ACTIVE TrackStruct basename in analysis/ (named builds)
 axDloc=[]; axDtrace=[];   % stepwise-diffusion QC: pooled per-localization D, and D(t) for the clicked track
@@ -209,8 +210,20 @@ end
         resetDownstream();                                       % clear Refine/Sites/Dwell/Compare state + caches (prevents cross-project leakage)
         if ~isempty(ddQCcell)   && isgraphics(ddQCcell),   ddQCcell.Items   = {'(build first)'}; ddQCcell.Value   = '(build first)'; end
         if ~isempty(tblBuild)   && isgraphics(tblBuild),   tblBuild.Data = {}; end
+        % The SPT channel token used to be HARDCODED to '_VAPB' here, with no way to change it —
+        % Tool 1 at least asks for it. So the moment a dataset used another channel name ('_C3'),
+        % every ER and mito overlay silently failed to resolve and this tab just showed nothing.
+        % Nothing errored; the names simply never matched.
+        %
+        % It is not a setting worth asking for, because the answer is in the folder: a segmentation
+        % is named for the cell, the SPT stack for the cell plus the token, so the token is the
+        % difference. spt_channel_token derives it and reports what it found.
+        chanTok = ''; chanWhy = '';
+        try, [chanTok, chanInfo] = spt_channel_token(fullfile(d,'spt'), fullfile(d,'er_seg'), fullfile(d,'mito_seg'));
+             chanWhy = chanInfo.why;
+        catch, end
         if exist('spt_match','file')==2
-            try, matched = spt_match(fullfile(d,'spt'), fullfile(d,'er_seg'), fullfile(d,'mito_seg'), '_VAPB'); catch, matched = []; end
+            try, matched = spt_match(fullfile(d,'spt'), fullfile(d,'er_seg'), fullfile(d,'mito_seg'), chanTok); catch, matched = []; end
         end
         onCalAuto();          % try to read dt from a tracks XML
         embedImportCurate();
@@ -2589,7 +2602,12 @@ end
             end
         end
         if isempty(projectDir), return; end
-        key = regexprep(b, '(_spt\d*|_VAPB)$', '', 'ignorecase');
+        % Strip the token this project actually uses, not a hardcoded guess. The _spt\d* form stays
+        % as a last resort for folders whose segmentations are missing entirely, where there is
+        % nothing to derive a token from.
+        key = b;
+        if ~isempty(chanTok), key = regexprep(key, [regexptranslate('escape',chanTok) '$'], '', 'ignorecase'); end
+        if strcmp(key, b),    key = regexprep(b, '_spt\d*$', '', 'ignorecase'); end
         ov.er   = findSeg(fullfile(projectDir,'er_seg'),   key);
         ov.mito = findSeg(fullfile(projectDir,'mito_seg'), key);
         ov.spt  = findSeg(fullfile(projectDir,'spt'),      b);   % raw SPT movie (match the full base)

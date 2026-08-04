@@ -290,7 +290,7 @@ tg.SelectedTab = tMatch;   % ...but open on Match files: that is where a fresh s
         sldFrame.Value  = min(max(round(sldFrame.Value),1), dNfr);
         stopPlay();
         erNfr = []; dLastOff = false(0,1);                         % new cell -> drop the ER caches
-        gStack = stack_stats(c.spt, 12);                           % limits + a pooled stack sample
+        gStack = spt_stack_range(c.spt, 12);                           % limits + a pooled stack sample
         % The slider limits must CONTAIN every range we might set, or applyDisplayRange silently
         % truncates it. The percentile pair alone does not: on the user's file it is 167–946, while
         % the stack really spans 138–1125 and the range Fiji saved is 131–1904. Clamping to the
@@ -311,7 +311,7 @@ tg.SelectedTab = tMatch;   % ...but open on Match files: that is where a fresh s
         if isfinite(fc.dispLo) && isfinite(fc.dispHi)
             dispLo = clampv(fc.dispLo, gMin, gMax); dispHi = clampv(max(fc.dispHi,dispLo+eps), dispLo+eps, gMax);
         else
-            [aLo, aHi] = ij_auto(gStack.sample, 5000);
+            [aLo, aHi] = spt_ij_auto(gStack.sample, 5000);
             dispLo = clampv(aLo, gMin, gMax); dispHi = clampv(max(aHi,dispLo+eps), dispLo+eps, gMax);
         end
         setSlider(sldCMin, dispLo); setSlider(sldCMax, dispHi);
@@ -559,7 +559,7 @@ tg.SelectedTab = tMatch;   % ...but open on Match files: that is where a fresh s
         if isempty(autoThr) || autoThr < 10, autoThr = 5000; else, autoThr = autoThr/2; end
         v = dLastIm;                                    % fall back to this frame if the cell sample is gone
         if isstruct(gStack) && isfield(gStack,'sample') && ~isempty(gStack.sample), v = gStack.sample; end
-        [lo, hi] = ij_auto(v, autoThr);
+        [lo, hi] = spt_ij_auto(v, autoThr);
         if ~isfinite(lo) || ~isfinite(hi) || hi <= lo, lo = gMin; hi = gMax; end
         applyDisplayRange(lo, hi);
     end
@@ -1166,66 +1166,4 @@ if isempty(sld) || ~isgraphics(sld), return; end
 if ~(lim(2) > lim(1)), lim(2) = lim(1) + 1; end
 sld.Limits = lim;
 sld.Value  = min(max(sld.Value, lim(1)), lim(2));
-end
-
-function [lo, hi] = ij_auto(im, autoThreshold)
-%IJ_AUTO  ImageJ's ContrastAdjuster.autoAdjust, transcribed.
-%
-% ImageJ builds a 256-bin histogram over the image's own min..max, then walks in from each end until
-% it finds a bin holding MORE than pixelCount/autoThreshold pixels. The bin edges of the first such
-% bin at each end become the display range. autoThreshold starts at 5000 (so the threshold is 0.02%
-% of the pixels) and halves on each repeated click.
-%
-% The count-based rule is the whole point. A percentile rule asks "where does the top 0.2% of the
-% INTENSITY DISTRIBUTION start", which on a mostly-empty single-molecule frame is still background.
-% The count rule asks "which is the first intensity level that is actually POPULATED", which walks
-% past the sparse spot tail and leaves the spots unsaturated.
-lo = NaN; hi = NaN;
-v = double(im(:)); v = v(isfinite(v));
-if isempty(v), return; end
-mn = min(v); mx = max(v);
-if ~(mx > mn), lo = mn; hi = mn + 1; return; end          % flat frame: any non-degenerate range
-
-nb = 256;
-edges = linspace(mn, mx, nb+1);
-h = histcounts(v, edges);
-thr = numel(v) / max(autoThreshold, 1);
-
-i = find(h > thr, 1, 'first');
-j = find(h > thr, 1, 'last');
-if isempty(i) || isempty(j)                                % threshold too high for every bin
-    lo = mn; hi = mx; return;
-end
-% ImageJ maps the found BIN INDICES back through the histogram's own scale.
-lo = edges(i);
-hi = edges(j+1);
-if hi <= lo, lo = mn; hi = mx; end                         % degenerate -> full range, as ImageJ does
-end
-
-function st = stack_stats(sptPath, nSample)
-%STACK_STATS  What the contrast controls need, read once per cell.
-%
-%   .lo/.hi     robust range for the SLIDER LIMITS (0.05/99.95 pct over sampled frames). Kept
-%               percentile-based on purpose: one hot pixel must not make the sliders unusable.
-%   .rawLo/.rawHi   the TRUE min/max over the sample — Fiji's Reset, and what a Fiji-saved file
-%               stores in its ImageDescription.
-%   .sample     a pooled subsample of pixel values across the sampled frames.
-%
-% The sample is why this exists. Auto used to run on the CURRENT FRAME, so the stretch changed
-% every time you scrubbed; Fiji computes one range for the stack and holds it. Pooling a spread of
-% frames here makes Auto stack-representative and stable, at the cost of one read per cell.
-if nargin < 2, nSample = 12; end
-st = struct('lo',0,'hi',1,'rawLo',0,'rawHi',1,'sample',[]);
-info = imfinfo(sptPath); nfr = numel(info);
-idx = unique(round(linspace(1, nfr, min(nfr, nSample))));
-lo = inf; hi = -inf; rlo = inf; rhi = -inf; acc = cell(1,numel(idx));
-for q = 1:numel(idx)
-    im = double(imread(sptPath, idx(q))); v = im(:);
-    lo = min(lo, prctile(v,0.05)); hi = max(hi, prctile(v,99.95));
-    rlo = min(rlo, min(v));        rhi = max(rhi, max(v));
-    acc{q} = v(1:3:end);                       % every 3rd pixel is plenty for a 256-bin histogram
-end
-if ~(hi > lo),   hi = lo + 1;   end
-if ~(rhi > rlo), rhi = rlo + 1; end
-st.lo = lo; st.hi = hi; st.rawLo = rlo; st.rawHi = rhi; st.sample = vertcat(acc{:});
 end
