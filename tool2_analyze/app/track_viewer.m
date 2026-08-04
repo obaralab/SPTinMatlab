@@ -22,6 +22,15 @@ function track_viewer(parent, exportDir, overlayFcn, includeFiles, opts)
 %                                    struct('er',erPath,'mito',mitoPath) so each cell's
 %                                    ER/mito overlay auto-loads on file load (no manual pick)
 
+% tool1_track holds the shared imaging helpers (spt_ij_auto, spt_stack_range, spt_tiff_calib). The
+% host adds it, but four smoke tests construct this viewer directly with only their own folder on the
+% path, so add it here too rather than let those helpers be undefined.
+try
+    t1 = fullfile(fileparts(fileparts(fileparts(mfilename('fullpath')))), 'tool1_track');
+    if isfolder(t1) && ~contains([path pathsep], [t1 pathsep]), addpath(t1); end
+catch
+end
+
 S.spots_t        = table();
 S.track_metrics  = table();
 S.xml_doc        = [];
@@ -77,7 +86,7 @@ S.er_img         = [];   % ER overlay: whole-movie occupancy/MIP (the spatial ov
 S.mito_img       = [];   % mito overlay: whole-movie occupancy/MIP
 S.er_path='';   S.mito_path='';    S.er_nfr=0; S.mito_nfr=0;              % per-frame seg stacks: path + page count
 S.er_fg=[];     S.mito_fg=[];      S.er_isMask=false; S.mito_isMask=false; % fg label + whether it's a mask
-S.spt_img=[]; S.spt_path=''; S.spt_nfr=0; S.spt_fg=[]; S.spt_isMask=false; S.spt_hi=[];  % raw SPT movie (selected-track background)
+S.spt_img=[]; S.spt_path=''; S.spt_nfr=0; S.spt_fg=[]; S.spt_isMask=false; S.spt_hi=[]; S.spt_lo=[];  % raw SPT movie (selected-track background)
 S.ovH_sp = [];   % overview overlay image handle (retinted per frame during playback)
 S.overlayFcn     = [];   % overlayFcn(base) -> struct('er',path,'mito',path) for auto-load
 DENSITY_RADIUS   = 1.0;
@@ -167,8 +176,12 @@ c.gap_dist = uispinner(lg,'Limits',[0.05 20],'Value',1.0,'Step',0.1,'FontSize',9
     'ValueChangedFcn',@(~,~) on_param_change());
 c.gap_dist.Layout.Row=row; c.gap_dist.Layout.Column=2;
 row=row+1; lbl2(lg,row,'Max frame gap:');
-c.max_frame_gap = uispinner(lg,'Limits',[0 10],'Value',1,'Step',1,'RoundFractionalValues','on','FontSize',9, ...
-    'Tooltip','Max frames a gap may span in your tracking (recorded with the filtered output for provenance).');
+% Read-only. setnum fills it from tracking.max_gap_frames and NOTHING in this file ever reads it —
+% it is pure provenance from Tool 1, so offering a spinner invited the user to change a number that
+% could not do anything. The other two look identical but are NOT records: link_dist sets the
+% step-flag threshold and gap_dist IS the jump filter, so both stay editable.
+c.max_frame_gap = uilabel(lg,'Text','—','FontSize',9,'FontColor',[0.35 0.35 0.35], ...
+    'Tooltip','From Tool 1''s tracking.max_gap_frames. Provenance only — nothing here reads it.');
 c.max_frame_gap.Layout.Row=row; c.max_frame_gap.Layout.Column=2;
 
 % -- Crowding metric --  how "local density" is measured, before you threshold it
@@ -376,7 +389,10 @@ c.pause_btn.ButtonPushedFcn = @(~,~) do_pause();
 row=row+1; sec_lbl(lg,row,'OVERLAY (ER / mito structure)');
 row=row+1; lbl2(lg,row,'Overlay FOV (um):');
 c.ov_fov = uispinner(lg,'Limits',[1 500],'Value',27.61,'Step',0.5,'FontSize',9,...
-    'ValueChangedFcn',@(~,~) update_spatial());   % physical extent the structure image spans (match the track FOV)
+    'Tooltip',['Physical width the raw movie and the ER/mito overlay are drawn across. Read from ' ...
+               'the movie''s own pixel size when it has one — it must match the track coordinates ' ...
+               'or the image sits under the wrong place.'], ...
+    'ValueChangedFcn',@(~,~) update_spatial());
 c.ov_fov.Layout.Row=row; c.ov_fov.Layout.Column=2;
 row=row+1;
 c.er_btn   = half_btn(lg,row,1,'Pick ER',  [0.16 0.55 0.45],'white');
@@ -396,8 +412,11 @@ c.spt_chk = uicheckbox(lg,'Text','Raw SPT bg','Value',true,'FontSize',9, ...
     'Tooltip','Show the raw SPT movie behind the selected track (zoomed, plays per frame). Only the selected + nearby spots are ringed on top.', ...
     'ValueChangedFcn',@(~,~) refreshTraj());
 c.spt_chk.Layout.Row=row; c.spt_chk.Layout.Column=1;
-c.spt_con = uispinner(lg,'Limits',[0.05 1],'Value',0.5,'Step',0.05,'FontSize',9, ...
-    'Tooltip','Raw-image contrast: brightness saturates at contrast·(robust max). Lower = brighter.', ...
+c.spt_con = uispinner(lg,'Limits',[0.1 1],'Value',1.0,'Step',0.05,'FontSize',9, ...
+    'Tooltip',['Brightness about the automatic range. 1.0 is the range ImageJ''s Auto measures over ' ...
+               'a sample of the whole stack; lower pulls the white point in and brightens. It used ' ...
+               'to scale from zero with no black point, which washed the background to 79% white ' ...
+               'and clipped almost every spot.'], ...
     'ValueChangedFcn',@(~,~) refreshTraj());
 c.spt_con.Layout.Row=row; c.spt_con.Layout.Column=2;
 % -- colour choices (overlay + tracks) --
@@ -435,6 +454,23 @@ row=row+1; c.batch_out_dir = wide_txt(lg,row,'');
 row=row+1;
 c.batch_btn = wide_btn(lg,row,'Run batch filter + HTML report',[0.55 0.1 0.1],'white');
 c.batch_btn.ButtonPushedFcn = @(~,~) do_batch_filter();
+
+% The control column declared 60 rows and grew to 70 as controls were added over time. MATLAB does
+% not complain: it auto-creates the extra rows as '1x', and in a SCROLLABLE grid a '1x' row collapses
+% to ZERO HEIGHT. So rows 61-70 were laid out at h=0 and simply could not be seen — which is why the
+% ER colour picker (row 60) was visible and the mito one (row 61) was not, along with the kept and
+% excluded colours, the overlay status label, and the entire batch section.
+%
+% Sizing from the highest row actually used means adding a control can never reintroduce it.
+% Note the count is NOT the tell: MATLAB grows RowHeight to match, so numel() already reads 70. It
+% is the TYPE that is wrong — the rows it invents are '1x', and '1x' means zero in a scrollable
+% grid. Rewrite every row to the fixed pitch the declaration intended.
+maxRow = 0;
+for ch = lg.Children'
+    try, maxRow = max(maxRow, max(ch.Layout.Row)); catch, end
+end
+maxRow = max(maxRow, numel(lg.RowHeight));
+if maxRow > 0, lg.RowHeight = repmat({22}, 1, maxRow); end
 
 % ============================================================
 % CENTRE PANEL — spatial + histograms
@@ -1391,7 +1427,14 @@ end
         setnum = @(fld, key) local_set_spinner(fld, local_settings_num(txt, key));
         setnum('link_dist',      'tracking.link_um');
         setnum('gap_dist',       'tracking.max_gap_um');
-        setnum('max_frame_gap',  'tracking.max_gap_frames');
+        local_set_record('max_frame_gap', local_settings_num(txt, 'tracking.max_gap_frames'));
+    end
+
+    function local_set_record(fld, val)
+        % A provenance field is a LABEL, so it takes .Text, not .Value. Shows an em dash when Tool 1
+        % wrote no settings file, rather than a stale number from the previous cell.
+        if ~isfield(c,fld) || ~isgraphics(c.(fld)), return; end
+        if isnan(val), c.(fld).Text = '—'; else, c.(fld).Text = sprintf('%g', val); end
     end
 
     function local_set_spinner(fld, val)
@@ -1408,7 +1451,7 @@ end
     function auto_load_overlay(base)
         % Resolve THIS cell's ER + mito stacks from the host's resolver and load them,
         % replacing the previous cell's overlay (fixes the "leftover from past" overlay).
-        clear_overlay('er'); clear_overlay('mito'); clear_overlay('spt'); S.spt_hi=[];
+        clear_overlay('er'); clear_overlay('mito'); clear_overlay('spt'); S.spt_hi=[]; S.spt_lo=[];
         if isempty(S.overlayFcn), return; end
         try, ov = S.overlayFcn(base); catch, ov=[]; end
         if isempty(ov) || ~isstruct(ov), return; end
@@ -1419,7 +1462,50 @@ end
             if isfield(ov,'spt') && ~isempty(ov.spt)
                 sov = load_overlay_stack(ov.spt); sov.isMask=false; sov.fg=[];
                 set_overlay('spt', sov);
-                if ~isempty(S.spt_img), v=double(S.spt_img(:)); S.spt_hi=prctile(v(isfinite(v)),99.9); if ~(S.spt_hi>0), S.spt_hi=max(v); end, end
+                % DISPLAY RANGE. This was prctile(frame 1, 99.9) with the black point hardwired to
+                % zero, so the camera offset (~350 counts here) rendered at 79% white and, at the
+                % shipped contrast of 0.5, 97.6% of every spot the tracker detected clipped to pure
+                % white — the PSF had no structure left, which is the one thing you zoom in to judge.
+                % Frame 1 is also the pre-bleach frame, 1.55x brighter than the stack median, and its
+                % value was reused for all 5703 frames.
+                %
+                % ImageJ's Auto over a sample of the whole stack gives a real black point and holds
+                % one range across playback. Same helper Tool 1 uses.
+                S.spt_lo = [];
+                if exist('spt_stack_range','file')==2 && exist('spt_ij_auto','file')==2
+                    try
+                        rs = spt_stack_range(ov.spt, 12);
+                        if ~isempty(rs.sample)
+                            [S.spt_lo, S.spt_hi] = spt_ij_auto(rs.sample, 5000);
+                        end
+                    catch
+                    end
+                end
+                if isempty(S.spt_lo) && ~isempty(S.spt_img)      % fallback: the old rule, better than nothing
+                    v=double(S.spt_img(:)); S.spt_lo=0; S.spt_hi=prctile(v(isfinite(v)),99.9);
+                    if ~(S.spt_hi>0), S.spt_hi=max(v); end
+                end
+                % FIELD OF VIEW. c.ov_fov shipped as a hardcoded 27.61 um — the OLD dataset's field
+                % of view — and nothing ever wrote it. On a 128 px x 0.16 um/px movie that draws the
+                % raw frame and the ER/mito overlay 1.35x too large, so the emitter ring sits on
+                % background several microns from the molecule. That is a wrong-pixels bug, not a
+                % cosmetic one, and it is almost certainly the "error somewhere" behind the contrast
+                % complaint. Read the pixel size off the movie and size the image to it.
+                %   XData spans CENTRES of the first and last column, and the coordinate convention
+                %   here is X_um = (0-based col) * pxUm, so the far edge is (W-1)*pxUm, not W*pxUm.
+                if exist('spt_tiff_calib','file')==2 && isgraphics(c.ov_fov)
+                    try
+                        cal = spt_tiff_calib(ov.spt);
+                        if isfinite(cal.pixUm) && cal.pixUm > 0 && ~isempty(S.spt_img)
+                            W = size(S.spt_img,2);
+                            fovUm = (W-1) * cal.pixUm;
+                            if fovUm >= c.ov_fov.Limits(1) && fovUm <= c.ov_fov.Limits(2)
+                                c.ov_fov.Value = fovUm;
+                            end
+                        end
+                    catch
+                    end
+                end
             end
         catch
         end
@@ -1697,9 +1783,16 @@ end
         if ~(isfield(c,'spt_chk') && isgraphics(c.spt_chk) && c.spt_chk.Value), return; end
         if isempty(S.spt_path) || S.spt_nfr<1, return; end
         img = overlayImage('spt', frame); if isempty(img), return; end
-        hi = S.spt_hi; if isempty(hi) || ~(hi>0), hi=max(double(img(:))); if ~(hi>0), hi=1; end, end
-        con = 0.5; if isfield(c,'spt_con') && isgraphics(c.spt_con), con=c.spt_con.Value; end
-        g = min(max(double(img)/(hi*max(con,1e-3)),0),1);
+        % Two-point range, black AND white. The old rule divided by a white point with black pinned
+        % to zero, which cannot represent a camera offset at all.
+        lo = 0; if isfield(S,'spt_lo') && ~isempty(S.spt_lo), lo = S.spt_lo; end
+        hi = S.spt_hi; if isempty(hi) || ~(hi>lo), hi = max(double(img(:))); if ~(hi>lo), hi = lo+1; end, end
+        % The control now BRIGHTENS about the auto range instead of scaling from zero: 1.0 is the
+        % measured range, lower pulls the white point in. Its old meaning would silently re-crush the
+        % image the auto range just fixed.
+        con = 1.0; if isfield(c,'spt_con') && isgraphics(c.spt_con), con=c.spt_con.Value; end
+        w = lo + max(hi-lo,eps)*max(con,1e-3);
+        g = min(max((double(img)-lo)/max(w-lo,eps),0),1);
         fov=c.ov_fov.Value; H=size(g,1); W=size(g,2);
         h=image('Parent',ax,'XData',[0 fov],'YData',[0 fov*H/W],'CData',repmat(g,[1 1 3]),'HitTest','off');
         uistack(h,'bottom'); ax.DataAspectRatio=[1 1 1];

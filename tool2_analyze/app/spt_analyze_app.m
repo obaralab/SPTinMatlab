@@ -218,12 +218,35 @@ end
         % It is not a setting worth asking for, because the answer is in the folder: a segmentation
         % is named for the cell, the SPT stack for the cell plus the token, so the token is the
         % difference. spt_channel_token derives it and reports what it found.
-        chanTok = ''; chanWhy = '';
-        try, [chanTok, chanInfo] = spt_channel_token(fullfile(d,'spt'), fullfile(d,'er_seg'), fullfile(d,'mito_seg'));
-             chanWhy = chanInfo.why;
-        catch, end
+        % Pick the token that RESOLVES THE MOST CELLS, rather than trusting any single rule.
+        %
+        % Deriving it from the file names handles the common case ('_C3', '_spt1') without asking,
+        % but spt_match's strip is documented as an unanchored regex precisely so it can remove an
+        % INFIX — the historical 'cell_VAPB_spt1' layout, where the token sits in the middle and no
+        % prefix comparison can find it. Replacing the old literal outright would have turned those
+        % projects into the same silent-empty-overlay failure this is fixing. So both are candidates,
+        % and the data decides.
+        %
+        % The derived token is anchored and escaped; '_VAPB' is passed raw, as it always was, because
+        % anchoring it would defeat the infix case it exists for.
+        chanTok = ''; chanWhy = ''; matched = [];
         if exist('spt_match','file')==2
-            try, matched = spt_match(fullfile(d,'spt'), fullfile(d,'er_seg'), fullfile(d,'mito_seg'), chanTok); catch, matched = []; end
+            cands = {};
+            try, [t0, ti] = spt_channel_token(fullfile(d,'spt'), fullfile(d,'er_seg'), fullfile(d,'mito_seg'));
+                 if ~isempty(t0), cands{end+1} = {['(?:' regexptranslate('escape',t0) ')$'], t0, ti.why}; end
+            catch, end
+            cands{end+1} = {'_VAPB', '_VAPB', 'legacy _VAPB token'};
+            cands{end+1} = {'',      '',      'names match with nothing stripped'};
+            best = -1;
+            for q = 1:numel(cands)
+                try, mq = spt_match(fullfile(d,'spt'), fullfile(d,'er_seg'), fullfile(d,'mito_seg'), cands{q}{1});
+                catch, continue; end
+                nq = sum(arrayfun(@(x) ~isempty(x.erSeg) || ~isempty(x.mitoSeg), mq));
+                if nq > best
+                    best = nq; matched = mq; chanTok = cands{q}{2}; chanWhy = cands{q}{3};
+                end
+            end
+            if best <= 0 && ~isempty(matched), chanWhy = 'no ER/mito matched any naming convention'; end
         end
         onCalAuto();          % try to read dt from a tracks XML
         embedImportCurate();
