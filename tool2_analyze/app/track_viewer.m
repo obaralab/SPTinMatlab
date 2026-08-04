@@ -128,8 +128,20 @@ gl = uigridlayout(container,[1 3],...
 % ============================================================
 lp = uipanel(gl,'Title','Controls','FontSize',10,'FontWeight','bold');
 lp.Layout.Column = 1;
-lpg = uigridlayout(lp,[2 1],'RowHeight',{'1x',108},'Padding',[0 0 0 0],'RowSpacing',4, ...
+lpg = uigridlayout(lp,[3 1],'RowHeight',{40,'1x',108},'Padding',[0 0 0 0],'RowSpacing',4, ...
     'BackgroundColor',[0.97 0.97 0.97]);
+
+% The decision button. Big, coloured by what it will DO, and it names the track — this is the control
+% the whole tab exists for. It sits OUTSIDE the scrollable grid for the same reason the log below
+% does: the control column runs to about 1450 px of content in a ~670 px viewport, and inside the
+% scroll this button landed straddling the fold, so the primary action of the tab was half off-screen
+% until you scrolled to it.
+c.toggle_btn = uibutton(lpg,'Text','Toggle keep/reject','FontSize',12,'FontWeight','bold', ...
+    'BackgroundColor',[0.55 0.55 0.58],'FontColor','white','Enable','off', ...
+    'Tooltip','Flip the selected track between KEEP and REJECT. Manual decisions survive re-filtering, batch runs and switching cells.', ...
+    'ButtonPushedFcn',@(~,~) do_toggle());
+c.toggle_btn.Layout.Row = 1;
+
 lg = uigridlayout(lpg,[60 2],...
     'RowHeight',   repmat({22},1,60),...
     'ColumnWidth', {'fit','1x'},...
@@ -140,6 +152,7 @@ lg = uigridlayout(lpg,[60 2],...
 % (apply, toggle, export, batch) writes here, so a click always leaves a visible trace.
 c.log = uitextarea(lpg,'Editable','off','FontSize',8.5,'FontName','Menlo', ...
     'Value',{'Curate log:'});
+c.log.Layout.Row = 3;   % lpg gained the decision button at row 1
 
 row = 0;
 
@@ -270,14 +283,6 @@ c.next_rej = half_btn(lg,row,2,'Next rejected ▶',[0.80 0.45 0.10],'white');
 c.next_rej.Tooltip = 'Select the next rejected track and centre the detail panel on it — walk the rejects one by one.';
 c.next_rej.ButtonPushedFcn = @(~,~) next_rejected();
 
-% The decision button. Big, coloured by what it will DO, and it names the track — this is the
-% control the whole tab exists for, so it should not look like a grey utility button.
-row=row+1; row=row+1;                                        % two rows tall
-c.toggle_btn = uibutton(lg,'Text','Toggle keep/reject','FontSize',12,'FontWeight','bold', ...
-    'BackgroundColor',[0.55 0.55 0.58],'FontColor','white','Enable','off', ...
-    'Tooltip','Flip the selected track between KEEP and REJECT. Manual decisions survive re-filtering, batch runs and switching cells.', ...
-    'ButtonPushedFcn',@(~,~) do_toggle());
-c.toggle_btn.Layout.Row=[row-1 row]; c.toggle_btn.Layout.Column=[1 2];
 % -- Mislinkage repair. A bad link costs you the WHOLE track today: the jump gate rejects any track
 % containing a step over the gap-close distance. Cutting the link instead splits the chain and both
 % halves go back through the filters, so the good part survives.
@@ -365,11 +370,10 @@ c.ws_btn.ButtonPushedFcn = @(~,~) send_to_workspace();
 
 % -- Playback --
 row=row+1; sec_lbl(lg,row,'PLAYBACK');
-row=row+1; lbl2(lg,row,'FPS:');
-c.fps = uispinner(lg,'Limits',[1 60],'Value',15,'Step',1,'FontSize',9, ...
-    'Tooltip','Playback rate. Takes effect immediately, including while playing.', ...
-    'ValueChangedFcn',@(~,~) retune_playback());   % live: was only read once, at Play
-c.fps.Layout.Row=row; c.fps.Layout.Column=2;
+% FPS, Play and Pause used to live here, ~1240 px from the video they drive — you set the frame rate
+% at the far left of the window and watched the result at the far right. They are built into the
+% Selected-track panel now, immediately under the movie. Everything below is a DISPLAY parameter for
+% that movie rather than transport, so it stays with the other display controls.
 row=row+1; lbl2(lg,row,'Emitter r (um):');
 c.emitter_rad = uispinner(lg,'Limits',[0.01 2],'Value',0.25,'Step',0.05,...
     'FontSize',9,'ValueChangedFcn',@(~,~) refreshTraj());
@@ -379,11 +383,7 @@ c.nearby_rad = uispinner(lg,'Limits',[0.05 5],'Value',0.5,'Step',0.05,...
     'FontSize',9,'ValueChangedFcn',@(~,~) refreshTraj());
 c.nearby_rad.Layout.Row=row; c.nearby_rad.Layout.Column=2;
 row=row+1;
-c.play_btn  = half_btn(lg,row,1,'Play', [0.18 0.80 0.44],'white');
-% the full-track Play must leave link-loop mode, or it would silently keep looping 5 frames
-c.pause_btn = half_btn(lg,row,2,'Pause',[0.91 0.30 0.24],'white');
-c.play_btn.ButtonPushedFcn  = @(~,~) play_whole_track();
-c.pause_btn.ButtonPushedFcn = @(~,~) do_pause();
+
 
 % -- Structure overlay (ER / mito) --
 row=row+1; sec_lbl(lg,row,'OVERLAY (ER / mito structure)');
@@ -510,8 +510,8 @@ ax_hdn.Title.String='Local density distribution';
 % ============================================================
 rp = uipanel(gl,'Title','Selected track');
 rp.Layout.Column = 3;
-rg = uigridlayout(rp,[4 1],...
-    'RowHeight',{'2x','0.75x','1x','1x'},...
+rg = uigridlayout(rp,[5 1],...
+    'RowHeight',{'2x',28,'0.75x','1x','1x'},...
     'Padding',[4 4 4 4],'RowSpacing',4);
 
 ax_tr = uiaxes(rg); ax_tr.Layout.Row=1;
@@ -524,13 +524,32 @@ ax_tr.FontSize=8; hold(ax_tr,'on'); box(ax_tr,'on');
 disableDefaultInteractivity(ax_tr);
 ax_tr.Toolbar.Visible = 'off';
 
+% ---- transport, directly under the movie it drives ----
+% Play/Pause/FPS were in the far-left control column, about 1240 px from this axes. Nothing else
+% about them changes: the button TEXT stays exactly 'Play' and 'Pause' (spt_linkcut_smoke matches
+% those labels exactly, and its substring fallback would otherwise pick '▶ Play link'), and FPS stays
+% a uispinner with Limits [1 60] and its live ValueChangedFcn (spt_curate_review_smoke asserts both).
+tg_ = uigridlayout(rg,[1 5],'ColumnWidth',{64,64,'1x',34,58}, ...
+    'Padding',[0 0 0 0],'ColumnSpacing',6); tg_.Layout.Row = 2;
+c.play_btn  = uibutton(tg_,'Text','Play', 'FontSize',10,'FontWeight','bold', ...
+    'BackgroundColor',[0.18 0.80 0.44],'FontColor','white');
+c.pause_btn = uibutton(tg_,'Text','Pause','FontSize',10,'FontWeight','bold', ...
+    'BackgroundColor',[0.91 0.30 0.24],'FontColor','white');
+c.play_btn.ButtonPushedFcn  = @(~,~) play_whole_track();   % whole-track Play also leaves link-loop mode
+c.pause_btn.ButtonPushedFcn = @(~,~) do_pause();
+uilabel(tg_,'Text','');                                    % spacer
+uilabel(tg_,'Text','fps','HorizontalAlignment','right','FontSize',9);
+c.fps = uispinner(tg_,'Limits',[1 60],'Value',15,'Step',1,'FontSize',9, ...
+    'Tooltip','Playback rate. Takes effect immediately, including while playing.', ...
+    'ValueChangedFcn',@(~,~) retune_playback());
+
 % ---- link strip: the selected track as nodes + connections, laid out along TIME ----
 % Our tracks are strictly linear chains — spt_track links frame-to-frame with matchpairs (one-to-one)
 % and consumes each gap-close start once — so there are no split/merge events and a track is a simple
 % path. That is why this is a horizontal strip rather than TrackMate's 2D TrackScheme: with no
 % branching, the second dimension would carry nothing. Sharing the time axis with the step plot below
 % is what makes it useful — the spike there IS the suspicious edge here.
-ax_gr = uiaxes(rg); ax_gr.Layout.Row=2;
+ax_gr = uiaxes(rg); ax_gr.Layout.Row=3;
 ax_gr.YLabel.String='links'; ax_gr.FontSize=8; hold(ax_gr,'on'); box(ax_gr,'on');
 ax_gr.YTick=[]; ax_gr.YLim=[-1 1];
 ax_gr.XTickLabel={};                     % the step plot directly below carries the shared time axis
@@ -538,12 +557,12 @@ disableDefaultInteractivity(ax_gr);      % same reason as ax_tr: interaction mod
 ax_gr.Toolbar.Visible='off';
 ax_gr.ButtonDownFcn = @(s,e) on_strip_click(e);
 
-ax_dv2 = uiaxes(rg); ax_dv2.Layout.Row=3;
+ax_dv2 = uiaxes(rg); ax_dv2.Layout.Row=4;
 ax_dv2.XLabel.String='Time (s)'; ax_dv2.YLabel.String='Step (um)';
 ax_dv2.FontSize=8; hold(ax_dv2,'on');
 ax_dv2.ButtonDownFcn = @(s,e) on_strip_click(e);   % clicking the spike cuts the same edge
 
-ax_in = uiaxes(rg); ax_in.Layout.Row=4;
+ax_in = uiaxes(rg); ax_in.Layout.Row=5;
 ax_in.XLabel.String='Time (s)'; ax_in.YLabel.String='Intensity';
 ax_in.FontSize=8; hold(ax_in,'on');
 
@@ -2863,8 +2882,13 @@ function sec_lbl(grid, row, txt)
 end
 
 function h = lbl2(grid, row, txt)
+    % Column 1 ONLY. This used to span [1 2] while its control sat in column 2, so the label ran
+    % underneath the control: the 'fit' column measured 69 px, column 2 started at 85, and six of
+    % these labels are wider than the 79 px of clear space that left — 'Gap-close max dist (µm):',
+    % 'Density radius (µm):' and the rest were all reading into their own spinners. Confining the
+    % label to column 1 also lets 'fit' size to the longest one, which is what 'fit' is for.
     h = uilabel(grid,'Text',txt,'FontSize',9);
-    h.Layout.Row=row; h.Layout.Column=[1 2];
+    h.Layout.Row=row; h.Layout.Column=1;
 end
 
 function h = wide_btn(grid, row, txt, bg, fg)
