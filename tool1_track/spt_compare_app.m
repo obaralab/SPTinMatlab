@@ -72,7 +72,7 @@ eF0 = uieditfield(top,'numeric','Value',f0Def,'Limits',[1 Inf],'RoundFractionalV
 uilabel(top,'Text','to','HorizontalAlignment','center');
 eF1 = uieditfield(top,'numeric','Value',f1Def,'Limits',[2 Inf],'RoundFractionalValues',true,'ValueDisplayFormat','%d');
 uilabel(top,'Text','Min len','HorizontalAlignment','right', ...
-    'Tooltip','Count only tracks at least this many frames long. Set it to your curation min length (e.g. 50) to compare the tracks that survive filtering. Changing it re-counts instantly — no re-tracking.');
+    'Tooltip','Count only tracks at least this many frames long. Set it to your filter min length (e.g. 50) to compare the tracks that survive filtering. Changing it re-counts instantly — no re-tracking.');
 eMin = uispinner(top,'Limits',[1 1e5],'Value',minLenDef,'Step',1,'RoundFractionalValues',true,'ValueChangedFcn',@(s,e) recount());
 uilabel(top,'Text','Max examples','HorizontalAlignment','right', ...
     'Tooltip','How many disagreements to score and list (they are ranked by how much the methods actually differ).');
@@ -604,7 +604,7 @@ drawnow; if autorun, run_(); end
             'and differs only in HOW it groups them. Both ER modes also SPLIT'
             'tracks at ER gaps: more short fragments (raw count up), which can'
             'drop a long Euclidean track below the min length (filtered count'
-            'down). Raising Min len shows the tracks that survive curation.'
+            'down). Raising Min len shows the tracks that survive the filter.'
             ''
             'WHERE THE METHODS DIFFER'
             sprintf('  %d links assigned a different partner', s.nDiff)

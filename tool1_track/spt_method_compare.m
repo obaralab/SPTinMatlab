@@ -100,13 +100,13 @@ if isempty(rows)
     T = cell2table(cell(0,numel(vn)), 'VariableNames', vn);
 else
     T = array2table(cell2mat(rows.'), 'VariableNames', vn);
-    % rank best-first by the biggest on-ER improvement of an ER-aware method over Euclidean; NaN
+    % rank best-first by the biggest on-ER improvement of an ER link mode over Euclidean; NaN
     % (a method left the spot unlinked — birth/death difference) sinks below the on-ER-crossing cases.
     improve = T.euOff - min(T.peOff, T.geOff);
     improve(isnan(improve)) = -Inf;
     [~,ord] = sort(improve, 'descend'); T = T(ord,:);
 end
-% "excels" = Euclidean link crosses an ER gap (off>0.5) but that ER-aware method keeps it on-ER (off<0.5)
+% "excels" = Euclidean link crosses an ER gap (off>0.5) but that ER link mode keeps it on-ER (off<0.5)
 nExcelGeo = 0; nExcelPen = 0;
 if ~isempty(rows)
     nExcelGeo = sum(T.euOff>0.5 & T.geOff<0.5 & (T.geX~=T.euX | T.geY~=T.euY));

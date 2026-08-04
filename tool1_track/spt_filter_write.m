@@ -1,9 +1,9 @@
-function stat = spt_curate_write(C, keptMask, tracksDir, base)
-%SPT_CURATE_WRITE  Write curated outputs: only TRACKS are filtered; every detection is preserved.
+function stat = spt_filter_write(C, keptMask, tracksDir, base)
+%SPT_FILTER_WRITE  Write curated outputs: only TRACKS are filtered; every detection is preserved.
 %
-%   stat = spt_curate_write(C, keptMask, tracksDir, base)
+%   stat = spt_filter_write(C, keptMask, tracksDir, base)
 %
-% C        : output of spt_curate_read.
+% C        : output of spt_filter_read.
 % keptMask : logical over C.trackId — the tracks to keep.
 % Writes into tracksDir:
 %   <base>_spots_filtered.csv  — ALL detections (unchanged), TRACK_ID renumbered 0..K-1 for kept

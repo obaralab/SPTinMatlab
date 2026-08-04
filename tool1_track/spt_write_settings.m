@@ -35,7 +35,9 @@ end
 fprintf(fid, 'tracking.link_um        = %.4g\n', prm.linkUm);
 fprintf(fid, 'tracking.max_gap_um     = %.4g\n', prm.gapUm);
 fprintf(fid, 'tracking.max_gap_frames = %d\n', prm.maxGap);
-fprintf(fid, 'tracking.er_aware       = %d\n', R.erAware);
+% tracking.er_aware is gone. It was a boolean from before the three-way mode existed, and it is
+% fully derivable from tracking.link_mode (anything but 'euclid' uses the ER) — it named a mode the
+% app no longer has, right next to the two lines that say the real one.
 fprintf(fid, 'tracking.lambda         = %.4g\n', prm.lambda);
 fprintf(fid, 'calibration.pixel_um    = %.6g\n', prm.pxUm);
 fprintf(fid, 'calibration.frame_s     = %.6g\n', prm.dtS);

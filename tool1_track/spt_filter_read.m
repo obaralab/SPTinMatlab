@@ -1,7 +1,7 @@
-function C = spt_curate_read(csvPath)
-%SPT_CURATE_READ  Read a <base>_spots.csv into the all-spots table + per-track metrics for curation.
+function C = spt_filter_read(csvPath)
+%SPT_FILTER_READ  Read a <base>_spots.csv into the all-spots table + per-track metrics for curation.
 %
-%   C = spt_curate_read(csvPath)
+%   C = spt_filter_read(csvPath)
 %
 % C.spots : the full spots table (every detection — the localization cloud stays intact).
 % C.trackId/len/dispUm/meanQ : per-track metrics (net displacement in µm, mean DoG quality).

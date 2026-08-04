@@ -1,7 +1,7 @@
-function [tracks, info] = spt_track(dets, supports, linkUm, gapUm, maxGap, pxUm, erAware, lambda, mode)
+function [tracks, info] = spt_track(dets, supports, linkUm, gapUm, maxGap, pxUm, useEr, lambda, mode)
 %SPT_TRACK  LAP tracking of per-frame detections. Port of ERAware build_tracks() + gap_close().
 %
-%   [tracks, info] = spt_track(dets, supports, linkUm, gapUm, maxGap, pxUm, erAware, lambda, mode)
+%   [tracks, info] = spt_track(dets, supports, linkUm, gapUm, maxGap, pxUm, useEr, lambda, mode)
 %
 % mode : 'euclid'   plain Euclidean LAP (no ER);
 %        'penalty'  SOFT ER bias on the STRAIGHT-LINE off-ER fraction: cost = dist·(1+lambda·off).
@@ -12,7 +12,7 @@ function [tracks, info] = spt_track(dets, supports, linkUm, gapUm, maxGap, pxUm,
 %                   THROUGH the ER (bwdistgeodesic), so a link that must detour around an ER gap
 %                   costs its true along-ER length; unreachable partners and detours longer than
 %                   the link radius are FORBIDDEN. lambda is unused except in the birth/death cost.
-% Default: 'penalty' when erAware else 'euclid'. (mode overrides erAware when given.)
+% Default: 'penalty' when useEr else 'euclid'. (mode overrides useEr when given.)
 %
 % Strict geodesic FAILS CLOSED: a frame with no ER mask contributes no tracked detections at all,
 % rather than silently falling back to unconstrained Euclidean linking. `info` reports how often
@@ -28,28 +28,28 @@ function [tracks, info] = spt_track(dets, supports, linkUm, gapUm, maxGap, pxUm,
 %
 % INPUT
 %   dets     : 1xT cell; dets{t} = Nx3 [x y quality] detections for frame t (1-based px)
-%   supports : 1xT cell of logical ER support masks (or {}/[] entries) — used when ER-aware
+%   supports : 1xT cell of logical ER support masks (or {}/[] entries) — used by the ER modes
 %   linkUm   : frame-to-frame max link distance (µm)  [TrackMate "Linking max distance"]
 %   gapUm    : gap-closing max distance (µm)           [TrackMate "Gap-closing max distance"]
 %   maxGap   : max missing frames to bridge            [TrackMate "Gap-closing max frame gap"]
 %   pxUm     : µm per pixel
-%   erAware  : true -> ER-aware linking; false -> plain Euclidean LAP
+%   useEr  : true -> this mode consults the ER (penalty or geodesic); false -> plain Euclidean LAP
 %   lambda   : ER penalty weight, 'penalty' mode only (default 3)
 % OUTPUT
 %   tracks : 1xM cell; each Kx4 = [frame x y quality], sorted by frame, K>=2 (linked tracks only).
 %            (Every detection stays available to the caller for the localization set; tracks are the
 %            linked subset.)
 %   info   : struct — mode, nFramesNoErMask, nDets, nDetsOffEr (detections strict mode excluded).
-if nargin<7 || isempty(erAware), erAware = false; end
+if nargin<7 || isempty(useEr), useEr = false; end
 if nargin<8 || isempty(lambda),  lambda  = 3.0; end
 if nargin<9 || isempty(mode),    mode = ''; end
-if isempty(mode), if erAware, mode = 'penalty'; else, mode = 'euclid'; end, end   % mode overrides erAware
+if isempty(mode), if useEr, mode = 'penalty'; else, mode = 'euclid'; end, end   % mode overrides useEr
 % Reject an unknown mode rather than silently linking Euclidean — a typo must not quietly turn the
 % strict ER constraint off.
 if ~ismember(mode, {'euclid','penalty','geodesic'})
     error('spt_track:badMode', 'Unknown linking mode ''%s'' (expected euclid | penalty | geodesic).', mode);
 end
-erAware = ~strcmp(mode,'euclid');   % gap-close veto applies for any ER-aware mode
+useEr = ~strcmp(mode,'euclid');   % the gap-close veto applies to both ER modes
 R = linkUm/pxUm; G = gapUm/pxUm;
 nT = numel(dets);
 d0 = R*(1+lambda) + 1;                              % cost of leaving a spot unlinked (birth/death)
@@ -92,12 +92,12 @@ for t = 1:nT-1
     P = dets{t}; Q = dets{t+1};
     nxt{t} = zeros(size(P,1),1);
     if isempty(P) || isempty(Q), continue; end
-    sup = []; if erAware && t <= numel(supports), sup = supports{t}; end
+    sup = []; if useEr && t <= numel(supports), sup = supports{t}; end
     if strcmp(mode,'geodesic')
         supQ = []; if t+1 <= numel(supports), supQ = supports{t+1}; end
         C = spt_link_cost_geo(P, Q, R, sup, lambda, supQ);   % forbids everything when a mask is missing
     else
-        C = spt_link_cost(P, Q, R, erAware, lambda, sup);
+        C = spt_link_cost(P, Q, R, useEr, lambda, sup);
     end
     Mm = matchpairs(C, d0);                          % rows(frame t) -> cols(frame t+1)
     for r = 1:size(Mm,1)
@@ -129,12 +129,12 @@ end
 
 % ---- gap closing ----
 if maxGap >= 1 && numel(tracks) > 1
-    tracks = gap_close_tracks(tracks, supports, G, maxGap, erAware, mode);
+    tracks = gap_close_tracks(tracks, supports, G, maxGap, useEr, mode);
 end
 end
 
 % =========================================================================
-function tracks = gap_close_tracks(tracks, supports, G, maxGap, erAware, mode)
+function tracks = gap_close_tracks(tracks, supports, G, maxGap, useEr, mode)
 n = numel(tracks);
 endF = zeros(n,1); endXY = zeros(n,2); startF = zeros(n,1); startXY = zeros(n,2);
 for k = 1:n
@@ -159,7 +159,7 @@ for oi = 1:n
                     if ~isfinite(geo_bridge(endXY(a,:), startXY(b,:), G, supports, te, startF(b)))
                         continue;
                     end
-                elseif erAware && te <= numel(supports) && ~isempty(supports{te})
+                elseif useEr && te <= numel(supports) && ~isempty(supports{te})
                     % Soft ('penalty') veto, unchanged: reject a mostly-off-ER straight bridge.
                     if spt_seg_off_fraction(endXY(a,:), startXY(b,:), supports{te}) > 0.5, continue; end
                 end

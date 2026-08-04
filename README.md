@@ -56,8 +56,8 @@ SPTinMatlab/
 │   ├── spt_link_cost.m spt_link_cost_geo.m spt_seg_off_fraction.m        ← Euclid/penalty · geodesic link costs
 │   ├── spt_er_support.m spt_on_er.m spt_seg_fg_label.m                   ← the ONE definition of "on the ER"
 │   ├── spt_compare_app.m spt_method_compare.m spt_link_compare.m         ← 3-way linking-method comparison
-│   ├── spt_curate_read.m spt_curate_write.m spt_write_outputs.m          ← output + filter (only tracks filtered)
-│   ├── spt_write_settings.m spt_append_curation_settings.m spt_append_detection_summary.m  ← provenance
+│   ├── spt_filter_read.m spt_filter_write.m spt_write_outputs.m          ← output + filter (only tracks filtered)
+│   ├── spt_write_settings.m spt_append_filter_settings.m spt_append_detection_summary.m  ← provenance
 │   ├── spt_track_movie.m       ← embedded track player (frames + ER/mito overlays)
 │   ├── spt_pixel_size.m
 │   └── *_smoke.m               ← regression tests (geodesic-strict, compare, shape, save-video, …)
@@ -178,6 +178,6 @@ frame is pre-filtered to the detections on that frame's own 1 px-dilated ER supp
 / `spt_on_er` — the one shared definition), so an off-ER detection cannot enter a track by any route,
 gap closing must be reachable *along* the ER, and a frame with no ER mask contributes nothing. Both
 costs are counted as `tracking.frames_no_er_mask` and `tracking.dets_off_er`; curating a cell upserts
-a `curation.*` block into the same file. `⚖ Compare methods` on the Track tab opens three
+a `filter.*` block into the same file. `⚖ Compare methods` on the Track tab opens three
 side-by-side synchronized players — one per linking mode, over the real frames — with a ranked list
 of the links the methods disagree on and MP4 export.

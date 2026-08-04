@@ -107,7 +107,7 @@ tg.SelectedTab = tMatch;   % ...but open on Match files: that is where a fresh s
         uibutton(g,'Text','Pick…','ButtonPushedFcn',@(s,e) pick(eSpt));
 
         uilabel(g,'Text','ER seg folder (optional)','HorizontalAlignment','right');
-        eEr = uieditfield(g,'text','Placeholder','ilastik ER masks — enables ER-aware tracking');
+        eEr = uieditfield(g,'text','Placeholder','ilastik ER masks — enables the ER-penalty and ER-geodesic link modes');
         uibutton(g,'Text','Pick…','ButtonPushedFcn',@(s,e) pick(eEr));
 
         uilabel(g,'Text','Mito seg folder (optional)','HorizontalAlignment','right');
@@ -417,6 +417,20 @@ tg.SelectedTab = tMatch;   % ...but open on Match files: that is where a fresh s
             end
         end
         if dCell >= 1, poolAndDraw(); end
+    end
+
+    function t = modeTag(R)
+        % Name the mode that actually ran. This used to print ' · ER-aware', which was the old
+        % two-way boolean and no longer names anything the app offers — you could not tell an
+        % ER-penalty run from an ER-geodesic one in the log.
+        t = '';
+        m = ''; if isstruct(R) && isfield(R,'linkMode'), m = char(R.linkMode); end
+        switch lower(m)
+            case 'penalty',  t = ' · ER-penalty';
+            case 'geodesic', t = ' · ER-geodesic (strict)';
+            case 'euclid',   t = ' · Euclidean';
+            otherwise, if isfield(R,'useEr') && R.useEr, t = ' · ER-aware'; end
+        end
     end
 
     function thr = curDetThr()
@@ -764,7 +778,7 @@ tg.SelectedTab = tMatch;   % ...but open on Match files: that is where a fresh s
             otherwise,          mode = 'penalty';
         end
         prm = struct('linkUm',spnLink.Value,'gapUm',spnGap.Value,'maxGap',round(spnInt.Value), ...
-            'erAware',~strcmp(mode,'euclid'),'linkMode',mode,'lambda',spnLam.Value,'pxUm',PXUM,'dtS',DTS);
+            'useEr',~strcmp(mode,'euclid'),'linkMode',mode,'lambda',spnLam.Value,'pxUm',PXUM,'dtS',DTS);
     end
 
     function onCompareModes()
@@ -838,7 +852,7 @@ tg.SelectedTab = tMatch;   % ...but open on Match files: that is where a fresh s
                         getf(R,'linkModeReq','?'), getf(R,'linkMode','?')));
                 end
                 logLine(sprintf('     detection: diam %.2g µm · %s%s -> _tracks.xml + _spots.csv + _settings.txt', ...
-                    getf(cel,'diamUm',0.5), ds, tern(R.erAware,' · ER-aware','')));
+                    getf(cel,'diamUm',0.5), ds, modeTag(R)));
             catch ME
                 logLine(sprintf('   %s: ERROR — %s', cel.key, ME.message));
                 setTrk(sprintf('%s FAILED — %s', cel.key, ME.message), [0.75 0.1 0.1]);
@@ -928,7 +942,7 @@ tg.SelectedTab = tMatch;   % ...but open on Match files: that is where a fresh s
             lblCur.Text = sprintf('%s: no tracks yet — run Track (Tab 3) into the project folder first.', matched(dCurCell).key);
             lblCur.FontColor = [0.6 0.4 0.1]; return;
         end
-        try, curC = spt_curate_read(csv); catch ME, lblCur.Text = ['read failed: ' ME.message]; lblCur.FontColor=[0.75 0.1 0.1]; return; end
+        try, curC = spt_filter_read(csv); catch ME, lblCur.Text = ['read failed: ' ME.message]; lblCur.FontColor=[0.75 0.1 0.1]; return; end
         drawCurHist();
     end
 
@@ -981,7 +995,7 @@ tg.SelectedTab = tMatch;   % ...but open on Match files: that is where a fresh s
             medL = NaN; maxL = NaN; nDet = 0;
         end
         % THIS cell's frame interval, recovered from its own CSV (T_s = FRAME*dt), the same way
-        % spt_curate_write.m:23 does it. The app-wide DTS belongs to the Detect tab's cell, which is
+        % spt_filter_write.m:23 does it. The app-wide DTS belongs to the Detect tab's cell, which is
         % selected independently — using it here reported 1.50 s for a 0.79 s median on the user's
         % file, a 1.9x error inside the very summary this was meant to fix.
         dtc = curDt();
@@ -1061,10 +1075,10 @@ tg.SelectedTab = tMatch;   % ...but open on Match files: that is where a fresh s
             try
                 tCell = tic;
                 setTrk(sprintf('⏳ exporting %s…', matched(k).key), [0.15 0.35 0.60]);
-                Cc = spt_curate_read(csv);
+                Cc = spt_filter_read(csv);
                 km = Cc.len >= ml & Cc.dispUm >= mdp;
-                st = spt_curate_write(Cc, km, tracksDir, base);
-                spt_append_curation_settings(tracksDir, base, ml, mdp, st);   % stamp the filter params into _settings.txt
+                st = spt_filter_write(Cc, km, tracksDir, base);
+                spt_append_filter_settings(tracksDir, base, ml, mdp, st);   % stamp the filter params into _settings.txt
                 nRej = st.before - st.after;
                 logLine(sprintf('   %s · %s · %d -> %d tracks kept (%d rejected, %.0f%%) · %d detections written', ...
                     matched(k).key, hms(toc(tCell)), st.before, st.after, nRej, 100*nRej/max(st.before,1), st.nSpots));

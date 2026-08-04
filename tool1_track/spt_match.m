@@ -17,7 +17,7 @@ function cells = spt_match(sptDir, erDir, mitoDir, strip)
 %
 % INPUT
 %   sptDir  : folder of single-particle TIFF stacks (required)
-%   erDir   : folder of ER segmentation stacks; '' if none (ER-aware tracking then unavailable)
+%   erDir   : folder of ER segmentation stacks; '' if none (ER-penalty / ER-geodesic then unavailable)
 %   mitoDir : folder of mito segmentation stacks; '' if none (no per-spot mito distance)
 %   strip   : extra regex stripped from every name before keying; '' for none
 %

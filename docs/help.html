@@ -263,7 +263,7 @@ max=1904.0</code></pre>
   <tr><th>Field</th><th>Required</th><th>Meaning</th></tr>
   <tr><td><b>Project folder</b><br><kbd>Pick…</kbd></td><td>no</td><td>The dataset folder. Picking it does five things at once (see below). Placeholder: <em>"dataset folder containing spt/, er_seg/, mito_seg/"</em>.</td></tr>
   <tr><td><b>SPT folder (required)</b><br><kbd>Pick…</kbd></td><td><b>yes</b></td><td>Folder of single-particle <code>.tif</code>/<code>.tiff</code> stacks. One stack = one cell. If this is empty or not a folder, Scan refuses: <em>"Pick a valid SPT folder first."</em></td></tr>
-  <tr><td><b>ER seg folder (optional)</b><br><kbd>Pick…</kbd></td><td>no</td><td>ilastik ER masks — <em>"enables ER-aware tracking"</em>. Accepts <code>.tif</code>, <code>.tiff</code>, <code>.h5</code>, <code>.hdf5</code>.</td></tr>
+  <tr><td><b>ER seg folder (optional)</b><br><kbd>Pick…</kbd></td><td>no</td><td>ilastik ER masks — <em>"enables the ER-penalty and ER-geodesic link modesing"</em>. Accepts <code>.tif</code>, <code>.tiff</code>, <code>.h5</code>, <code>.hdf5</code>.</td></tr>
   <tr><td><b>Mito seg folder (optional)</b><br><kbd>Pick…</kbd></td><td>no</td><td>ilastik mito masks — <em>"enables per-spot mito distance"</em>. Same extensions.</td></tr>
   <tr><td><b>Strip regex</b></td><td>—</td><td>Default <code>_VAPB</code>. An extra token removed from every filename before keying, for the common case where the segmentation files carry a channel token the SPT file does not.</td></tr>
   <tr><td><kbd>Scan</kbd></td><td>—</td><td>Runs the matcher and fills the table. Also: reads the pixel size from the first cell, and refreshes both the Detect cell list and the Track-tab filter cell list.</td></tr>
@@ -529,7 +529,7 @@ cost = ‖p − q‖ · (1 + λ · off)</code></pre>
 <pre><code>▶ RUN 1 cell(s) · ER-geodesic · link 0.8 µm · gap 1.4 µm / 1 fr · λ 3 -> …/tracks
    &lt;cell&gt; · &lt;elapsed&gt; · &lt;nFrames&gt; frames · &lt;S&gt; spots -> &lt;T&gt; tracked (&lt;%&gt;) in &lt;K&gt; tracks
      ER-geodesic (strict): &lt;N&gt; spots rejected as off-ER (&lt;%&gt;)
-     detection: diam 0.5 µm · top 6% (thr &lt;value&gt;) · ER-aware -> _tracks.xml + _spots.csv + _settings.txt
+     detection: diam 0.5 µm · top 6% (thr &lt;value&gt;) · ER-geodesic (strict) -> _tracks.xml + _spots.csv + _settings.txt
 ✔ RUN done — 1 cell(s) in &lt;elapsed&gt; -> …/tracks</code></pre>
 <p>Two lines only appear when they are relevant, and both are there because a silent degradation is the worst failure mode: the <b>ER-geodesic (strict)</b> line names how many detections the strict rule rejected (and appends <em>"· N frames had NO ER mask (nothing tracked there)"</em> when that happened), and a <b>"&lt;mode&gt; requested but NOT applied (no ER segmentation) — linked euclid"</b> line appears when a cell was downgraded. A cell that errors logs <code>ERROR — &lt;message&gt;</code> and the batch continues to the next cell.</p>
 <p>When a run finishes, the filter view automatically loads the <b>last cell run</b>, so the histogram and map you are looking at are of fresh output.</p>
@@ -579,7 +579,7 @@ cost = ‖p − q‖ · (1 + λ · off)</code></pre>
   <tr><th>File</th><th>Written by</th><th>Contents</th></tr>
   <tr><td><code>&lt;base&gt;_spots.csv</code></td><td><kbd>▶ Run</kbd></td><td><b>One row per detection</b> — the complete localization cloud. <code>TRACK_ID</code> blank for any detection that is not in a track.</td></tr>
   <tr><td><code>&lt;base&gt;_tracks.xml</code></td><td><kbd>▶ Run</kbd></td><td>All linked tracks, <code>SPOT_ID</code> shared with the CSV.</td></tr>
-  <tr><td><code>&lt;base&gt;_settings.txt</code></td><td><kbd>▶ Run</kbd>, then appended by <kbd>Export</kbd></td><td>Per-cell run provenance. Rewritten from scratch each run; the export adds a <code>curation.*</code> block.</td></tr>
+  <tr><td><code>&lt;base&gt;_settings.txt</code></td><td><kbd>▶ Run</kbd>, then appended by <kbd>Export</kbd></td><td>Per-cell run provenance. Rewritten from scratch each run; the export adds a <code>filter.*</code> block.</td></tr>
   <tr><td><code>detection_summary.csv</code></td><td><kbd>▶ Run</kbd></td><td>Project-level table, <b>one row per cell</b>, upserted by cell on every run.</td></tr>
   <tr><td><code>&lt;base&gt;_spots_filtered.csv</code></td><td><kbd>Export</kbd></td><td>Every detection again, with <code>TRACK_ID</code> renumbered <code>0…K−1</code> over the surviving tracks and <b>blank</b> for everything else.</td></tr>
   <tr><td><code>&lt;base&gt;_tracks_filtered.xml</code></td><td><kbd>Export</kbd></td><td>The surviving tracks only. <b>This pair is Tool 2's input.</b></td></tr>
@@ -623,7 +623,6 @@ MEAN_INTENSITY,MAX_INTENSITY,TOTAL_INTENSITY,MITO_DIST_UM,ER_DIST_UM,ELONGATION,
   <tr><td><code>tracking.link_um</code></td><td><b>Link dist (µm)</b>.</td></tr>
   <tr><td><code>tracking.max_gap_um</code></td><td><b>Max gap dist (µm)</b>.</td></tr>
   <tr><td><code>tracking.max_gap_frames</code></td><td><b>Max gap (fr)</b>.</td></tr>
-  <tr><td><code>tracking.er_aware</code></td><td><code>1</code> if the effective mode used the ER (penalty or geodesic), else <code>0</code>.</td></tr>
   <tr><td><code>tracking.lambda</code></td><td>λ as set. Recorded even in modes that ignore it.</td></tr>
   <tr><td><code>calibration.pixel_um</code></td><td>The µm/px used for this run.</td></tr>
   <tr><td><code>calibration.frame_s</code></td><td>The frame interval used for this run.</td></tr>
@@ -632,24 +631,24 @@ MEAN_INTENSITY,MAX_INTENSITY,TOTAL_INTENSITY,MITO_DIST_UM,ER_DIST_UM,ELONGATION,
   <tr><td><code>result.have_er</code></td><td><code>1</code> if an ER segmentation file was found and read.</td></tr>
   <tr><td><code>result.have_mito</code></td><td><code>1</code> if a mito segmentation file was found and read.</td></tr>
 </table>
-<p>Exporting then <b>upserts</b> a <code>curation.*</code> block into the same file — any previous block is stripped first, so re-exporting overwrites cleanly rather than accumulating:</p>
+<p>Exporting then <b>upserts</b> a <code>filter.*</code> block into the same file — any previous block is stripped first, so re-exporting overwrites cleanly rather than accumulating:</p>
 <table>
   <tr><th>Key</th><th>Meaning</th></tr>
-  <tr><td><code>curation.min_track_len</code></td><td>The <b>Min track length (fr)</b> applied.</td></tr>
-  <tr><td><code>curation.min_disp_um</code></td><td>The <b>Min displacement (µm)</b> applied.</td></tr>
-  <tr><td><code>curation.tracks_before</code></td><td>Tracks in the input.</td></tr>
-  <tr><td><code>curation.tracks_after</code></td><td>Tracks that survived.</td></tr>
-  <tr><td><code>curation.n_spots_written</code></td><td>Every detection written to <code>_spots_filtered.csv</code>. Because the cloud is preserved by design this <b>equals <code>result.n_spots</code> and says nothing about the filter</b>.</td></tr>
-  <tr><td><code>curation.n_spots_in_kept_tracks</code></td><td>The detections belonging to the tracks that survived. <b>This is the one that answers "how much data came through this stage?"</b> — the pair exists because a single key called "spots kept" read as though nothing had been dropped.</td></tr>
-  <tr><td><code>curation.exported</code></td><td>Timestamp, <code>yyyy-mm-dd HH:MM:SS</code>.</td></tr>
+  <tr><td><code>filter.min_track_len</code></td><td>The <b>Min track length (fr)</b> applied.</td></tr>
+  <tr><td><code>filter.min_disp_um</code></td><td>The <b>Min displacement (µm)</b> applied.</td></tr>
+  <tr><td><code>filter.tracks_before</code></td><td>Tracks in the input.</td></tr>
+  <tr><td><code>filter.tracks_after</code></td><td>Tracks that survived.</td></tr>
+  <tr><td><code>filter.n_spots_written</code></td><td>Every detection written to <code>_spots_filtered.csv</code>. Because the cloud is preserved by design this <b>equals <code>result.n_spots</code> and says nothing about the filter</b>.</td></tr>
+  <tr><td><code>filter.n_spots_in_kept_tracks</code></td><td>The detections belonging to the tracks that survived. <b>This is the one that answers "how much data came through this stage?"</b> — the pair exists because a single key called "spots kept" read as though nothing had been dropped.</td></tr>
+  <tr><td><code>filter.exported</code></td><td>Timestamp, <code>yyyy-mm-dd HH:MM:SS</code>.</td></tr>
 </table>
-<div class="warn">The <code>curation.*</code> block is written by <b>Tool 1's</b> length/displacement export, despite the name. Tool 1's outputs are the <code>_filtered</code> pair; Tool 2's density/variance curation produces <code>_curated</code> files. If you see <code>curation.min_track_len</code>, you are reading Tool 1's filter.</div>
+<div class="note"><b>This block used to be called <code>curation.*</code>.</b> That was wrong — Tool 1 only filters, by track length and net displacement; curation proper (density, step-variance, per-track judgement) is Tool 2's job. Projects tracked before the rename still carry the old spelling and are still read: <code>cs_experiment_status</code> tries <code>filter.</code> first and falls back to <code>curation.</code>, and re-exporting a cell strips either spelling before writing the new one, so a file cannot end up with both.</div>
 
 <h4 id="t1detsummary">Every column of <code>detection_summary.csv</code></h4>
 <p>One row per cell, keyed by cell name, <b>upserted</b> — re-running a cell replaces its previous row rather than appending a second one, so this file is always a snapshot of the current state of the project rather than a history. Header, in order:</p>
 <pre><code>cell,threshold_mode,top_percent,quality_min,thr_abs,diameter_um,
 link_mode,link_um,max_gap_um,max_gap_frames,lambda,
-n_spots,n_tracks,er_aware,run_time</code></pre>
+n_spots,n_tracks,run_time</code></pre>
 <table>
   <tr><th>Column</th><th>Meaning</th></tr>
   <tr><td><code>cell</code></td><td><code>&lt;base&gt;</code> — the SPT stack's basename. The upsert key.</td></tr>
@@ -662,7 +661,6 @@ n_spots,n_tracks,er_aware,run_time</code></pre>
   <tr><td><code>link_um</code>, <code>max_gap_um</code>, <code>max_gap_frames</code>, <code>lambda</code></td><td>The linking parameters as run.</td></tr>
   <tr><td><code>n_spots</code></td><td>Detections (the whole cloud).</td></tr>
   <tr><td><code>n_tracks</code></td><td>Tracks before filtering.</td></tr>
-  <tr><td><code>er_aware</code></td><td><code>1</code>/<code>0</code>.</td></tr>
   <tr><td><code>run_time</code></td><td><code>yyyy-mm-dd HH:MM:SS</code> of the run.</td></tr>
 </table>
 <div class="good">This is the file to open when you are about to publish a number. With many cells in a project it shows, at a glance, whether every cell really was detected the same way — and it will show you the one cell that silently ran <code>euclid</code> because its ER segmentation never matched.</div>
@@ -675,7 +673,7 @@ n_spots,n_tracks,er_aware,run_time</code></pre>
   <li><b>blank, was tracked</b> — in a track the filter removed;</li>
   <li><b>blank, never tracked</b> — unlinked, or excluded up front by strict geodesic.</li>
 </ul>
-<p>This matters downstream in two ways. First, it means the strict ER rule <em>costs you tracks, not data</em>: the 653 detections geodesic excluded on the reference cell are all still in the CSV, available to anything that wants the raw localization distribution. Second, it means a raw row count is never a measure of how much the filter removed — <code>curation.n_spots_written</code> equals <code>result.n_spots</code> by construction. Use <code>curation.n_spots_in_kept_tracks</code>, or the log's "→ N tracks kept" figure.</p>
+<p>This matters downstream in two ways. First, it means the strict ER rule <em>costs you tracks, not data</em>: the 653 detections geodesic excluded on the reference cell are all still in the CSV, available to anything that wants the raw localization distribution. Second, it means a raw row count is never a measure of how much the filter removed — <code>filter.n_spots_written</code> equals <code>result.n_spots</code> by construction. Use <code>filter.n_spots_in_kept_tracks</code>, or the log's "→ N tracks kept" figure.</p>
 
 <h3 id="t1lookoff">Why a tracked spot can still look outside the ER on screen</h3>
 <p>You will see this, and it is usually not a bug. Two separate causes:</p>
@@ -1793,11 +1791,11 @@ localisations in those surviving tracks.</code></pre>
 <table>
   <tr><th>Column</th><th>Quantity</th><th>Read from</th></tr>
   <tr><td><b>spots</b></td><td>Raw detections Tool 1 found for this cell</td><td><code>result.n_spots</code> in <code>tracks/&lt;base&gt;_settings.txt</code></td></tr>
-  <tr><td><b>tracks</b></td><td>Tracks Tool 1 linked, before any filter</td><td>the <code>nTracks="…"</code> attribute of <code>&lt;base&gt;_tracks.xml</code> (authoritative); otherwise <code>result.n_tracks</code>, or failing that <code>curation.tracks_before</code>, from <code>_settings.txt</code></td></tr>
-  <tr><td><b>filt</b></td><td>Tracks left after Tool 1's min-length / min-displacement filter</td><td><code>nTracks</code> of <code>&lt;base&gt;_tracks_filtered.xml</code>; otherwise <code>curation.tracks_after</code> in <code>_settings.txt</code></td></tr>
+  <tr><td><b>tracks</b></td><td>Tracks Tool 1 linked, before any filter</td><td>the <code>nTracks="…"</code> attribute of <code>&lt;base&gt;_tracks.xml</code> (authoritative); otherwise <code>result.n_tracks</code>, or failing that <code>filter.tracks_before</code>, from <code>_settings.txt</code></td></tr>
+  <tr><td><b>filt</b></td><td>Tracks left after Tool 1's min-length / min-displacement filter</td><td><code>nTracks</code> of <code>&lt;base&gt;_tracks_filtered.xml</code>; otherwise <code>filter.tracks_after</code> in <code>_settings.txt</code></td></tr>
   <tr><td><b>cur</b></td><td>Tracks left after Tool 2's curation (density / displacement-variance / jump gate)</td><td><code>nTracks</code> of <code>&lt;base&gt;_tracks_curated.xml</code>; if that file exists but no <code>nTracks</code> attribute can be read from it, the number of <code>KEEP=1</code> rows in <code>&lt;base&gt;_track_metrics.csv</code>. With no curated XML the column stays <code>–</code> even when <code>_track_metrics.csv</code> is present</td></tr>
   <tr><td><b>in build</b></td><td>This cell's tracks inside the <b>active</b> TrackStruct</td><td><code>size(Tracks(k).matrix,2)</code> for the entry whose <code>file</code> matches this base</td></tr>
-  <tr><td><b>trk spots</b></td><td>Localizations belonging to the tracks that survived</td><td>first choice <code>sum(Tracks(k).lengths)</code> from the build; else the sum of <code>n_spots</code> over the <code>KEEP=1</code> rows of <code>&lt;base&gt;_track_metrics.csv</code>; else the sum over <em>all</em> rows of that file, or <code>curation.n_spots_in_kept_tracks</code> from <code>_settings.txt</code></td></tr>
+  <tr><td><b>trk spots</b></td><td>Localizations belonging to the tracks that survived</td><td>first choice <code>sum(Tracks(k).lengths)</code> from the build; else the sum of <code>n_spots</code> over the <code>KEEP=1</code> rows of <code>&lt;base&gt;_track_metrics.csv</code>; else the sum over <em>all</em> rows of that file, or <code>filter.n_spots_in_kept_tracks</code> from <code>_settings.txt</code></td></tr>
 </table>
 <div class="note"><b>Why the fallback chains.</b> A cell may have been produced by an older run, by a tool that wrote no <code>_settings.txt</code>, or may have been curated but not yet built. Each count therefore has an ordered list of sources and shows <code>–</code> only when none of them exists. A <code>–</code> is "not measurable from what is on disk", never "zero".</div>
 <div class="good"><b>Scanning is cheap by construction.</b> The 20 MB <code>*_spots.csv</code> files are never row-counted. Raw numbers come from the sub-kilobyte <code>_settings.txt</code>; track totals from the <b>first 2 KB</b> of each tracks XML (the root <code>&lt;Tracks nTracks="…"&gt;</code> attribute is regex-matched, so an 18 MB file is never parsed); kept-vs-total from the ~100 KB <code>_track_metrics.csv</code>; and the build is loaded at most once per scan, behind a cache keyed on path + mtime + size. A build written in the last three seconds is treated as volatile and re-read rather than cached — that is exactly the rescan right after a Build, where being right matters more than 0.1 s.</div>
@@ -2067,7 +2065,7 @@ L  = watershed(I);                           % → one label per genuine peak</c
   <tr>
     <td><code>&lt;base&gt;_spots.csv</code></td>
     <td>Tool 1 · Track &amp; filter · <kbd>▶ Run</kbd><br><code>spt_write_outputs.m</code></td>
-    <td>Tool 1's own filter step (<code>spt_curate_read</code>); Tool 2 · Import &amp; Curate (when no <code>_filtered</code> pair exists); Tool 2 · Build (<code>TrackImporter_direct</code> pairs it for intensities and distances)</td>
+    <td>Tool 1's own filter step (<code>spt_filter_read</code>); Tool 2 · Import &amp; Curate (when no <code>_filtered</code> pair exists); Tool 2 · Build (<code>TrackImporter_direct</code> pairs it for intensities and distances)</td>
     <td>One row <b>per detection</b> — the whole localization cloud, tracked and untracked. 14 columns (see <a href="#col-spots">below</a>). <code>TRACK_ID</code> is blank for a detection that never joined a track, including the ones ER-geodesic excluded for being off their own frame's ER.</td>
   </tr>
 
@@ -2080,7 +2078,7 @@ L  = watershed(I);                           % → one label per genuine peak</c
 
   <tr>
     <td><code>&lt;base&gt;_spots_filtered.csv</code><br><code>&lt;base&gt;_tracks_filtered.xml</code></td>
-    <td>Tool 1 · Track &amp; filter · <kbd>Export cell</kbd> / <kbd>Export all</kbd><br><code>spt_curate_write.m</code></td>
+    <td>Tool 1 · Track &amp; filter · <kbd>Export cell</kbd> / <kbd>Export all</kbd><br><code>spt_filter_write.m</code></td>
     <td>Tool 2 · Import &amp; Curate (this is the preferred input: <code>readPrefer='filtered'</code>); <code>build_trackstruct</code> when there is no <code>_curated</code> pair</td>
     <td>The length/displacement filter's result. The CSV holds <b>every detection again, unchanged</b> — only <code>TRACK_ID</code> differs: kept tracks are <b>renumbered 0…K−1</b> and every other row is blank. The XML holds only the kept tracks, with the same renumbering and the original <code>SPOT_ID</code>s. The frame interval in the XML header is recovered from the CSV as <code>median(T_s/FRAME)</code> over rows with <code>FRAME&gt;0</code>.</td>
   </tr>
@@ -2108,9 +2106,9 @@ L  = watershed(I);                           % → one label per genuine peak</c
 
   <tr>
     <td><code>&lt;base&gt;_settings.txt</code></td>
-    <td>Tool 1 · <kbd>▶ Run</kbd> writes the <code>detection.*</code>/<code>tracking.*</code>/<code>calibration.*</code>/<code>result.*</code> block (<code>spt_write_settings.m</code>); Tool 1 · <kbd>Export</kbd> upserts the <code>curation.*</code> block (<code>spt_append_curation_settings.m</code>)</td>
-    <td>Tool 2 · Import &amp; Curate auto-fills its three tracking-parameter fields from <code>tracking.link_um</code>, <code>tracking.max_gap_um</code>, <code>tracking.max_gap_frames</code>; <code>cs_experiment_status</code> reads <code>result.n_spots</code>, <code>result.n_tracks</code>, <code>curation.tracks_before/after</code>, <code>curation.n_spots_in_kept_tracks</code></td>
-    <td>Plain <code>key = value</code> lines, one file per cell. See the full key list <a href="#filesref-settings">below</a>. Re-curating a cell strips and re-adds the whole <code>curation.</code> block, so it never accumulates stale lines.</td>
+    <td>Tool 1 · <kbd>▶ Run</kbd> writes the <code>detection.*</code>/<code>tracking.*</code>/<code>calibration.*</code>/<code>result.*</code> block (<code>spt_write_settings.m</code>); Tool 1 · <kbd>Export</kbd> upserts the <code>filter.*</code> block (<code>spt_append_filter_settings.m</code>)</td>
+    <td>Tool 2 · Import &amp; Curate auto-fills its three tracking-parameter fields from <code>tracking.link_um</code>, <code>tracking.max_gap_um</code>, <code>tracking.max_gap_frames</code>; <code>cs_experiment_status</code> reads <code>result.n_spots</code>, <code>result.n_tracks</code>, <code>filter.tracks_before/after</code>, <code>filter.n_spots_in_kept_tracks</code></td>
+    <td>Plain <code>key = value</code> lines, one file per cell. See the full key list <a href="#filesref-settings">below</a>. Re-filtering a cell strips and re-adds the whole <code>curation.</code> block, so it never accumulates stale lines.</td>
   </tr>
 
   <tr>
@@ -2156,7 +2154,6 @@ tracking.dets_off_er       = 653           geodesic only: detections excluded as
 tracking.link_um        = 0.8
 tracking.max_gap_um     = 1.4
 tracking.max_gap_frames = 1
-tracking.er_aware       = 1                0 for Euclidean, 1 for either ER mode
 tracking.lambda         = 3                the ER-penalty λ (unused by geodesic linking)
 calibration.pixel_um    = 0.10785
 calibration.frame_s     = 0.020064
@@ -2164,15 +2161,15 @@ result.n_spots          = 220401           detections written to the spots CSV
 result.n_tracks         = 1042
 result.have_er          = 1                an ER segmentation file was found for this cell
 result.have_mito        = 1
-curation.min_track_len  = 50               ← the curation.* block is upserted on Export
-curation.min_disp_um    = 0
-curation.tracks_before  = 1042
-curation.tracks_after   = 56
-curation.n_spots_written= 220401           EVERY detection written (= result.n_spots; the cloud
+filter.min_track_len   = 50              ← the filter.* block is upserted on Export
+filter.min_disp_um     = 0                 (it was called curation.* before; both are still read)
+filter.tracks_before   = 1042
+filter.tracks_after    = 56
+filter.n_spots_written = 220401          EVERY detection written (= result.n_spots; the cloud
                                            is preserved by design, so this says nothing about the filter)
-curation.n_spots_in_kept_tracks = 18773    detections belonging to the tracks that SURVIVED —
+filter.n_spots_in_kept_tracks = 18773    detections belonging to the tracks that SURVIVED —
                                            the number that answers "how much data came through?"
-curation.exported       = 2026-07-29 11:02:13</code></pre>
+filter.exported        = 2026-07-29 11:02:13</code></pre>
 <div class="good"><b>Read <code>tracking.link_mode</code>, not what you clicked.</b> It records the mode that <em>ran</em>. If a cell had no ER segmentation, an ER mode is downgraded to <code>euclid</code> once and explicitly, and the extra <code>tracking.link_mode_req</code> line is the only place your original request is recorded. <code>detection.thr_abs</code> is likewise the resolved absolute cut, so two cells run at "Top 6 %" will show two different <code>thr_abs</code> values — that is correct, and it is why the percentile mode is not comparable across cells the way <code>Quality ≥</code> is.</div>
 
 <h3 id="filesref-analysis">analysis/ — the build and the contact-site results</h3>
@@ -2351,7 +2348,7 @@ curation.exported       = 2026-07-29 11:02:13</code></pre>
   <tr><td><code>ELONGATION</code></td><td>dimensionless ratio</td><td><code>σ_maj/σ_min</code> of the intensity second-moment covariance over a 7×7 window about the sub-pixel centre. ≈1.0 for a round spot, ≳1.5 for a motion-blurred streak — the Detect preview rings a spot red at ≥1.5. Blank in CSVs written before this column existed.</td></tr>
   <tr><td><code>ORIENT_DEG</code></td><td>degrees, 0–180</td><td>Angle of that major axis, <code>mod(atan2d(vy,vx),180)</code> — the direction of the blur, undirected (0° and 180° are the same axis).</td></tr>
 </table>
-<div class="note">A <em>blank</em> cell is not a zero. <code>readtable</code> turns blanks into <code>NaN</code>, and every reader in the pipeline treats <code>NaN</code> as "not measured" rather than "measured as zero". Tolerating a missing column is explicit: <code>spt_curate_read</code> and <code>spt_curate_write</code> fill an absent <code>ER_DIST_UM</code>, <code>ELONGATION</code> or <code>ORIENT_DEG</code> with NaN so old exports still load.</div>
+<div class="note">A <em>blank</em> cell is not a zero. <code>readtable</code> turns blanks into <code>NaN</code>, and every reader in the pipeline treats <code>NaN</code> as "not measured" rather than "measured as zero". Tolerating a missing column is explicit: <code>spt_filter_read</code> and <code>spt_filter_write</code> fill an absent <code>ER_DIST_UM</code>, <code>ELONGATION</code> or <code>ORIENT_DEG</code> with NaN so old exports still load.</div>
 
 <h3 id="col-trackmetrics"><code>&lt;base&gt;_track_metrics.csv</code> — one row per track</h3>
 <p>These are the curate filter's own measurements, exported with the decision. Every one of them is re-computed from scratch whenever you change <b>Linking max dist</b>, because that field <em>is</em> the density radius.</p>
@@ -2384,8 +2381,7 @@ curation.exported       = 2026-07-29 11:02:13</code></pre>
   <tr><td><code>max_gap_frames</code></td><td>frames</td><td>Largest bridged gap.</td></tr>
   <tr><td><code>lambda</code></td><td>dimensionless</td><td>The ER-penalty λ. Recorded in every mode, but only <code>penalty</code> uses it for link costs (all modes use it in the birth/death cost <code>d0 = R(1+λ)+1</code>).</td></tr>
   <tr><td><code>n_spots</code></td><td>count</td><td>Detections written to the spots CSV — the whole cloud.</td></tr>
-  <tr><td><code>n_tracks</code></td><td>count</td><td>Tracks linked, <b>before</b> any curation.</td></tr>
-  <tr><td><code>er_aware</code></td><td>0 / 1</td><td><code>0</code> for Euclidean, <code>1</code> for either ER mode. Combined with <code>link_mode</code> this distinguishes "you chose Euclidean" from "an ER mode was downgraded".</td></tr>
+  <tr><td><code>n_tracks</code></td><td>count</td><td>Tracks linked, <b>before</b> any filtering.</td></tr>
   <tr><td><code>run_time</code></td><td><code>yyyy-mm-dd HH:MM:SS</code></td><td>When the row was written. Row order is run order, so the bottom of the file is the most recent work.</td></tr>
 </table>
 
@@ -2613,7 +2609,7 @@ curation.exported       = 2026-07-29 11:02:13</code></pre>
 <div class="card">
 <b>A cell with no ER segmentation at all — the ER mode was downgraded.</b>
 <p><b>What happened.</b> No ER file was matched for that cell, so the requested ER mode was downgraded to Euclidean <b>once, explicitly</b>, at the top of <code>spt_process_cell</code>. This is deliberate: letting the absence emerge from an all-empty supports array would make strict geodesic (correctly) forbid everything and return zero tracks for the cell.</p>
-<p><b>Check.</b> That cell's <code>_settings.txt</code> reports <code>tracking.link_mode = euclid</code>, <code>tracking.er_aware = 0</code>, <code>result.have_er = 0</code>, plus the extra line <code>tracking.link_mode_req = geodesic   (DOWNGRADED — …)</code>. In <code>detection_summary.csv</code> only <code>link_mode = euclid</code> and <code>er_aware = 0</code> are visible, so use the settings file to tell "I chose Euclidean" from "an ER mode could not run".</p>
+<p><b>Check.</b> That cell's <code>_settings.txt</code> reports <code>tracking.link_mode = euclid</code>, <code>result.have_er = 0</code>, plus the extra line <code>tracking.link_mode_req = geodesic   (DOWNGRADED — …)</code>. In <code>detection_summary.csv</code> only <code>link_mode = euclid</code> and <code>er_aware = 0</code> are visible, so use the settings file to tell "I chose Euclidean" from "an ER mode could not run".</p>
 <p><b>What to do.</b> Fix the matching on the Match files tab (the seg files carry a channel token the SPT name lacks; the matcher strips <code>_spt&lt;n&gt;</code>, the ER/mito channel suffixes and your user token, default <code>_VAPB</code>). If a cell genuinely has no ER, do not pool it with ER-linked cells without saying so.</p>
 </div>
 
@@ -2625,12 +2621,12 @@ curation.exported       = 2026-07-29 11:02:13</code></pre>
 <p><b>How to tell.</b> Open the XML's first lines and read <code>tracks/&lt;base&gt;_settings.txt</code> beside it. Any one of these is decisive:</p>
 <ul>
   <li><b><code>N_SPOTS=""</code> on the <code>&lt;Track&gt;</code> elements.</b> Tool 1's export writes <code>&lt;Track TRACK_ID="0"&gt;</code> with no <code>N_SPOTS</code> attribute at all; Tool 2 copies that attribute from its input and so writes it back <em>empty</em>. Attribute order says the same thing: Tool 1 writes <code>&lt;Spot FRAME= T= X= Y= Z="0.0" SPOT_ID=…/&gt;</code>, Tool 2 puts <code>SPOT_ID</code> first.</li>
-  <li><b><code>nTracks</code> lower than <code>curation.tracks_after</code></b> in <code>_settings.txt</code>. That key records how many tracks Tool 1's export actually wrote and nothing in Tool 2 updates it, so a smaller <code>nTracks</code> in the file means the file is no longer Tool 1's.</li>
+  <li><b><code>nTracks</code> lower than <code>filter.tracks_after</code></b> in <code>_settings.txt</code>. That key records how many tracks Tool 1's export actually wrote and nothing in Tool 2 updates it, so a smaller <code>nTracks</code> in the file means the file is no longer Tool 1's.</li>
   <li><b>TRACK_IDs with gaps.</b> Tool 1's export renumbers the survivors <code>0…K−1</code> contiguously; Tool 2 keeps the ids it was given, so a non-contiguous id list inside a <code>_filtered</code> XML is a Tool 2 write. The <code>_spots_filtered.csv</code> next to it still carries the full contiguous set, because the old batch wrote no spots CSV — that mismatch is the same evidence seen from the other side.</li>
 </ul>
 <p><b>What to do — the file itself cannot be repaired.</b> It holds only the tracks that survived the second filter; the ones the batch dropped are simply not in it, and nothing was backed up. Re-run Tool 1 for that cell:</p>
 <ul>
-  <li><b>If <code>tracks/&lt;base&gt;_spots.csv</code> is still there</b> — the old batch never wrote or touched the raw pair — you do not need to re-detect. Tool 1's <b>Track &amp; filter</b> tab reads that CSV and <kbd>Export</kbd> re-writes <em>both</em> <code>_filtered</code> files from it. Put <b>Min track length</b> and <b>Min displacement</b> back to the values recorded as <code>curation.min_track_len</code> and <code>curation.min_disp_um</code> in that cell's <code>_settings.txt</code> and the re-export reproduces the original exactly.</li>
+  <li><b>If <code>tracks/&lt;base&gt;_spots.csv</code> is still there</b> — the old batch never wrote or touched the raw pair — you do not need to re-detect. Tool 1's <b>Track &amp; filter</b> tab reads that CSV and <kbd>Export</kbd> re-writes <em>both</em> <code>_filtered</code> files from it. Put <b>Min track length</b> and <b>Min displacement</b> back to the values recorded as <code>filter.min_track_len</code> and <code>filter.min_disp_um</code> in that cell's <code>_settings.txt</code> and the re-export reproduces the original exactly.</li>
   <li><b>If the raw pair is gone too</b>, re-run detection and tracking for the cell (<kbd>▶ Run</kbd>) and then <kbd>Export</kbd>. Every parameter is in <code>_settings.txt</code>, so the run is reproducible — it is just the full cost.</li>
 </ul>
 <p><b>Then rebuild.</b> Any <code>.mat</code> built while the clobbered XML was in place was built from twice-filtered tracks and is not comparable to a normally curated build, so rebuild it once the pair is restored. Current builds cannot do this: the batch writes <code>_tracks_curated.xml</code>, and <a href="#t2batch">every batch write is checked against the file it read</a> and refused if it would land on it.</p>
@@ -2709,7 +2705,7 @@ curation.exported       = 2026-07-29 11:02:13</code></pre>
 
 <div class="card">
 <b>A provenance file did not appear, and nothing complained.</b>
-<p>Several writers are deliberately non-fatal, so that a permission or path problem cannot lose the analysis they are describing. <code>spt_write_settings</code>, <code>spt_append_detection_summary</code>, <code>spt_append_curation_settings</code>, the mapper's metrics CSV and the dwell CSVs all <code>return</code> silently if the file cannot be opened; the picker wraps its provenance JSON and stats CSV in <code>try</code> blocks so a failure there still leaves <code>_CSsites.txt</code> written. The <em>data</em> files (spots CSV, tracks XML) do error out loudly. So: if <code>_settings.txt</code> or <code>detection_summary.csv</code> is missing after a successful run, check that <code>tracks/</code> is writable — and be aware that Tool 2's Import &amp; Curate then cannot auto-fill its tracking parameters and you must set the three fields by hand.</p>
+<p>Several writers are deliberately non-fatal, so that a permission or path problem cannot lose the analysis they are describing. <code>spt_write_settings</code>, <code>spt_append_detection_summary</code>, <code>spt_append_filter_settings</code>, the mapper's metrics CSV and the dwell CSVs all <code>return</code> silently if the file cannot be opened; the picker wraps its provenance JSON and stats CSV in <code>try</code> blocks so a failure there still leaves <code>_CSsites.txt</code> written. The <em>data</em> files (spots CSV, tracks XML) do error out loudly. So: if <code>_settings.txt</code> or <code>detection_summary.csv</code> is missing after a successful run, check that <code>tracks/</code> is writable — and be aware that Tool 2's Import &amp; Curate then cannot auto-fill its tracking parameters and you must set the three fields by hand.</p>
 </div>
 
 <div class="card">
