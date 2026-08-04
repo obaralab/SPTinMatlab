@@ -71,6 +71,7 @@
   <a href="#t1track">&nbsp;&nbsp;Tab 4 · Track &amp; filter</a>
   <a href="#t1outputs">&nbsp;&nbsp;What a run writes, and where</a>
   <a href="#t1cloud">&nbsp;&nbsp;Off-ER detections, blank TRACK_IDs, and the localization cloud</a>
+  <a href="#t1twocsv">&nbsp;&nbsp;_spots.csv vs _spots_filtered.csv</a>
   <a href="#t1lookoff">&nbsp;&nbsp;Why a tracked spot can still look outside the ER on screen</a>
   <a href="#t1expt">&nbsp;&nbsp;Tab 1 · Experiment</a>
   <h4>Tool 2 · Curate & Build</h4>
@@ -595,7 +596,7 @@ MEAN_INTENSITY,MAX_INTENSITY,TOTAL_INTENSITY,MITO_DIST_UM,ER_DIST_UM,ELONGATION,
   <tr><td><code>SPOT_ID</code></td><td>0-based detection index, unique within the cell. <b>The join key</b> between the CSV and the XML, and it is preserved unchanged by the filter.</td></tr>
   <tr><td><code>FRAME</code></td><td><b>0-based</b> frame index.</td></tr>
   <tr><td><code>T_s</code></td><td><code>FRAME · frame_interval_s</code>.</td></tr>
-  <tr><td><code>X_um</code>, <code>Y_um</code></td><td><code>(x_px − 1) · pixel_um</code> — a <b>0-based pixel origin</b>, matching the ERAware convention. Sub-pixel, from the centroid.</td></tr>
+  <tr><td><code>X_um</code>, <code>Y_um</code></td><td><code>(x_px − 1) · pixel_um</code> — a <b>0-based pixel origin</b>, matching the upstream ERAware suite's convention. Sub-pixel, from the centroid.</td></tr>
   <tr><td><code>QUALITY</code></td><td>The DoG response at the spot's integer peak — the same quantity the threshold cuts on.</td></tr>
   <tr><td><code>MEAN_ / MAX_ / TOTAL_INTENSITY</code></td><td>Over a disk of radius <code>(diameter/pixel)/2</code> px on the <b>raw</b> frame; partial disk at the borders.</td></tr>
   <tr><td><code>MITO_DIST_UM</code></td><td>Signed distance in µm to the nearest mito pixel <b>in this spot's own frame</b>: <code>bwdist(mask) − bwdist(~mask)</code>, so <b>negative inside</b>, positive outside, ≈0 on the boundary. Blank with no mito segmentation.</td></tr>
@@ -666,6 +667,31 @@ n_spots,n_tracks,run_time</code></pre>
 <div class="good">This is the file to open when you are about to publish a number. With many cells in a project it shows, at a glance, whether every cell really was detected the same way — and it will show you the one cell that silently ran <code>euclid</code> because its ER segmentation never matched.</div>
 
 <h3 id="t1cloud">Off-ER detections, blank TRACK_IDs, and the localization cloud</h3>
+<h4 id="t1twocsv"><code>_spots.csv</code> vs <code>_spots_filtered.csv</code> — what actually differs</h4>
+<p>Short answer: <b>nothing, except the <code>TRACK_ID</code> column.</b> The two files hold the identical set of detections — same <code>SPOT_ID</code>s, same coordinates, same measurements. The filter does not remove rows; it <em>un-assigns</em> the detections belonging to tracks it dropped, blanking their <code>TRACK_ID</code>, and renumbers the survivors <code>0…K−1</code>.</p>
+<p>Measured on a real cell (5703 frames, 128×128, ER-geodesic, min track length 50):</p>
+<table>
+  <tr><th></th><th><code>_spots.csv</code></th><th><code>_spots_filtered.csv</code></th></tr>
+  <tr><td>rows (detections)</td><td><b>116,092</b></td><td><b>116,092</b></td></tr>
+  <tr><td>columns</td><td>14</td><td>14</td></tr>
+  <tr><td>rows <em>with</em> a <code>TRACK_ID</code></td><td>62,296</td><td>27,194</td></tr>
+  <tr><td>rows with a <b>blank</b> <code>TRACK_ID</code></td><td>53,796</td><td>88,898</td></tr>
+  <tr><td>distinct tracks</td><td>5,564</td><td>273</td></tr>
+  <tr><td><code>TRACK_ID</code> range</td><td>0–5563</td><td>0–272 (renumbered)</td></tr>
+  <tr><td>file size</td><td>10.9 MB</td><td>10.7 MB</td></tr>
+</table>
+<p>The near-identical file sizes are the giveaway: the filtered file is not a subset, it is the same cloud with 35,102 more blanks in one column. The <b>XML</b> pair is the opposite — <code>_tracks.xml</code> holds 5,564 tracks and <code>_tracks_filtered.xml</code> holds 273, and that one <em>is</em> a genuine subset.</p>
+<div class="good"><b>Why keep the whole cloud?</b> Tool 3's contact-site density is built from <em>every</em> detection, tracked or not. A molecule visible for three frames still says the ER was there. Discarding it for failing to form a long track would bias the density map toward wherever tracking happened to work well — which is exactly the regions you are trying to measure. So the filter is a statement about which <em>trajectories</em> you trust, never about which <em>localizations</em> are real.</div>
+<div class="warn"><b>The trap in the numbers.</b> Because the cloud is preserved, <code>filter.n_spots_written</code> equals <code>result.n_spots</code> and tells you nothing about the filter. The number that answers <em>"how much data came through this stage?"</em> is <code>filter.n_spots_in_kept_tracks</code> — 27,194 against 116,092 on the cell above.</div>
+<h5>Where the blanks in <code>_spots.csv</code> come from</h5>
+<p>53,796 detections were in no track at all before any filtering. Sampled across 301 frames of that cell, they split roughly:</p>
+<ul>
+  <li><b>≈41 % off the ER</b> — excluded up front by strict geodesic, and counted in <code>tracking.dets_off_er</code> (23,131 on this cell);</li>
+  <li><b>≈59 % on the ER but never linked</b> — too isolated for the link radius, or present for only a frame or two.</li>
+</ul>
+<p>Under <b>Euclidean</b> or <b>ER-penalty</b> the first group disappears (nothing is excluded up front) and every unlinked detection falls into the second.</p>
+<div class="note"><b>Which pair Tool 2 reads.</b> <code>build_trackstruct</code> defaults to <code>'Prefer','auto'</code>, which takes the <code>_filtered</code> pair whenever it exists and falls back to the raw pair otherwise. So the surviving tracks are what gets built into the TrackStruct, while the full detection cloud rides along with them for the density.</div>
+
 <div class="good"><b>The localization cloud is never filtered.</b> At every stage of Tool 1, <em>tracks</em> are filtered and <em>detections</em> are preserved. A detection that is not in a track — because nothing was in range, because the length filter dropped its track, or because ER-geodesic excluded it as off the ER — stays in the spots CSV as a full row with all its measurements, and only its <code>TRACK_ID</code> is blank. Nothing is deleted.</div>
 <p>So there are three distinct populations in a single <code>_spots_filtered.csv</code>, distinguished only by <code>TRACK_ID</code>:</p>
 <ul>
@@ -706,7 +732,7 @@ n_spots,n_tracks,run_time</code></pre>
 <div class="good"><b>The old single XML+CSV picker is gone.</b> It predated the Tool 1 → Tool 2 handoff and its only real use was to let you load a <em>mismatched</em> pair — an XML from one run with a CSV from another. Everything now comes from <code>&lt;project&gt;/tracks/</code> — resolved from the app's top-bar <b>project folder</b> field (<code>Tool 1 project folder (tracks/, er_seg/, mito_seg/)</code>), falling back to the project folder itself if it has no <code>tracks/</code> subfolder — so the tracks and the spots always belong to the same run. The <b>Export</b> and <b>Batch</b> output boxes are pre-filled with that same folder for the same reason.</div>
 <p>What the scan looks for, in order:</p>
 <ol>
-  <li><b>Tool 1's curated pair</b> — every <code>*_tracks_filtered.xml</code> in <code>tracks/</code> (names containing <code>builtin</code> are skipped), each paired with the <code>*_spots_filtered.csv</code> of the same base name.</li>
+  <li><b>Tool 1's filtered pair</b> — every <code>*_tracks_filtered.xml</code> in <code>tracks/</code> (names containing <code>builtin</code> are skipped), each paired with the <code>*_spots_filtered.csv</code> of the same base name.</li>
   <li><b>Fallback</b> — if the folder holds no <code>*_tracks_filtered.xml</code> at all, the raw <code>*_tracks.xml</code> + <code>*_spots.csv</code> pair is used instead (again skipping <code>builtin</code> and <code>filtered</code> names). So you can curate an unfiltered Tool 1 run, you just do not have Tool 1's length/displacement cut underneath you.</li>
 </ol>
 <p>An XML with no matching CSV is silently skipped — a base name only becomes a loadable cell when <em>both</em> files exist. If nothing pairs up, the status line says so (<code>No *_tracks_filtered.xml files found in the tracks folder.</code> or <code>Found *_tracks_filtered.xml but no matching *_spots_filtered.csv.</code>).</p>
