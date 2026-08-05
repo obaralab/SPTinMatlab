@@ -13,3 +13,14 @@ codegen/
 # so they normally live outside this repo; these entries only matter if a project is opened here.
 tracks/
 analysis/
+
+# Per-dataset calibration, written by spt_analyze_app's writeCalib into the project folder — or, when
+# no tracks/ subfolder resolves, into whatever folder was opened. That is how one ended up committed
+# at the repo root, and it kept coming back dirty: MATLAB stamps the write time into every .mat
+# header, so re-saving identical values still produces a binary diff.
+#
+# It also matters that cs_config() with NO argument reads cs_calib.mat from the CURRENT DIRECTORY, so
+# a stray one here is silently picked up by any paper script run from the repo root — a second,
+# invisible source of a calibration. It is never a source file; it belongs to whichever dataset
+# produced it.
+cs_calib.mat
