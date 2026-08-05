@@ -87,6 +87,20 @@ fprintf('controls at zero height: %d\n', z);
 assert(z==0, '%d control(s) collapsed', z);
 
 close(f);
+% ---- the manual overlay pickers are gone from the normal flow -------------------------------------
+% The overlay resolves itself: the ER and mito folders come from the Experiment tab and the channel
+% token is derived from the file names. "Pick ER" only ever meant "the automatic match failed", and
+% it had no way to say so. It survives on the status label's context menu as the escape hatch.
+bs2 = findobj(f,'Type','uibutton');
+bt = strings(0,1);
+for q = 1:numel(bs2), bt(end+1,1) = string(bs2(q).Text); end %#ok<AGROW>
+assert(~any(contains(bt,'Pick ER')) && ~any(contains(bt,'Pick mito')), ...
+    'the manual overlay pickers are still taking rows in the control column');
+src = fileread(fullfile(fileparts(mfilename('fullpath')),'track_viewer.m'));
+assert(contains(src,'Pick an ER image manually'), ...
+    'the manual picker was removed with no escape hatch — a failed auto-match would be unrecoverable');
+fprintf('overlay pickers moved to the status label''s context menu\n');
+
 fprintf('\nALL CURATE-LAYOUT ASSERTIONS PASSED.\n');
 end
 

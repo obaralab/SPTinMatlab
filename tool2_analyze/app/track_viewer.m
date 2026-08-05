@@ -394,11 +394,11 @@ c.ov_fov = uispinner(lg,'Limits',[1 500],'Value',27.61,'Step',0.5,'FontSize',9,.
                'or the image sits under the wrong place.'], ...
     'ValueChangedFcn',@(~,~) update_spatial());
 c.ov_fov.Layout.Row=row; c.ov_fov.Layout.Column=2;
-row=row+1;
-c.er_btn   = half_btn(lg,row,1,'Pick ER',  [0.16 0.55 0.45],'white');
-c.mito_btn = half_btn(lg,row,2,'Pick mito',[0.75 0.45 0.15],'white');
-c.er_btn.ButtonPushedFcn   = @(~,~) pick_overlay('er');
-c.mito_btn.ButtonPushedFcn = @(~,~) pick_overlay('mito');
+% The manual pickers are gone. The overlay resolves itself now — the ER and mito folders come from
+% the Experiment tab and the channel token is derived from the file names — so "Pick ER" only ever
+% meant "the automatic match failed", and it had no way to tell you that. When the match DOES fail
+% the status label below says so, and the pickers remain on that label's context menu as the escape
+% hatch, rather than occupying a row in the normal flow.
 row=row+1;
 c.er_chk   = uicheckbox(lg,'Text','Show ER','Value',true,...
     'ValueChangedFcn',@(~,~) update_spatial(),'FontSize',9);
@@ -434,8 +434,13 @@ row=row+1; lbl2(lg,row,'Excluded colour:');
 c.col_excl = uidropdown(lg,'Items',COL_ITEMS,'Value','red','FontSize',9,'ValueChangedFcn',@(~,~) on_color_change());
 c.col_excl.Layout.Row=row; c.col_excl.Layout.Column=2;
 row=row+1;
-c.ov_lbl = uilabel(lg,'Text','Pick ER / mito images to overlay (colours set above)',...
+c.ov_lbl = uilabel(lg,'Text','Overlay: resolving from the Experiment tab folders…',...
     'FontSize',8,'WordWrap','on','FontColor',[0.3 0.3 0.3]);
+% The escape hatch for when the automatic match fails: right-click this label. Nothing in the normal
+% flow needs it, so it does not get a row.
+c.ov_lbl.ContextMenu = uicontextmenu(ancestor(lg,'figure'));
+uimenu(c.ov_lbl.ContextMenu,'Text','Pick an ER image manually…',  'MenuSelectedFcn',@(~,~) pick_overlay('er'));
+uimenu(c.ov_lbl.ContextMenu,'Text','Pick a mito image manually…','MenuSelectedFcn',@(~,~) pick_overlay('mito'));
 c.ov_lbl.Layout.Row=row; c.ov_lbl.Layout.Column=[1 2];
 
 % -- Batch filter --
@@ -2706,15 +2711,30 @@ end
             end
         end
 
-        % Write HTML report
+        % Write HTML report — but never blank a good one.
+        % A run can process nothing at all: every file skipped by the collision guard, or every one
+        % erroring. Writing the report anyway produced a valid-looking page reading "Files: 0" ON TOP
+        % OF the report from the last run that DID work — so a refused batch silently destroyed the
+        % summary of a successful one, and nothing said so.
         html_path = fullfile(out_dir,'batch_filter_report.html');
-        write_html_report(batch_results, html_path, thr_dv, thr_dn, jump_on, thr_jump);
+        wroteReport = true;
+        if isempty(batch_results)
+            if isfile(html_path)
+                wroteReport = false;
+                clog('   ! no cells were processed — KEEPING the existing %s rather than blanking it', ...
+                     'batch_filter_report.html');
+            else
+                write_html_report(batch_results, html_path, thr_dv, thr_dn, jump_on, thr_jump);
+            end
+        else
+            write_html_report(batch_results, html_path, thr_dv, thr_dn, jump_on, thr_jump);
+        end
 
         if ~isempty(dlg) && isvalid(dlg), dlg.Value=1; dlg.Message='Done'; close(dlg); end
         clog('✔ BATCH done — %d cell(s) in %s', n_files, hms_(toc(tBatch)));
         clog('   -> %s  [per cell: _tracks_%s.xml · _spots_%s.csv · _track_metrics.csv · _filter_log.csv]', ...
             out_dir, S.exportSuffix, S.exportSuffix);
-        clog('   -> %s', html_path);
+        if wroteReport, clog('   -> %s', html_path); end
         c.status.Text = sprintf('✔ Batch done: %d files in %s. Report: %s', n_files, hms_(toc(tBatch)), html_path);
         c.status.FontColor = [0.15 0.50 0.20];
     end

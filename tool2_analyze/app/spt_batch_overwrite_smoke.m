@@ -86,6 +86,37 @@ fprintf('batch wrote the full set: %d tracks kept of %d, cloud preserved (%d row
     nOut, nPre, height(Sc));
 close(fig);
 
+%% (4) the HTML report — nothing was checking it existed, let alone parsed ---------------------
+% "Run batch filter + HTML report" is one button; the report is half of what it promises, and a
+% silent failure to write it looks identical to a successful run.
+rep = fullfile(proj,'batch_filter_report.html');
+assert(isfile(rep), 'the batch wrote no batch_filter_report.html');
+h = fileread(rep);
+info = dir(rep);
+fprintf('HTML report: %d bytes\n', info.bytes);
+assert(info.bytes > 500, 'the report is suspiciously small (%d bytes)', info.bytes);
+
+% well-formed enough to open
+for tag = {'<!DOCTYPE html>','</html>','</body>','<table>','</table>'}
+    assert(contains(h, tag{1}), 'the report is missing %s', tag{1});
+end
+assert(count(h,'<table>') == count(h,'</table>'), 'unbalanced <table> in the report');
+assert(count(h,'<tr>')    == count(h,'</tr>'),    'unbalanced <tr> in the report');
+
+% it must name the cell it processed and report the SAME counts the batch logged
+assert(contains(h,'cellA'), 'the report does not name the cell it filtered');
+kept = numel(regexp(fileread(fullfile(proj,'cellA_tracks_curated.xml')),'<Track ','match'));
+assert(contains(h, sprintf('%d', kept)), ...
+    'the report does not carry the kept-track count (%d) the batch actually wrote', kept);
+
+% and the thresholds it claims to have applied must be the ones on screen
+sp = findobj(fig,'Type','uispinner');
+dv = sp(arrayfun(@(x) isequal(x.Limits,[0 100]) || isequal(x.Limits,[0.1 20]), sp));
+assert(contains(h,'Max disp variance') && contains(h,'Max local density'), ...
+    'the report does not state the thresholds it applied');
+fprintf('HTML report: well-formed, names the cell, carries the kept count and the thresholds\n');
+
+
 %% (3) collision guard: output name == input name -> refuse, do not destroy ----------------------
 % Read the filtered pair AND export under the 'filtered' suffix, into the same folder. The names
 % collide exactly. Nothing in the shipped app is wired this way now; the guard is what makes that
@@ -100,6 +131,12 @@ assert(any(contains(L2,'SKIPPED')) && any(contains(L2,'overwrite')), ...
 assert(strcmp(fingerprint(inXml), pre.xml), ...
     'the collision guard failed — the input was overwritten anyway');
 fprintf('collision refused and logged; input still intact\n');
+% ...and the refused run must not have BLANKED the report the successful run wrote. Writing it
+% unconditionally produced a valid-looking "Files: 0" page on top of a real summary.
+h2 = fileread(rep);
+assert(contains(h2,'cellA') && ~contains(h2,'Files: 0'), ...
+    'the refused batch overwrote the good HTML report with an empty one');
+fprintf('the refused run kept the previous report intact (%d bytes)\n', numel(h2));
 close(fig2);
 
 %% (4) the importer pairs the curated XML with the curated CSV -----------------------------------

@@ -336,9 +336,16 @@ end
         rp = uigridlayout(mn,[4 1],'RowHeight',{'1.35x','1x','1x','1x'},'Padding',[0 0 0 0],'RowSpacing',6);
         pc = uigridlayout(rp,[1 1],'Padding',[0 0 0 0]);   % embedded selected-track player
         if exist('spt_track_movie','file')==2, playerCtl = spt_track_movie(pc); end
-        axMSD = uiaxes(rp); title(axMSD,'MSD + D fit');
+        % Order matters: the MSD fit and the fit-window sweep are two views of the SAME fit — the sweep
+        % is where you see whether the 25% window sits on a plateau or on a slope — so they belong
+        % adjacent. The stepwise D(t) is a different measurement entirely (a rolling estimate along
+        % the track, not a fit), so it goes above rather than between them.
         axDtrace = uiaxes(rp); title(axDtrace,'stepwise D(t) (click a track)');   % the per-loc D over time
+        axDtrace.Layout.Row = 2;
+        axMSD = uiaxes(rp); title(axMSD,'MSD + D fit');
+        axMSD.Layout.Row = 3;
         axSweep = uiaxes(rp); title(axSweep,'D & R² vs fit window (click a track)');   % the fit-fraction sweep
+        axSweep.Layout.Row = 4;
         % One policy for every plot in this tab: zoom and pan stay, the hover data tip goes. It is
         % the tip that arms a linger timer against a specific object, and every one of these axes is
         % cleared and rebuilt under the pointer.
