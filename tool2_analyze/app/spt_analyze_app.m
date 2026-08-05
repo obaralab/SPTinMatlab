@@ -53,6 +53,7 @@ eProj=[]; eCalPx=[]; eCalFov=[]; eCalDt=[]; eCalPrec=[]; lblProj=[];   % top-bar
 tg=[]; tImport=[]; tBuild=[]; tCS=[];                                 % tabs
 tRefine=[]; tSites=[]; tDwell=[]; tExpt=[]; tCompare=[];              % downstream tabs (Refine/Sites/Dwell/Experiment/Compare)
 ddTimeUnit=[]; lblBuild=[]; tblBuild=[]; txtBuild=[];                 % Build handles
+axSiteD=[];   % Sites tab: rolling D of the member tracks, split inside/outside the footprint
 chanTok=''; chanWhy='';   % SPT channel token derived per project (see spt_channel_token)
 calibKnown=false;   % is the panel calibration supported by THIS project (adopted or typed)?
 buildTracks=[]; ddQCcell=[]; axLen=[]; axMSD=[]; axCov=[]; axDist=[]; axDdist=[]; lblQCm=[]; eMsdFrac=[];   % QC handles
@@ -1047,18 +1048,36 @@ end
         lblSites = uilabel(r,'Text','Pick sites (Contact-sites tab), then Run mapper.','FontColor',[0.2 0.4 0.5]);
         % main: [ results table | (density inspector / track player) | member list + play ]
         mn = uigridlayout(g,[1 3],'ColumnWidth',{'1.0x','1.35x','0.62x'},'Padding',[0 0 0 0],'ColumnSpacing',8);
-        tblSites = uitable(mn,'ColumnName',{'cell','site','win','mito','area µm²','tracks','enrich'}, ...
-            'ColumnWidth',{'auto',48,44,44,72,58,58}, ...
+        % 'enrich' is gone. It read like the Monte-Carlo enrichment the detector uses and is not:
+        % that one is peak-inside ÷ median-over-the-ER-mask (cs_detect.m:67,77). THIS one was
+        % mean-inside ÷ mean-over-bins-that-any-localization-touched (csDensMetricOne.m:37-42,
+        % occBg at cs_window_mapper.m:269) — no ER anywhere in it, and the denominator pools every
+        % track in the window, so it is an ensemble footprint of many different molecules over the
+        % whole window rather than anything about this site's occupancy. The number is still in
+        % CSW_final.mat and cs_window_metrics.csv; it is only off the screen.
+        tblSites = uitable(mn,'ColumnName',{'cell','site','win','mito','area µm²','tracks','med D in','med D out'}, ...
+            'ColumnWidth',{'auto',48,44,44,72,58,68,68}, ...
+            'Tooltip',['med D in / med D out — the median ROLLING diffusion coefficient of this ' ...
+                       'site''s member tracks, split by whether each localization sat inside the ' ...
+                       'footprint. A track slower inside than outside is one that changed how it ' ...
+                       'moves while it was there. "–" means no localization fell on that side.'], ...
             'SelectionType','row','CellSelectionCallback',@(s,e) onSiteSelect(e));
         cn = uigridlayout(mn,[2 1],'RowHeight',{'1x','1x'},'Padding',[0 0 0 0],'RowSpacing',6);
         axSite = uiaxes(cn); title(axSite,'site inspector — density + footprint (Run mapper, click a row)'); axSite.Toolbar.Visible='off';
         spt_axes_policy(axSite);
         pcS = uigridlayout(cn,[1 1],'Padding',[0 0 0 0]);          % embedded member-track player
         if exist('spt_track_movie','file')==2, sitePlayer = spt_track_movie(pcS); end
-        rp = uigridlayout(mn,[8 1],'RowHeight',{22,'1x',28,28,28,28,28,28},'Padding',[0 0 0 0],'RowSpacing',4);
+        rp = uigridlayout(mn,[9 1],'RowHeight',{22,'1x','1.1x',28,28,28,28,28,28},'Padding',[0 0 0 0],'RowSpacing',4);
         uilabel(rp,'Text','member tracks (click to select)','FontWeight','bold','FontColor',[0.35 0.35 0.4]);
         lstMembers = uilistbox(rp,'Items',{'—'},'ValueChangedFcn',@(s,e) onMemberSelect(), ...
             'Tooltip','Member tracks of the selected site. Click one to highlight it on the density and enable single-track play / delete.');
+        % Rolling D for this site's members, split by the footprint. The retired STEP bridge existed to
+        % answer exactly this — does a molecule move differently while it is at a contact site — and
+        % the pipeline now has its own per-localization estimate, so the question is answerable from
+        % what is already in the build rather than from an export round trip.
+        axSiteD = uiaxes(rp); title(axSiteD,'rolling D — click a member track');
+        axSiteD.FontSize = 8; xlabel(axSiteD,'frame'); ylabel(axSiteD,'D (µm²/s)');
+        spt_axes_policy(axSiteD);
         btnPlaySite = uibutton(rp,'Text','▶ Play all member tracks','ButtonPushedFcn',@(s,e) onPlaySite(), ...
             'Tooltip','Play ALL of this site''s member tracks over the raw SPT movie (each a distinct colour) with per-frame ER/mito overlay.');
         btnPlayOne = uibutton(rp,'Text','▶ Play selected track','ButtonPushedFcn',@(s,e) onPlaySiteOne(), ...
@@ -1101,8 +1120,8 @@ end
         nMito = nnz([CSW.MitoFlag]);
         nRef = nnz(cellfun(@(m) startsWith(char(m),'refined'), {CSW.footprintMode}));
         refTxt = ''; if nRef>0, refTxt = sprintf(' · %d refined', nRef); end
-        lblSites.Text = sprintf('%d site-windows over %d window(s) · %d mito%s · median enrich %.2f — click a row to inspect / play.', ...
-            numel(CSW), numel(wl), nMito, refTxt, median0_([CSW.enrichment]));
+        lblSites.Text = sprintf('%d site-windows over %d window(s) · %d mito%s — click a row to inspect / play.', ...
+            numel(CSW), numel(wl), nMito, refTxt);
     end
 
     function fillSitesTable()
@@ -1112,12 +1131,14 @@ end
             w = sscanf(ddWinFilt.Value,'window %d'); keep = find([CSW.window]==w);
         end
         siteRowMap = keep;
-        % strings so counts/IDs show as integers (not 9.0000) and area/enrich keep sensible precision
-        D = cell(numel(keep),7);
+        % strings so counts/IDs show as integers (not 9.0000) and area/D keep sensible precision
+        D = cell(numel(keep),8);
         for r = 1:numel(keep)
             e = CSW(keep(r));
+            [dIn, dOut] = siteTrackD(e);
             D(r,:) = {e.file, sprintf('%d',e.csID), sprintf('%d',e.window), tern(e.MitoFlag,'✓','–'), ...
-                      sprintf('%.3f',e.areaUm2), sprintf('%d',e.nTracks), sprintf('%.2f',e.enrichment)};
+                      sprintf('%.3f',e.areaUm2), sprintf('%d',e.nTracks), ...
+                      fmtD_(dIn), fmtD_(dOut)};
         end
         tblSites.Data = D;
     end
@@ -1171,8 +1192,8 @@ end
         % A site marked for deletion must LOOK marked, or the only feedback is a status line that the
         % next click overwrites.
         delTag = ''; if isPendDeletedSite(e), delTag = '   ✗ MARKED FOR DELETION'; end
-        title(axSite, sprintf(['cell %d · site %d · win %d [%g–%g] · cloud %d locs · %d tracked (%d trk)%s · enrich %.2f' delTag], ...
-            e.cellIndex, e.csID, e.window, e.winFrames(1), e.winFrames(2), e.nLocInside, e.nMemberLocs, e.nTracks, ftag, e.enrichment));
+        title(axSite, sprintf(['cell %d · site %d · win %d [%g–%g] · cloud %d locs · %d tracked (%d trk)%s' delTag], ...
+            e.cellIndex, e.csID, e.window, e.winFrames(1), e.winFrames(2), e.nLocInside, e.nMemberLocs, e.nTracks, ftag));
         % member list: track · locs inside / the track's window locs (% inside), filtered by ≥% threshold
         kidx = find(keepT);
         items = cell(1,numel(kidx)); tdata = zeros(1,numel(kidx));
@@ -1198,6 +1219,7 @@ end
             lstMembers.Items = items; lstMembers.ItemsData = tdata;   % select -> track column
             if siteMemberSel>0 && any(tdata==siteMemberSel), lstMembers.Value = siteMemberSel; end
         end
+        drawSiteD(e, siteMemberSel);   % the rolling-D panel follows the selected site
     end
 
     function [pct, nin, ntot] = siteTrackStats(e)
@@ -1309,6 +1331,102 @@ end
         drawSiteInspector(siteSelIdx);
         lblSites.Text = sprintf('Site %d %s · %d site(s) and %d track(s) pending. 💾 Save removals to apply.', ...
             e.csID, act, numel(pendDelSite), numel(pendExcl));
+    end
+
+    function drawSiteD(e, selCol)
+        % Two views of the same thing, chosen by whether a member track is selected.
+        %
+        % No selection -> every member track as a paired in/out pair, joined by a line. The slope IS
+        % the answer: a line sloping down to the right is a track that was slower while it was at the
+        % site. That reads at a glance across 3-20 members in a way twenty overlaid traces do not.
+        %
+        % A track selected -> its rolling D against frame, with the localizations INSIDE the footprint
+        % coloured separately and each side's median drawn as a dashed line.
+        if isempty(axSiteD) || ~isgraphics(axSiteD), return; end
+        cla(axSiteD); axSiteD.XLimMode='auto'; axSiteD.YLimMode='auto';
+        if isempty(e), title(axSiteD,'rolling D — click a member track'); return; end
+        [dI, dO, per] = siteTrackD(e);
+        if isempty(per)
+            title(axSiteD,'rolling D — no D in this build (rebuild on the Build & QC tab)');
+            xlabel(axSiteD,''); ylabel(axSiteD,'D (µm²/s)'); return;
+        end
+        hold(axSiteD,'on');
+        sel = []; if nargin>1 && ~isempty(selCol), sel = find([per.col]==selCol,1); end
+
+        if isempty(sel)
+            for q = 1:numel(per)
+                a = per(q).dIn; b = per(q).dOut;
+                if ~isfinite(a) || ~isfinite(b), continue; end
+                col = [0.55 0.55 0.6]; if a < b, col = [0.13 0.45 0.75]; end   % blue = slower inside
+                plot(axSiteD, [1 2], [a b], '-o', 'Color', col, 'MarkerFaceColor', col, ...
+                     'MarkerSize', 3.5, 'LineWidth', 0.9);
+            end
+            xlim(axSiteD,[0.8 2.2]); axSiteD.XTick=[1 2]; axSiteD.XTickLabel={'inside','outside'};
+            xlabel(axSiteD,''); ylabel(axSiteD,'median D (µm²/s)');
+            nSlow = sum(arrayfun(@(x) isfinite(x.dIn)&&isfinite(x.dOut)&&x.dIn<x.dOut, per));
+            nBoth = sum(arrayfun(@(x) isfinite(x.dIn)&&isfinite(x.dOut), per));
+            title(axSiteD, sprintf('D in %s vs out %s · %d/%d slower inside', ...
+                fmtD_(dI), fmtD_(dO), nSlow, nBoth), 'FontSize', 8);
+        else
+            pk = per(sel);
+            plot(axSiteD, pk.t(~pk.in), pk.d(~pk.in), '.', 'Color',[0.6 0.6 0.65], 'MarkerSize',7);
+            plot(axSiteD, pk.t( pk.in), pk.d( pk.in), '.', 'Color',[0.85 0.25 0.15], 'MarkerSize',9);
+            if isfinite(pk.dOut), yline(axSiteD, pk.dOut, ':', 'Color',[0.45 0.45 0.5]); end
+            if isfinite(pk.dIn),  yline(axSiteD, pk.dIn,  '--','Color',[0.85 0.25 0.15]); end
+            xlabel(axSiteD,'frame'); ylabel(axSiteD,'D (µm²/s)');
+            title(axSiteD, sprintf('track %d · in %s (n=%d) · out %s (n=%d)', ...
+                pk.col, fmtD_(pk.dIn), pk.nIn, fmtD_(pk.dOut), pk.nOut), 'FontSize', 8);
+        end
+        hold(axSiteD,'off'); box(axSiteD,'on');
+    end
+
+    function [dIn, dOut, perTrk] = siteTrackD(e)
+        % Each member track's ROLLING D, split by whether the localization sat inside this site.
+        %
+        % This is the question the tab exists for — does a molecule move differently while it is at a
+        % contact site — and it is answerable from what is already stored: Tracks(k).Dt is one
+        % diffusion estimate per localization, CSmatrix is those same localizations relative to the
+        % site centre, and refboundary is the footprint. Same rows, same columns, so the mask lines up
+        % without re-deriving anything.
+        %
+        % Returns the POOLED medians (for the table) and a per-track struct (for the plot). NaN where
+        % a track has no localization on one side — a track fully inside has no 'out' value, and
+        % inventing one would read as a measured zero.
+        dIn = NaN; dOut = NaN;
+        perTrk = struct('col',{},'dIn',{},'dOut',{},'nIn',{},'nOut',{},'t',{},'d',{},'in',{});
+        if isempty(e) || ~isfield(e,'tracks') || isempty(e.tracks), return; end
+        if isempty(buildTracks) || e.cellIndex < 1 || e.cellIndex > numel(buildTracks), return; end
+        T = buildTracks(e.cellIndex);
+        if ~isfield(T,'Dt') || isempty(T.Dt), return; end
+        cols = e.tracks(:)';
+        if max(cols) > size(T.Dt,2), return; end
+
+        bx = e.refboundary(:,1); by = e.refboundary(:,2);      % µm, relative to the site centre
+        allIn = []; allOut = [];
+        for q = 1:numel(cols)
+            n  = min(size(T.Dt,1), size(e.CSmatrix,1));
+            d  = T.Dt(1:n, cols(q));
+            x  = e.CSmatrix(1:n, q, 2); y = e.CSmatrix(1:n, q, 3);
+            fr = e.CSmatrix(1:n, q, 1);
+            ok = isfinite(d) & isfinite(x) & isfinite(y);
+            if ~any(ok), continue; end
+            in = false(size(ok));
+            in(ok) = inpolygon(x(ok), y(ok), bx, by);
+            di = d(ok &  in); do_ = d(ok & ~in);
+            perTrk(end+1) = struct('col',cols(q), ...
+                'dIn', med0(di), 'dOut', med0(do_), 'nIn', numel(di), 'nOut', numel(do_), ...
+                't', fr(ok), 'd', d(ok), 'in', in(ok)); %#ok<AGROW>
+            allIn = [allIn; di]; allOut = [allOut; do_]; %#ok<AGROW>
+        end
+        dIn = med0(allIn); dOut = med0(allOut);
+    end
+
+    function v = med0(x)
+        x = x(isfinite(x)); if isempty(x), v = NaN; else, v = median(x); end
+    end
+
+    function s = fmtD_(v)
+        if ~isfinite(v), s = '–'; else, s = sprintf('%.3f', v); end
     end
 
     function tf = isPendDeletedSite(e)
