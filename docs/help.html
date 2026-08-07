@@ -55,11 +55,135 @@
   .tag.you{ background:var(--you-soft); color:var(--you); }
   hr{ border:none; border-top:1px solid var(--line); margin:22px 0; }
   @media (max-width:820px){ .wrap{ grid-template-columns:1fr; } nav{ position:static; height:auto; border-right:none; border-bottom:1px solid var(--line); } }
+
+/* ===== Shell: landing, tool tabs, search. Swiss/minimal — the content is the interface. ===== */
+:root{
+  --t1:#2a72b3; --t1-soft:#eaf2fb;
+  --t2:#2e7d5b; --t2-soft:#e7f4ee;
+  --t3:#7a3ea8; --t3-soft:#f1e9f8;
+  --focus:#2563eb;
+}
+@media (prefers-color-scheme: dark){
+  :root{ --t1:#6bb0ee; --t1-soft:#16283a; --t2:#7fd0a8; --t2-soft:#14241c;
+         --t3:#c79ae8; --t3-soft:#241a2e; --focus:#7aa7ff; }
+}
+/* Visible focus everywhere — never removed, only restyled. */
+a:focus-visible,button:focus-visible,input:focus-visible,[tabindex]:focus-visible{
+  outline:2px solid var(--focus); outline-offset:2px; border-radius:5px;
+}
+.skip{ position:absolute; left:-9999px; top:0; z-index:99;
+  background:var(--accent); color:#fff; padding:10px 16px; border-radius:0 0 8px 0; }
+.skip:focus{ left:0; }
+
+/* --- tool tab bar --- */
+.tabs{ position:sticky; top:0; z-index:20; display:flex; gap:2px; flex-wrap:wrap;
+  padding:10px 0 0; margin:0 0 18px; border-bottom:1px solid var(--line);
+  background:var(--bg-body,inherit); backdrop-filter:saturate(1.2) blur(6px); }
+.tabs button{ appearance:none; border:0; background:none; color:var(--muted); cursor:pointer;
+  font:inherit; font-size:13.5px; font-weight:500; padding:9px 13px; min-height:44px;
+  border-bottom:2px solid transparent; transition:color .2s ease, border-color .2s ease; }
+.tabs button:hover{ color:var(--ink); }
+.tabs button[aria-selected="true"]{ color:var(--accent); border-bottom-color:var(--accent); }
+.tabs .sp{ flex:1 1 auto; }
+
+/* --- search --- */
+.search{ position:relative; display:flex; align-items:center; margin:0 0 4px; }
+.search svg{ position:absolute; left:9px; width:15px; height:15px; color:var(--muted); pointer-events:none; }
+.search input{ width:100%; font:inherit; font-size:13px; color:var(--ink);
+  background:var(--panel); border:1px solid var(--line); border-radius:8px;
+  padding:8px 10px 8px 30px; min-height:38px; transition:border-color .2s ease; }
+.search input:focus{ border-color:var(--accent); }
+.search kbd{ position:absolute; right:8px; font-size:10.5px; color:var(--muted);
+  border:1px solid var(--line); border-radius:4px; padding:1px 5px; background:var(--panel); }
+.search input:not(:placeholder-shown) ~ kbd{ display:none; }
+.hitcount{ font-size:11.5px; color:var(--muted); margin:6px 8px 2px; }
+.noresult{ margin:10px 8px; padding:10px 12px; border:1px dashed var(--line);
+  border-radius:8px; font-size:12.5px; color:var(--muted); }
+.noresult b{ color:var(--ink); }
+mark{ background:var(--accent-soft); color:inherit; border-radius:3px; padding:0 2px; }
+
+/* --- landing --- */
+.hero{ padding:6px 0 4px; }
+.hero h1{ font-size:29px; margin:0 0 6px; }
+.hero .sub{ font-size:15px; color:var(--muted); max-width:63ch; margin:0 0 22px; line-height:1.6; }
+.cards{ display:grid; grid-template-columns:repeat(auto-fit,minmax(232px,1fr)); gap:14px; margin:0 0 8px; }
+.card{ display:block; text-align:left; width:100%; cursor:pointer; font:inherit;
+  border:1px solid var(--line); border-left:3px solid var(--c); border-radius:10px;
+  background:var(--panel); padding:16px 17px 15px; color:var(--ink);
+  transition:transform .2s ease, box-shadow .2s ease, border-color .2s ease; }
+.card:hover{ transform:translateY(-2px); box-shadow:0 6px 18px rgba(0,0,0,.07); }
+.card .n{ display:inline-flex; align-items:center; justify-content:center; width:26px; height:26px;
+  border-radius:7px; background:var(--cs); color:var(--c); font-weight:700; font-size:13px; margin-bottom:9px; }
+.card h3{ margin:0 0 5px; font-size:15.5px; color:var(--ink); }
+.card p{ margin:0 0 10px; font-size:13px; color:var(--muted); line-height:1.55; }
+.card .run{ font-family:"SF Mono",Menlo,Consolas,monospace; font-size:11.5px;
+  background:var(--code); border:1px solid var(--line); border-radius:5px; padding:2px 7px; color:var(--ink); }
+.card .go{ display:block; margin-top:11px; font-size:12px; font-weight:600; color:var(--c); }
+@media (prefers-reduced-motion: reduce){
+  .card,.card:hover{ transform:none; transition:none; }
+  *{ animation-duration:.01ms !important; transition-duration:.01ms !important; }
+}
+.steps{ counter-reset:s; list-style:none; padding:0; margin:14px 0 0; }
+.steps li{ counter-increment:s; position:relative; padding:0 0 0 34px; margin:0 0 11px; font-size:13.5px; }
+.steps li::before{ content:counter(s); position:absolute; left:0; top:-1px;
+  width:23px; height:23px; border-radius:50%; background:var(--accent-soft); color:var(--accent);
+  font-weight:700; font-size:12px; display:grid; place-items:center; }
+.landing-flow{ margin:18px 0 6px; }
+.hr{ height:1px; background:var(--line); margin:30px 0 6px; border:0; }
+.sec-lbl{ text-transform:uppercase; letter-spacing:.06em; font-size:11.5px; color:var(--muted);
+  font-weight:700; margin:26px 0 8px; }
+
+/* --- responsive: the sidebar becomes a drawer below 900px --- */
+@media (max-width:900px){
+  .wrap{ grid-template-columns:1fr; }
+  nav{ position:static; height:auto; border-right:0; border-bottom:1px solid var(--line);
+    max-height:none; padding:14px; }
+  main{ padding:18px 16px 70px; }
+  .hero h1{ font-size:23px; }
+  nav .navlinks{ display:none; }
+  nav.open .navlinks{ display:block; }
+  .navtoggle{ display:flex !important; }
+  /* Touch targets: 27px is fine for a mouse, not for a thumb. */
+  nav a{ min-height:40px; display:flex; align-items:center; padding:6px 10px; }
+  .tabs button{ padding:10px 12px; }
+  .cards{ grid-template-columns:1fr; }
+}
+/* --- search results in the main pane, not a blank page --- */
+.results{ margin:6px 0 0; }
+.results .rhead{ font-size:12.5px; color:var(--muted); margin:0 0 12px; }
+.rlist{ display:grid; gap:9px; }
+.rlist a{ display:block; text-decoration:none; color:var(--ink); border:1px solid var(--line);
+  border-left:3px solid var(--c,var(--accent)); border-radius:9px; background:var(--panel);
+  padding:12px 14px; transition:border-color .2s ease, transform .2s ease; }
+.rlist a:hover{ transform:translateX(2px); border-color:var(--accent); }
+.rlist .rt{ font-weight:600; font-size:14px; display:block; margin-bottom:3px; }
+.rlist .rg{ font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--c,var(--muted)); font-weight:700; }
+.rlist .rs{ display:block; margin-top:5px; font-size:12.5px; color:var(--muted); line-height:1.5; }
+#preamble.off{ display:none; }
+.navtoggle{ display:none; align-items:center; gap:7px; width:100%; min-height:44px; cursor:pointer;
+  font:inherit; font-size:13px; font-weight:600; color:var(--ink); background:none; border:0; padding:6px 2px; }
+
 </style>
 </head>
 <body>
 <div class="wrap">
 <nav>
+<button class="navtoggle" aria-expanded="false">
+  <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" width="16" height="16"
+       aria-hidden="true"><path d="M3 5h14M3 10h14M3 15h14" stroke-linecap="round"/></svg>
+  Contents
+</button>
+<div class="navlinks">
+<div class="search">
+  <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+    <circle cx="9" cy="9" r="6"/><path d="M13.5 13.5 17 17" stroke-linecap="round"/></svg>
+  <input type="search" id="q" placeholder="Search the guide" aria-label="Search the guide"
+         autocomplete="off" spellcheck="false">
+  <kbd>/</kbd>
+</div>
+<div class="hitcount" id="hits" hidden></div>
+<div class="noresult" id="nores" hidden></div>
+
   <h4>Start</h4>
   <a href="#overview">Overview &amp; data flow</a>
   <a href="#quickstart">Quick start</a>
@@ -189,11 +313,90 @@
   <a href="#trouble-build">&nbsp;&nbsp;Build and import problems</a>
   <a href="#trouble-cs">&nbsp;&nbsp;Contact-site, mapper and dwell problems</a>
   <a href="#trouble-app">&nbsp;&nbsp;App and filesystem problems</a>
+</div>
 </nav>
 
 <main>
 
-<h1>SPTinMatlab — Help &amp; Pipeline Guide</h1>
+<a class="skip" href="#doc">Skip to content</a>
+
+<div class="tabs" role="tablist" aria-label="Documentation sections">
+  <button role="tab" data-group="home"  aria-selected="true">Start here</button>
+  <button role="tab" data-group="t1"    aria-selected="false">1 · Track</button>
+  <button role="tab" data-group="t2"    aria-selected="false">2 · Curate &amp; Build</button>
+  <button role="tab" data-group="t3"    aria-selected="false">3 · Analyze</button>
+  <button role="tab" data-group="shared" aria-selected="false">Shared</button>
+  <button role="tab" data-group="theory" aria-selected="false">How it works</button>
+  <button role="tab" data-group="ref"   aria-selected="false">Reference</button>
+</div>
+
+<div id="landing">
+  <div class="hero">
+    <h1>SPTinMatlab</h1>
+    <p class="sub">Single-particle tracking of an ER membrane protein at ER&ndash;mitochondria contact
+      sites &mdash; from raw movies to per-site residence times. Three focused apps, coupled
+      <em>through files only</em>, so you can stop, inspect and resume at any stage.</p>
+  </div>
+
+  <div class="cards">
+    <button class="card" data-goto="t1" style="--c:var(--t1); --cs:var(--t1-soft)">
+      <span class="n">1</span>
+      <h3>Track &amp; filter</h3>
+      <p>Match your three input folders, detect spots, link them into tracks, filter, export.</p>
+      <span class="run">run_track</span>
+      <span class="go">Open Tool 1 &rarr;</span>
+    </button>
+    <button class="card" data-goto="t2" style="--c:var(--t2); --cs:var(--t2-soft)">
+      <span class="n">2</span>
+      <h3>Curate &amp; Build</h3>
+      <p>Review every track by eye, repair mislinks, then build a named TrackStruct with MSD and
+         diffusion. The slow step &mdash; done once.</p>
+      <span class="run">run_curate</span>
+      <span class="go">Open Tool 2 &rarr;</span>
+    </button>
+    <button class="card" data-goto="t3" style="--c:var(--t3); --cs:var(--t3-soft)">
+      <span class="n">3</span>
+      <h3>Analyze</h3>
+      <p>Find contact sites, refine their boundaries, map which tracks belong to which, and measure
+         how long each one stays.</p>
+      <span class="run">run_analyze</span>
+      <span class="go">Open Tool 3 &rarr;</span>
+    </button>
+  </div>
+
+  <div class="sec-lbl">What flows between them</div>
+  <div class="flow landing-flow">
+    <span class="chip">SPT movie + ER seg + mito seg</span><span class="arw">&rarr;</span>
+    <span class="chip b">1 &middot; Track</span><span class="arw">&rarr;</span>
+    <span class="chip">_tracks_filtered.xml<br>_spots_filtered.csv</span><span class="arw">&rarr;</span>
+    <span class="chip b">2 &middot; Curate &amp; Build</span><span class="arw">&rarr;</span>
+    <span class="chip">analysis/&lt;name&gt;.mat</span><span class="arw">&rarr;</span>
+    <span class="chip b">3 &middot; Analyze</span><span class="arw">&rarr;</span>
+    <span class="chip">sites &middot; dwell &middot; diffusion</span>
+  </div>
+
+  <div class="sec-lbl">First run, in three steps</div>
+  <ol class="steps">
+    <li><b>Track</b> &mdash; point the three pickers at <code>spt/</code>, <code>er_seg/</code>,
+        <code>mito_seg/</code>, press <kbd>Scan</kbd>, then detect &rarr; track &rarr; filter &rarr; export.</li>
+    <li><b>Curate &amp; Build</b> &mdash; import the curated tracks, type a <b>Name</b>, press
+        <kbd>&#9654; Build + QC</kbd>.</li>
+    <li><b>Analyze</b> &mdash; set the project folder, then <b>Contact sites</b> &rarr; <b>Refine</b>
+        &rarr; <b>Sites</b> &rarr; <b>Dwell</b>.</li>
+  </ol>
+
+  <div class="note" style="margin-top:22px">Every deep-dive section carries a worked example with real
+    numbers from the <code>WithER</code> test cell. Press <kbd>/</kbd> to search at any time.</div>
+  <hr class="hr">
+  <div class="sec-lbl">Read on</div>
+</div>
+
+<div class="results" id="results" hidden></div>
+
+<div id="doc">
+
+
+
 <p class="lead">Single-particle tracking of an ER membrane protein at ER–mitochondria contact sites, from raw movies to per-site residence times. This guide explains every stage, the maths behind detection, and where to read the numbers.</p>
 
 <div class="note">New here? Read <a href="#overview">Overview</a> → <a href="#quickstart">Quick start</a>, then dip into the deep-dive sections when a control puzzles you. Every deep dive has a concrete worked example with real numbers from the <code>WithER</code> test cell.</div>
@@ -2773,7 +2976,207 @@ filter.exported        = 2026-07-29 11:02:13</code></pre>
 </div>
 
 <div class="warn"><b>Two folders to leave alone.</b> <code>tool2_analyze/ContactSites_original/</code> is the pristine Nature-2024 reference implementation — read it, never run or edit it. And do not write into the <code>WithER</code> reference dataset: a stray write there once followed a directory symlink and rewrote <code>WithER/tracks/cs_calib.mat</code> three times. Nothing was lost that time; work in a copy.</div>
+</div>
 </main>
 </div>
+
+<script>
+(function(){
+  'use strict';
+  // Which tool each top-level section belongs to. Sections are grouped at RUNTIME by walking the
+  // h2s in document order, so no id or body markup had to change and every deep link still works.
+  var BOUNDS = [
+    ['overview','home'], ['quickstart','home'],
+    ['t1','t1'],
+    ['t2curate','t2'], ['t2build','t2'],
+    ['t3contact','t3'], ['t3refine','t3'], ['t3sites','t3'], ['t3dwell','t3'],
+    ['expt','shared'], ['topbar','shared'], ['compare','shared'], ['scale','shared'],
+    ['density','theory'], ['windowing','theory'], ['mcnull','theory'], ['peaks','theory'],
+    ['transparency','ref'], ['filesref','ref'], ['columnsref','ref'], ['glossary','ref'], ['trouble','ref']
+  ];
+  var groupOf = {}; BOUNDS.forEach(function(b){ groupOf[b[0]] = b[1]; });
+
+  var doc  = document.getElementById('doc');
+  var res  = document.getElementById('results');
+  var land = document.getElementById('landing');
+  var nav  = document.querySelector('nav');
+  var tabs = Array.prototype.slice.call(document.querySelectorAll('.tabs button'));
+  var q    = document.getElementById('q');
+  var hits = document.getElementById('hits');
+  var nores= document.getElementById('nores');
+  if(!doc) return;
+
+  // Anything before the first h2 (the old lead + "New here?" note) belongs to the landing only —
+  // left loose it reappears above every tool and above the search results.
+  var pre = document.createElement('div'); pre.id = 'preamble';
+  while(doc.firstChild && !(doc.firstChild.nodeType===1 && doc.firstChild.tagName==='H2')){
+    pre.appendChild(doc.firstChild);
+  }
+  doc.parentNode.insertBefore(pre, doc);
+
+  // ---- wrap each h2 + its following siblings into a section we can show and hide ----
+  var sections = [], cur = null, curGroup = 'home';
+  Array.prototype.slice.call(doc.childNodes).forEach(function(node){
+    if(node.nodeType === 1 && node.tagName === 'H2'){
+      curGroup = groupOf[node.id] || curGroup;
+      cur = document.createElement('section');
+      cur.setAttribute('data-group', curGroup);
+      cur.setAttribute('data-id', node.id || '');
+      doc.insertBefore(cur, node);
+      sections.push(cur);
+    }
+    if(cur) cur.appendChild(node);
+  });
+
+  // Nav links, tagged with the group of the section they point into.
+  var links = Array.prototype.slice.call(nav.querySelectorAll('a[href^="#"]'));
+  var byId = {}; sections.forEach(function(s){
+    s.querySelectorAll('[id]').forEach(function(el){ byId[el.id] = s; });
+    if(s.dataset.id) byId[s.dataset.id] = s;
+  });
+  links.forEach(function(a){
+    var s = byId[a.getAttribute('href').slice(1)];
+    a.dataset.group = s ? s.getAttribute('data-group') : 'ref';
+  });
+  var heads = Array.prototype.slice.call(nav.querySelectorAll('h4'));
+
+  var active = 'home';
+  function show(group, opts){
+    opts = opts || {};
+    active = group;
+    land.hidden = (group !== 'home');
+    pre.classList.toggle('off', group !== 'home');
+    res.hidden = true;
+    sections.forEach(function(s){ s.hidden = s.getAttribute('data-group') !== group; });
+    tabs.forEach(function(t){ t.setAttribute('aria-selected', String(t.dataset.group === group)); });
+    links.forEach(function(a){ a.style.display = (a.dataset.group === group) ? '' : 'none'; });
+    // A nav heading with nothing under it is noise — hide it with its run.
+    heads.forEach(function(h){
+      var any = false, n = h.nextElementSibling;
+      while(n && n.tagName === 'A'){ if(n.style.display !== 'none'){ any = true; break; } n = n.nextElementSibling; }
+      h.style.display = any ? '' : 'none';
+    });
+    if(!opts.keepScroll) window.scrollTo({top:0, behavior: reduced() ? 'auto' : 'smooth'});
+    nav.classList.remove('open');
+  }
+  function reduced(){ return window.matchMedia('(prefers-reduced-motion: reduce)').matches; }
+
+  tabs.forEach(function(t){ t.addEventListener('click', function(){ clearSearch(); show(t.dataset.group); }); });
+  document.querySelectorAll('.card[data-goto]').forEach(function(c){
+    c.addEventListener('click', function(){ show(c.dataset.goto); });
+  });
+
+  // Deep links (and the app's Help button landing on an anchor) must select the right tool first.
+  function reveal(id, smooth){
+    var s = byId[id]; if(!s) return false;
+    show(s.getAttribute('data-group'), {keepScroll:true});
+    var el = document.getElementById(id);
+    if(el) el.scrollIntoView({behavior: (smooth && !reduced()) ? 'smooth' : 'auto', block:'start'});
+    return true;
+  }
+  document.addEventListener('click', function(e){
+    var a = e.target.closest && e.target.closest('a[href^="#"]');
+    if(!a) return;
+    var id = a.getAttribute('href').slice(1);
+    if(id && reveal(id, true)){ e.preventDefault(); history.replaceState(null,'','#'+id); }
+  });
+  if(location.hash) reveal(location.hash.slice(1), false); else show('home');
+  window.addEventListener('hashchange', function(){ if(location.hash) reveal(location.hash.slice(1), true); });
+
+  // ---- search across every group, not just the open one ----
+  function clearSearch(){ if(q) q.value=''; hits.hidden = true; nores.hidden = true; res.hidden = true;
+    links.forEach(function(a){ a.innerHTML = a.dataset.raw || a.innerHTML; }); }
+  links.forEach(function(a){ a.dataset.raw = a.innerHTML; });
+
+  function esc(s){ return s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'); }
+  function runSearch(){
+    var term = (q.value||'').trim();
+    if(!term){ clearSearch(); show(active,{keepScroll:true}); return; }
+    var re = new RegExp(esc(term),'ig'), n = 0;
+    land.hidden = true;
+    sections.forEach(function(s){ s.hidden = true; });
+    heads.forEach(function(h){ h.style.display = 'none'; });
+    links.forEach(function(a){
+      var raw = a.dataset.raw, txt = raw.replace(/<[^>]*>/g,'');
+      if(re.test(txt)){
+        n++; a.style.display=''; re.lastIndex = 0;
+        a.innerHTML = raw.replace(new RegExp(esc(term),'ig'), function(m){ return '<mark>'+m+'</mark>'; });
+      } else { a.style.display='none'; a.innerHTML = raw; }
+      re.lastIndex = 0;
+    });
+    hits.hidden = false;
+
+    // Mirror the hits into the MAIN pane. A sidebar-only result list leaves the page looking broken.
+    pre.classList.add('off');
+    var GL = {home:'Start here', t1:'Tool 1 · Track', t2:'Tool 2 · Curate & Build',
+              t3:'Tool 3 · Analyze', shared:'Shared', theory:'How it works', ref:'Reference'};
+    var GC = {t1:'var(--t1)', t2:'var(--t2)', t3:'var(--t3)'};
+    var html = '', nSec = 0;
+    sections.forEach(function(s2){
+      var h2 = s2.querySelector('h2'); if(!h2) return;
+      var txt = s2.textContent || '';
+      var i = txt.toLowerCase().indexOf(term.toLowerCase());
+      var sub = [];
+      s2.querySelectorAll('h3').forEach(function(h3){
+        if((h3.textContent||'').toLowerCase().indexOf(term.toLowerCase()) >= 0) sub.push(h3);
+      });
+      if(i < 0 && !sub.length) return;
+      nSec++;
+      var g = s2.getAttribute('data-group');
+      var target = sub.length ? (sub[0].id || s2.dataset.id) : s2.dataset.id;
+      var snip = '';
+      if(i >= 0){
+        var a0 = Math.max(0, i-70), b0 = Math.min(txt.length, i+110);
+        snip = (a0?'…':'') + txt.slice(a0,b0).replace(/\s+/g,' ').trim() + (b0<txt.length?'…':'');
+        snip = snip.replace(/</g,'&lt;').replace(new RegExp(esc(term),'ig'),
+               function(m){ return '<mark>'+m+'</mark>'; });
+      }
+      html += '<a href="#'+target+'" style="--c:'+(GC[g]||'var(--accent)')+'">' +
+              '<span class="rg">'+GL[g]+'</span>' +
+              '<span class="rt">'+h2.textContent.replace(/</g,'&lt;')+'</span>' +
+              (sub.length ? '<span class="rs">'+sub.length+' matching sub-section'+(sub.length>1?'s':'')+
+                            ': '+sub.map(function(h){return h.textContent;}).join(' · ').replace(/</g,'&lt;')+'</span>' : '') +
+              (snip ? '<span class="rs">'+snip+'</span>' : '') + '</a>';
+    });
+    // Report the number the reader can actually see — the section cards — not the nav-title count.
+    hits.textContent = nSec + (nSec===1 ? ' section matches' : ' sections match') + ' "' + term + '"';
+    res.hidden = false;
+    res.innerHTML = '<div class="rhead">Results for <b>'+term.replace(/</g,'&lt;')+'</b> — pick a section to open it.</div>' +
+                    '<div class="rlist">'+html+'</div>';
+    nores.hidden = (nSec > 0);
+    if(!nSec){ nores.innerHTML = 'Nothing matches <b>'+term.replace(/</g,'&lt;')+'</b>.<br>' +
+        'Try <a href="#glossary">metric glossary</a>, <a href="#trouble">troubleshooting</a>, ' +
+        'or <a href="#columnsref">column reference</a>.'; }
+    return;
+    // Never a dead end: say so, and suggest something that does exist.
+    nores.hidden = (n > 0);
+    if(!n){
+      res.innerHTML = '<div class="rhead">No section matches <b>'+term.replace(/</g,'&lt;')+
+        '</b>. Try the <a href="#glossary">metric glossary</a>, ' +
+        '<a href="#trouble">troubleshooting</a>, or the <a href="#columnsref">column reference</a>.</div>';
+      nores.innerHTML = 'Nothing matches <b>'+term.replace(/</g,'&lt;')+'</b>.<br>' +
+        'Try <a href="#glossary">metric glossary</a>, <a href="#trouble">troubleshooting</a>, ' +
+        'or <a href="#columnsref">column reference</a>.';
+    }
+  }
+  if(q){
+    var t; q.addEventListener('input', function(){ clearTimeout(t); t = setTimeout(runSearch, 120); });
+    q.addEventListener('keydown', function(e){ if(e.key==='Escape'){ clearSearch(); show(active); q.blur(); } });
+  }
+  document.addEventListener('keydown', function(e){
+    if(e.key === '/' && document.activeElement !== q &&
+       !/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)){
+      e.preventDefault(); q.focus(); q.select();
+    }
+  });
+
+  var tog = document.querySelector('.navtoggle');
+  if(tog) tog.addEventListener('click', function(){
+    var open = nav.classList.toggle('open');
+    tog.setAttribute('aria-expanded', String(open));
+  });
+})();
+</script>
+
 </body>
 </html>
