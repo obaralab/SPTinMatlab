@@ -79,7 +79,7 @@ nFiles = numel(xmlFiles);
 Tracks = struct('file',{},'lengths',{},'matrix',{},'center',{}, ...
     'rawSteps',{},'steps',{},'MSDdata',{},'MSD',{},'MSDerror',{}, ...
     'MSDstdev',{},'CSD',{},'CSDnorm',{},'rawVector',{},'vector',{}, ...
-    'intens',{},'allSpots',{},'mitoDist',{},'erDist',{},'dist',{});
+    'intens',{},'allSpots',{},'dist',{});
 
 for i = 1:nFiles
     xmlPath = fullfile(xmlFiles(i).folder, xmlFiles(i).name);
@@ -245,16 +245,19 @@ for i = 1:nFiles
     Tracks(k).rawVector= rawVector;
     Tracks(k).vector   = vector;
     Tracks(k).intens   = intens;
-    Tracks(k).allSpots = allSpots;   % struct(FRAME,X,Y[,MITODIST][,ERDIST]) of EVERY detection (tracked + untracked)
-    Tracks(k).mitoDist = mitoDist;   % [m x n] signed µm to nearest mito pixel per tracked spot ([] if no column)
-    Tracks(k).erDist   = erDist;     % [m x n] signed µm to nearest ER pixel per tracked spot ([] if no column)
-    % Keyed storage for the same two arrays (step 2 of the reference-channel migration — see
-    % cs_channel_fields). Readers prefer .dist.<key> and fall back to the flat fields above, so a
-    % build made before this still loads and no conversion pass is needed; step 4 drops the flat
-    % pair. Only a channel this cell actually HAS gets a key — an absent key is how a project
-    % carries cells with different channel sets, which is the whole point of the move. The field
-    % itself is set on every element (possibly to an empty struct) so the Tracks array stays
-    % concatenable across cells.
+    Tracks(k).allSpots = allSpots;   % struct(FRAME,X,Y[,DIST.<key>]) of EVERY detection (tracked + untracked)
+    % Per-spot distances, KEYED ONLY (step 4 of the reference-channel migration — see
+    % cs_channel_fields). The flat mitoDist/erDist pair this used to write alongside is gone: no
+    % file in the repo reads it any more, including everything under ContactSites_robust, so it was
+    % pure duplication of the largest arrays in the struct.
+    %
+    % Only a channel this cell actually HAS gets a key — an absent key is how a project carries
+    % cells with different channel sets, which is the whole point of the move. The field itself is
+    % set on every element (possibly to an empty struct) so the Tracks array stays concatenable
+    % across cells.
+    %
+    % Builds made before this still LOAD: cs_channel_dist and cs_channel_has keep their fallback to
+    % the flat names. Only writing stopped.
     Tracks(k).dist = struct();
     if ~isempty(mitoDist), Tracks(k).dist.mito = mitoDist; end
     if ~isempty(erDist),   Tracks(k).dist.er   = erDist;   end
@@ -329,8 +332,10 @@ function [intens, allSpots, mitoDist, erDist] = attach_intensities(inputDir, bas
 % Returns:
 %   intens   [m x n x 3] (page 1/2/3 = MEAN/MAX/TOTAL) aligned 1:1 with matrix
 %            rows, or [] if no CSV;
-%   allSpots struct(FRAME,X,Y[,MITODIST][,ERDIST]) of EVERY detection in the CSV
-%            (tracked + untracked), for QC mislinkage context and contact-site analysis;
+%   allSpots struct(FRAME,X,Y[,DIST.<key>]) of EVERY detection in the CSV
+%            (tracked + untracked), for QC mislinkage context and contact-site analysis. The
+%            per-channel distances live in the keyed DIST container; the caller files the tracked
+%            matrices below under Tracks(k).dist.<key> for the same reason;
 %   mitoDist [m x n] signed µm from each tracked spot to the nearest mito pixel
 %            in its own frame (+ outside mito, - inside, ~0 on the boundary), or
 %            [] when the CSV has no MITO_DIST_UM column (older exports / no mito);
@@ -368,11 +373,9 @@ if all(ismember({'FRAME','X_um','Y_um'}, S.Properties.VariableNames))
     frameVals = double(S.FRAME);
     if ~useFrame, frameVals = frameVals * frameInt; end   % -> seconds, matching matrix(:,:,1)
     allSpots = struct('FRAME',frameVals,'X',double(S.X_um),'Y',double(S.Y_um));
-    % Keyed storage alongside the flat names (step 2 of the reference-channel migration). The keyed
-    % form is what readers prefer; the flat one keeps builds readable by tools from before it, and
-    % is dropped in step 4. See cs_channel_fields.
-    if hasMD, allSpots.MITODIST = MD; allSpots.DIST.mito = MD; end
-    if hasED, allSpots.ERDIST   = ED; allSpots.DIST.er   = ED; end
+    % Keyed only — the flat MITODIST/ERDIST pair was dropped in step 4. See cs_channel_fields.
+    if hasMD, allSpots.DIST.mito = MD; end
+    if hasED, allSpots.DIST.er   = ED; end
 end
 needI = {'MEAN_INTENSITY','MAX_INTENSITY','TOTAL_INTENSITY'};
 if ~all(ismember(needI, S.Properties.VariableNames)), return; end

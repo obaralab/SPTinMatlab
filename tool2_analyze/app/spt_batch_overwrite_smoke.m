@@ -152,20 +152,24 @@ assert(~isempty(T(1).intens), ...
 assert(~isempty(T(1).allSpots) && numel(T(1).allSpots.FRAME) == height(Sc), ...
     'allSpots holds %d detections, the curated CSV has %d', ...
     numel(T(1).allSpots.FRAME), height(Sc));
-% the contact-site stages key off these two, so a mispaired CSV would quietly disarm Tool 3
-assert(~isempty(T(1).mitoDist) && any(isfinite(T(1).mitoDist(:))), 'MITO_DIST_UM did not come through');
-assert(~isempty(T(1).erDist)   && any(isfinite(T(1).erDist(:))),   'ER_DIST_UM did not come through');
-% ...and the keyed storage the readers actually prefer (step 2 of the reference-channel migration).
-% The flat pair above is still written, so a build made here opens in a tool from before the change.
+% The contact-site stages key off these distances, so a mispaired CSV would quietly disarm Tool 3.
+% Storage is KEYED ONLY as of step 4: dist.<key> and allSpots.DIST.<key>, no flat mitoDist/erDist.
 assert(isfield(T,'dist') && isstruct(T(1).dist), 'importer wrote no keyed distance container');
-assert(isequaln(T(1).dist.mito, T(1).mitoDist), 'dist.mito disagrees with mitoDist');
-assert(isequaln(T(1).dist.er,   T(1).erDist),   'dist.er disagrees with erDist');
-assert(isequaln(T(1).allSpots.DIST.mito, T(1).allSpots.MITODIST), 'allSpots.DIST.mito disagrees');
-assert(isequaln(T(1).allSpots.DIST.er,   T(1).allSpots.ERDIST),   'allSpots.DIST.er disagrees');
-% and both stores must agree through the accessor, tracked and cloud
+assert(~isfield(T,'mitoDist') && ~isfield(T,'erDist'), ...
+    'the importer is still writing the flat distance fields that step 4 removed');
+assert(~isfield(T(1).allSpots,'MITODIST') && ~isfield(T(1).allSpots,'ERDIST'), ...
+    'allSpots still carries the flat distance columns that step 4 removed');
+assert(isfield(T(1).dist,'mito') && any(isfinite(T(1).dist.mito(:))), 'MITO_DIST_UM did not come through');
+assert(isfield(T(1).dist,'er')   && any(isfinite(T(1).dist.er(:))),   'ER_DIST_UM did not come through');
+assert(isfield(T(1).allSpots.DIST,'mito') && isfield(T(1).allSpots.DIST,'er'), ...
+    'the per-detection cloud lost its distances');
+% and the accessor must reach them, tracked and cloud, with the sign convention intact
 for kk = {'mito','er'}
-    assert(isequaln(cs_channel_dist(T(1),kk{1},'tracked'), reshape(T(1).(cs_channel_fields(kk{1}).mat),[],1)), ...
-        '%s: accessor and flat field disagree (tracked)', kk{1});
+    [dT, hT] = cs_channel_dist(T(1), kk{1}, 'tracked');
+    [dC, hC] = cs_channel_dist(T(1), kk{1}, 'cloud');
+    assert(hT && hC, '%s: accessor does not see the keyed store', kk{1});
+    assert(isequaln(dT, reshape(T(1).dist.(kk{1}),[],1)), '%s: accessor disagrees with dist.%s', kk{1}, kk{1});
+    assert(isequaln(dC, double(T(1).allSpots.DIST.(kk{1})(:))), '%s: cloud accessor disagrees', kk{1});
     assert(cs_channel_has(T(1),kk{1}) && cs_channel_has(T(1),kk{1},'cloud'), '%s: not seen as present', kk{1});
 end
 fprintf('importer paired _tracks_curated.xml with _spots_curated.csv (%d tracks, %d detections)\n', ...

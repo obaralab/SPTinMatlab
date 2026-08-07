@@ -36,7 +36,7 @@ fprintf('footprint modes: halfmax=%d box=%d disk=%d\n', nnz(isHM), nnz(strcmp(mo
 assert(all(areas(isHM) <= capHM*1.05 | isnan(areas(isHM))), 'halfmax area exceeds pi*maxR^2 cap');
 
 % at least one mito site with members + enrichment>1
-mito = [CSW.MitoFlag];
+mito = cs_sites_near(CSW,'mito');
 enr  = [CSW.enrichment];
 nin  = [CSW.nMemberLocs];
 fprintf('mito sites=%d   sites with member locs>0 = %d   median enrichment=%.2f\n', ...

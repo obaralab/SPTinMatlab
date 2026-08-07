@@ -268,6 +268,12 @@ assert(cs_site_near(struct('near',[],'MitoFlag',1),'mito'), '[] container falls 
 w = cs_site_set_near(struct('csID',3), 'mito', true);
 assert(w.near.mito && w.MitoFlag && islogical(w.near.mito), 'the writer emits both forms as logical');
 assert(cs_site_near(rmfield(w,'MitoFlag'),'mito'), 'the keyed form alone is enough to read back');
+% The SITE FLAG keeps its flat mirror on purpose, unlike the distances. ContactSiteMapper writes
+% CSdata(j).MitoFlag directly and is documented as not-to-be-modified (cs_identify.m:7), and ten-plus
+% files under ContactSites_robust read it — CS_builder copies it straight into CS_final. Dropping the
+% flat write would silently desync a cs_refine toggle from the builder. If this assert ever fails,
+% that whole chain has to move first.
+assert(~isempty(cs_channel_fields('mito').site), 'mito must keep a flat site-flag name');
 fprintf('  migration: legacy-only, keyed-only, partial, [] and empty containers all resolve\n');
 fprintf('  precedence: keyed wins on conflict; mis-sized keyed arrays still fall to the size gate\n');
 
