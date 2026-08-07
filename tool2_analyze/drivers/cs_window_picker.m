@@ -59,9 +59,25 @@ st.splitPeaks=true; st.minEnrich=1.0; st.minTracks=1; st.minSiteLocs=0;   % dete
 SC = struct('x',1,'y',2,'flag',3,'manual',4,'peak',5,'pval',6,'enr',7,'nloc',8,'ntrk',9,'stab',10,'area',11,'dwell',12);
 NCOL = 12;   % ...'dwell' = median % of associated tracks' localizations inside the site (dwelling vs passing)
 st.win=zeros(0,2); st.nW=0;
-st.sites={}; st.wrc={}; st.wdens={}; st.werM={}; st.wmitoM={}; st.wnull={};
-st.thumbAx=[]; st.selList=[]; st.erPath=''; st.mitoPath=''; st.segNfr=0; st.segMitoNfr=0; st.erMip=[];
+st.sites={}; st.wrc={}; st.wdens={}; st.wnull={};
+st.thumbAx=[]; st.selList=[]; st.erMip=[];
 st.supportWhy='';   % non-empty when the support was DERIVED from the localizations, not measured
+
+% Reference channels are KEYED, not a fixed ER/mito pair: st.segPath.<key>, st.segNfr.<key> and the
+% per-window mask cache st.wmask.<key>{w}. A project that declares a third channel gets a third
+% entry in each, a third checkbox and a third contour, with no further code here.
+st.chans = getf(opts,'channels',[]);
+if isempty(st.chans), st.chans = cs_channel_config(fileparts(char(anaDir))); end
+st.keys = cs_channel_keys(st.chans);
+sup = cs_channel_keys(st.chans,'support');
+st.supportKey = ''; if ~isempty(sup), st.supportKey = sup{1}; end   % '' = no support channel
+st.segPath = struct(); st.segNfr = struct(); st.wmask = struct();
+% Loop indices in this file are named per scope on purpose: everything below is a NESTED function
+% sharing one workspace, so a plain `kk` here is the SAME variable the callbacks use, and a callback
+% firing mid-loop would corrupt whichever loop was running. checkcode flags this as FXUP.
+for kInit = 1:numel(st.keys)
+    st.segPath.(st.keys{kInit}) = ''; st.segNfr.(st.keys{kInit}) = 0; st.wmask.(st.keys{kInit}) = {};
+end
 
 % =====================================================================
 % UI
@@ -109,9 +125,17 @@ uilabel(rB,'Text','map α','HorizontalAlignment','right');
 eAlpha = uispinner(rB,'Limits',[0.1 1],'Value',st.alpha,'Step',0.1,'ValueChangedFcn',@(s,e) drawDetail(), ...
     'Tooltip','Density-map opacity — lower it (with ＋locs on) to see individual localizations.');
 uilabel(rB,'Text','overlay','HorizontalAlignment','right');
-chkER   = uicheckbox(rB,'Text','ER','Value',false,'ValueChangedFcn',@(s,e) drawDetail(), ...
-    'Tooltip','ER segmentation contour at this window''s START frame (moving-organelle view).');
-chkMito = uicheckbox(rB,'Text','mito','Value',false,'ValueChangedFcn',@(s,e) drawDetail());
+% One checkbox per declared channel, generated — not two literals. The label and colour come from
+% the channel, so a third one appears here the moment a project declares it.
+chkChan = gobjects(1, numel(st.keys));
+for kBox = 1:numel(st.keys)
+    Fk = cs_channel_fields(st.chans(kBox));
+    chkChan(kBox) = uicheckbox(rB,'Text',chanBoxLabel(Fk),'Value',false, ...
+        'FontColor',min(chanColour(st.keys{kBox}, kBox)*0.85, 1), ...
+        'ValueChangedFcn',@(s,e) drawDetail(), ...
+        'Tooltip',sprintf(['%s segmentation contour at this window''s START frame ' ...
+                           '(moving-organelle view).'], Fk.label));
+end
 uilabel(rB,'Text','scale','HorizontalAlignment','right');
 ddScale = uidropdown(rB,'Items',{'density (a.u.)','locs / 30 nm bin','significance (p)'},'ItemsData',{'density','raw','sigp'}, ...
     'Value','density','ValueChangedFcn',@(s,e) onScale(), ...
@@ -248,13 +272,27 @@ onCell();
         if isstruct(T.allSpots) && isfield(T.allSpots,'X') && ~isempty(T.allSpots.X)
             st.nAll = nnz(isfinite(double(T.allSpots.X(:))) & isfinite(double(T.allSpots.Y(:))));
         end
-        % resolve this cell's seg stacks (for per-window start-frame masks) + the whole-movie ER MIP fallback
-        st.erPath=''; st.mitoPath=''; st.segNfr=0; st.segMitoNfr=0; st.erMip=[];
+        % Resolve this cell's seg stacks (for per-window start-frame masks) + the whole-movie support
+        % MIP fallback. The resolver may answer with a keyed container (ov.seg.<key>, what spt_match
+        % returns now) or with the flat ov.er / ov.mito it always did — both are accepted, so a
+        % caller that has not been updated keeps working.
+        for kRes = 1:numel(st.keys)
+            st.segPath.(st.keys{kRes}) = ''; st.segNfr.(st.keys{kRes}) = 0;
+        end
+        st.erMip=[];
         if ~isempty(st.segResolver)
             try, ov = st.segResolver(char(T.file)); catch, ov=[]; end
             if isstruct(ov)
-                if isfield(ov,'er')   && ~isempty(ov.er)   && isfile(ov.er),   st.erPath=ov.er;     info=imfinfo(ov.er);   st.segNfr=numel(info);   end
-                if isfield(ov,'mito') && ~isempty(ov.mito) && isfile(ov.mito), st.mitoPath=ov.mito; info=imfinfo(ov.mito); st.segMitoNfr=numel(info); end
+                for kRes = 1:numel(st.keys)
+                    key = st.keys{kRes};
+                    p = '';
+                    if isfield(ov,'seg') && isstruct(ov.seg) && isfield(ov.seg,key), p = ov.seg.(key); end
+                    if isempty(p) && isfield(ov,key), p = ov.(key); end     % flat legacy spelling
+                    if ~isempty(p) && isfile(p)
+                        st.segPath.(key) = p;
+                        try st.segNfr.(key) = numel(imfinfo(p)); catch, st.segNfr.(key) = 0; end
+                    end
+                end
             end
         end
         st.erMip = erMipMask(char(T.file));     % whole-movie ER support fallback
@@ -290,14 +328,21 @@ onCell();
         % cs_detect, and enrichment inflates without bound. See cs_support_mask.
         st.supportWhy = '';
         m = [];
-        prefix = regexprep(base,'_spt\d+$','','ignorecase');
-        p = fullfile(st.mipDir,[prefix '_er_mip.tif']);
-        if isfile(p)
-            try, e=double(imread(p)); if ndims(e)==3, e=mean(e,3); end
-                m = imresize(e,[st.grid st.grid],'bilinear') > 0.05*max(e(:)); catch, m=[]; end
+        if isempty(st.supportKey)
+            supPath = '';
+        else
+            supPath = st.segPath.(st.supportKey);
+            % MIP name from the support channel's own pattern, not the '_er_mip.tif' literal.
+            Fs = cs_channel_fields(st.chans(strcmp(st.keys, st.supportKey)));
+            prefix = regexprep(base,'_spt\d+$','','ignorecase');
+            p = fullfile(st.mipDir, strrep(Fs.mip, '{prefix}', prefix));
+            if isfile(p)
+                try, e=double(imread(p)); if ndims(e)==3, e=mean(e,3); end
+                    m = imresize(e,[st.grid st.grid],'bilinear') > 0.05*max(e(:)); catch, m=[]; end
+            end
         end
         if ~isempty(m) && any(m(:)), return; end
-        if ~isempty(st.erPath)
+        if ~isempty(supPath)
             % A support channel EXISTS, this cell just has no MIP. Unchanged behaviour on purpose:
             % switching method for one cell of a with-ER project would make its enrichment
             % incomparable to the rest, which is a decision, not a fallback.
@@ -318,15 +363,25 @@ onCell();
     end
 
     function m = werMask(w)
-        % per-window ER support = ER seg at the window START frame; falls back to the whole-movie MIP
-        if numel(st.werM)>=w && ~isempty(st.werM{w}), m=st.werM{w}; return; end
-        m = segMaskAt(st.erPath, st.segNfr, st.win(w,1));
-        if isempty(m) || ~any(m(:)), m = st.erMip; end
-        st.werM{w} = m;
+        % The SUPPORT mask for a window: the support channel's seg at the window START frame,
+        % falling back to the whole-movie MIP (or, with no support channel at all, to the mask
+        % derived from the localizations — see erMipMask). Total by construction: a detection domain
+        % and a background denominator may never be empty.
+        if isempty(st.supportKey), m = st.erMip; return; end
+        m = chanMask(st.supportKey, w);
+        if isempty(m) || ~any(m(:)), m = st.erMip; st.wmask.(st.supportKey){w} = m; end
     end
-    function m = wmitoMask(w)
-        if numel(st.wmitoM)>=w && ~isempty(st.wmitoM{w}), m=st.wmitoM{w}; return; end
-        m = segMaskAt(st.mitoPath, st.segMitoNfr, st.win(w,1)); st.wmitoM{w}=m;
+
+    function m = chanMask(key, w)
+        % Per-window mask for ANY channel, cached per (channel, window). [] means "not imaged" —
+        % which for a proximity contour means "do not draw", and only the SUPPORT role applies a
+        % fallback (in werMask above). Keeping the cache here rather than inside cs_channel_mask is
+        % deliberate: it is keyed by window index only and would go stale on a grid change, which
+        % buildWindows already guards by rerunning after applyCellCalib.
+        c = st.wmask.(key);
+        if numel(c) >= w && ~isempty(c{w}), m = c{w}; return; end
+        m = segMaskAt(st.segPath.(key), st.segNfr.(key), st.win(w,1));
+        st.wmask.(key){w} = m;
     end
 
     function buildWindows()
@@ -359,7 +414,8 @@ onCell();
                 st.nWwanted, st.MAXPANELS, st.dropFrom, T-1, 100*(T-st.dropFrom)/max(T,1), st.MAXPANELS);
         end
         st.sites=repmat({zeros(0,NCOL)},1,st.nW);
-        st.wrc=cell(1,st.nW); st.wdens=cell(1,st.nW); st.werM=cell(1,st.nW); st.wmitoM=cell(1,st.nW); st.wnull=cell(1,st.nW);
+        st.wrc=cell(1,st.nW); st.wdens=cell(1,st.nW); st.wnull=cell(1,st.nW);
+        for kq = 1:numel(st.keys), st.wmask.(st.keys{kq}) = cell(1,st.nW); end   % one cache per channel
         st.cw=1; st.selList=[];
         buildThumbs(); selectWindow(1);
     end
@@ -435,8 +491,13 @@ onCell();
             if numel(lx)>60000, s2=ceil(numel(lx)/60000); lx=lx(1:s2:end); ly=ly(1:s2:end); end
             scatter(axDet,lx,ly,2,'w','filled','MarkerFaceAlpha',0.15,'HitTest','off');
         end
-        if chkER.Value,   drawMaskBnd(axDet, werMask(w),  [0.25 1 0.5]);  end   % ER contour, start-frame
-        if chkMito.Value, drawMaskBnd(axDet, wmitoMask(w),[1 0.30 0.85]); end   % mito contour, start-frame
+        % One contour per ticked channel, start-frame. The SUPPORT channel draws its resolved mask
+        % (which is total — it falls back), every other channel draws only what it actually has.
+        for kDraw = 1:numel(st.keys)
+            if ~isgraphics(chkChan(kDraw)) || ~chkChan(kDraw).Value, continue; end
+            if strcmp(st.keys{kDraw}, st.supportKey), mk = werMask(w); else, mk = chanMask(st.keys{kDraw}, w); end
+            drawMaskBnd(axDet, mk, chanColour(st.keys{kDraw}, kDraw));
+        end
         P=st.sites{w};
         for i=1:size(P,1)
             selHi=ismember(i,st.selList);
@@ -913,6 +974,33 @@ end
 
 % -------------------------------------------------------------------------
 function v=getf(s,f,d), if isstruct(s)&&isfield(s,f)&&~isempty(s.(f)), v=s.(f); else, v=d; end, end
+
+function c = chanColour(key, idx)
+%CHANCOLOUR  Contour colour for a channel. ER green and mito magenta are PINNED to the values this
+% panel has always drawn — a reader who knows the figures must not have to relearn them. Anything
+% else is taken from a fixed rota, so a third channel is distinct from both and stable across runs
+% (indexed by declaration order, not hashed, so it does not change when a project is edited).
+switch lower(char(key))
+    case 'er',   c = [0.25 1.00 0.50];
+    case 'mito', c = [1.00 0.30 0.85];
+    otherwise
+        rota = [0.30 0.75 1.00      % cyan-blue
+                1.00 0.80 0.20      % amber
+                0.70 0.55 1.00      % violet
+                1.00 0.45 0.30      % coral
+                0.55 1.00 0.85];    % mint
+        c = rota(mod(max(idx,1)-1, size(rota,1)) + 1, :);
+end
+end
+
+function s = chanBoxLabel(F)
+%CHANBOXLABEL  Checkbox text for a channel. Short enough for the control strip: the label as
+% declared, lower-cased for anything that is not an initialism, so 'ER' stays 'ER' and 'Mito'
+% renders as the 'mito' this panel has always shown.
+s = char(F.label);
+if isempty(s), s = char(F.key); end
+if ~strcmp(s, upper(s)), s = lower(s); end
+end
 
 function y=tern(c,a,b), if c, y=a; else, y=b; end, end
 function q=cs_quantile_(x,p)

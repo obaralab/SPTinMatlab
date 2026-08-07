@@ -2742,12 +2742,21 @@ end
     % overlay resolver: cell base -> its raw SPT movie + per-frame ER + mito segmentation stacks.
     % Primary: spt_match (handles _VAPB / _TA_BC tokens). Fallback: loose containment on a stripped key.
     function ov = resolveOverlay(base)
-        ov = struct('er','','mito','','spt','');
+        % ov.seg.<key> is the keyed answer every consumer should read; ov.er / ov.mito stay as the
+        % flat mirror, because track_viewer and the older overlay paths still test those by name.
+        % A project's third channel appears in ov.seg and nowhere else, which is why the picker
+        % reads the container first and the flat names only as a fallback.
+        ov = struct('er','','mito','','spt','','seg',struct());
+        chanKeys = cs_channel_keys(cs_channel_config(projectDir));
+        for q = 1:numel(chanKeys), ov.seg.(chanKeys{q}) = ''; end
         b = char(base);
         if ~isempty(matched)
             for i = 1:numel(matched)
                 [~,sn] = fileparts(matched(i).spt);
-                if strcmpi(sn, b), ov.er = matched(i).erSeg; ov.mito = matched(i).mitoSeg; ov.spt = matched(i).spt; return; end
+                if strcmpi(sn, b)
+                    if isfield(matched,'seg') && isstruct(matched(i).seg), ov.seg = matched(i).seg; end
+                    ov.er = matched(i).erSeg; ov.mito = matched(i).mitoSeg; ov.spt = matched(i).spt; return
+                end
             end
         end
         if isempty(projectDir), return; end
@@ -2757,8 +2766,15 @@ end
         key = b;
         if ~isempty(chanTok), key = regexprep(key, [regexptranslate('escape',chanTok) '$'], '', 'ignorecase'); end
         if strcmp(key, b),    key = regexprep(b, '_spt\d*$', '', 'ignorecase'); end
-        ov.er   = findSeg(fullfile(projectDir,'er_seg'),   key);
-        ov.mito = findSeg(fullfile(projectDir,'mito_seg'), key);
+        % Every declared channel, from its own folder — not two literals. The flat er/mito mirror is
+        % filled from the container afterwards so nothing downstream has to change at once.
+        chans = cs_channel_config(projectDir);
+        for q = 1:numel(chans)
+            Fq = cs_channel_fields(chans(q));
+            ov.seg.(Fq.key) = findSeg(fullfile(projectDir, Fq.folder), key);
+        end
+        if isfield(ov.seg,'er'),   ov.er   = ov.seg.er;   end
+        if isfield(ov.seg,'mito'), ov.mito = ov.seg.mito; end
         ov.spt  = findSeg(fullfile(projectDir,'spt'),      b);   % raw SPT movie (match the full base)
     end
 
