@@ -19,7 +19,7 @@ than useless, because the crash takes the process down *before* its closing `exi
 terminated with status 0 after actually running two tests. It read as a clean pass.
 
 ```bash
-cd /Users/safal-mac/Desktop/IntegratedPipeline/SPTinMatlab
+cd /Users/safal-mac/Documents/IntegratedPipeline/SPTinMatlab
 fail=0
 for f in $(find . -name "*_smoke.m" -not -path "*ContactSites_original*" | sort); do
   n=$(basename "$f" .m)
@@ -247,6 +247,6 @@ penalty 49, geodesic 37.
 ## Standing constraints
 
 - **Never edit or run `ContactSites_original/`** (pristine Nature-2024 reference).
-- **Never write into `/Users/safal-mac/Desktop/IntegratedPipeline/WithER`** — see the symlink caution
+- **Never write into `/Users/safal-mac/Documents/IntegratedPipeline/WithER`** — see the symlink caution
   above. Headless drives use a temp project of per-file symlinks; verify with mtime before/after.
 - MATLAB apps do not hot-reload: relaunch after any source edit.

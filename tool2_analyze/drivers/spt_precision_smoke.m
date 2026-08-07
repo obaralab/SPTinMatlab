@@ -19,7 +19,7 @@ r0 = spt_fit_msd(4*D*(lags*dt), dt, 100);
 assert(r0.sigLocUm < 1e-6, 'σ_loc should be ~0 when intercept is 0');
 
 %% real TrackStruct ---------------------------------------------------------------
-f = '/Users/safal-mac/Desktop/IntegratedPipeline/Project/analysis/TrackStruct.mat';
+f = '/Users/safal-mac/Documents/IntegratedPipeline/Project/analysis/TrackStruct.mat';
 if isfile(f)
     S = load(f); fn = fieldnames(S); Tr = S.(fn{1});
     dtc = 0.020064; got = 0; sigs = [];

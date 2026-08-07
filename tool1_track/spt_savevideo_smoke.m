@@ -2,7 +2,7 @@ function spt_savevideo_smoke()
 % Verify the track player's Save video: it must NOT fail with "Frame must be W by H" — every frame is
 % locked to the first frame's EVEN dimensions. Renders real movie frames through the actual player path.
 here = fileparts(mfilename('fullpath')); addpath(here);
-mov = '/Users/safal-mac/Desktop/IntegratedPipeline/WithER/spt/250408_WT_012_spt1.tif';
+mov = '/Users/safal-mac/Documents/IntegratedPipeline/WithER/spt/250408_WT_012_spt1.tif';
 assert(isfile(mov), 'test movie missing');
 
 fp = uifigure('Visible','off','Position',[0 0 720 560]);

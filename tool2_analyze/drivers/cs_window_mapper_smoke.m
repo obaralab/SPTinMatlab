@@ -4,7 +4,7 @@ function cs_window_mapper_smoke()
 here = fileparts(mfilename('fullpath'));
 addpath(here);                                   % drivers/
 addpath(fullfile(here,'..','ContactSites_robust'));
-anaDir = '/Users/safal-mac/Desktop/IntegratedPipeline/Project/analysis';
+anaDir = '/Users/safal-mac/Documents/IntegratedPipeline/Project/analysis';
 
 fprintf('\n========== PART A: real data (whole-movie fallback) ==========\n');
 CSW = cs_window_mapper(anaDir, struct('save',true,'verbose',true,'src','all'));

@@ -20,7 +20,7 @@ assert(elE > 1.4 && elE > elR + 0.3, 'elongation did not flag the streaked spot'
 assert(elR < 1.4, 'round spot wrongly flagged as elongated');
 
 %% real data: columns propagate raw -> filtered ----------------------------------
-W = '/Users/safal-mac/Desktop/IntegratedPipeline/WithER';
+W = '/Users/safal-mac/Documents/IntegratedPipeline/WithER';
 cel = struct('key','250408_WT_012','spt',fullfile(W,'spt','250408_WT_012_spt1.tif'), ...
     'erSeg',fullfile(W,'er_seg','250408_VAPB_WT_012_2_TA_BC.tiff'),'mitoSeg','','diamUm',0.5);
 prm = struct('linkUm',0.8,'gapUm',1.4,'maxGap',1,'useEr',true,'lambda',3,'pxUm',0.10785,'dtS',0.020064,'maxFrames',15);

@@ -8,10 +8,10 @@ Written at commit `8ea7fec`. Working tree clean, suite **34/34**.
 
 | rule | why |
 |---|---|
-| **Never write to `/Users/safal-mac/Desktop/IntegratedPipeline/WithER`.** Read-only, always. | The user's reference dataset. |
+| **Never write to `/Users/safal-mac/Documents/IntegratedPipeline/WithER`.** Read-only, always. | The user's reference dataset. |
 | **Never edit or run `tool2_analyze/ContactSites_original/`.** | Pristine Nature-2024 reference implementation. `ContactSites_robust/` is the working copy and *may* be edited. |
 | **`save()` and `fopen()` follow symlinks.** Never symlink a WithER file (especially a `.mat`) into a scratch fixture. | A write through the link destroys the original. |
-| **`/Users/safal-mac/Desktop/IntegratedPipeline/Control` is LIVE DATA.** Read freely; do not write. | In particular `spt_analyze_app`'s `setProject` calls `writeCalib()`, which writes `tracks/cs_calib.mat`. To exercise that path, **copy the project to scratch first**. |
+| **`/Users/safal-mac/Documents/IntegratedPipeline/Control` is LIVE DATA.** Read freely; do not write. | In particular `spt_analyze_app`'s `setProject` calls `writeCalib()`, which writes `tracks/cs_calib.mat`. To exercise that path, **copy the project to scratch first**. |
 | Scratch goes in the session scratchpad, never `/tmp`. | |
 
 ---
@@ -60,7 +60,7 @@ one-liners throughout). **Only count parse errors**, or diff the message histogr
 
 ## 4. The user's live data
 
-`/Users/safal-mac/Desktop/IntegratedPipeline/Control` — a **halo-Sec61B** cell, tracked and built:
+`/Users/safal-mac/Documents/IntegratedPipeline/Control` — a **halo-Sec61B** cell, tracked and built:
 
 ```
 spt/Halo-Sec61-TA-100Hz_004_C3.tif     128×128, 5703 frames, 0.16 µm/px, 0.010519 s (95.06 Hz)

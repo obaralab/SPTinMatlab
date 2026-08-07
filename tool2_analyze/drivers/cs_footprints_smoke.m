@@ -6,7 +6,7 @@ here = fileparts(mfilename('fullpath')); addpath(here);
 addpath(fullfile(here,'..','ContactSites_robust'));
 
 % stage a private copy of Project/analysis (so we don't leave a CS_footprints.mat behind)
-src = '/Users/safal-mac/Desktop/IntegratedPipeline/Project/analysis';
+src = '/Users/safal-mac/Documents/IntegratedPipeline/Project/analysis';
 tmp = fullfile(tempdir,'cs_foot_smoke'); if isfolder(tmp), rmdir(tmp,'s'); end
 mkdir(tmp); mkdir(fullfile(tmp,'csIDs')); mkdir(fullfile(tmp,'Densities'));
 copyfile(fullfile(src,'TrackStruct.mat'), fullfile(tmp,'TrackStruct.mat'));

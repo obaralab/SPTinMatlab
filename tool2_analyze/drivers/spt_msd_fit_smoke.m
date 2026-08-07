@@ -26,7 +26,7 @@ rc = spt_fit_msd(msd, dt, 25);
 assert(rc.nPts == round(40*0.25), 'scalar %% back-compat broken');
 
 %% real data: adaptive fit-% varies per track -------------------------------------------
-f = '/Users/safal-mac/Desktop/IntegratedPipeline/Project/analysis/TrackStruct.mat';
+f = '/Users/safal-mac/Documents/IntegratedPipeline/Project/analysis/TrackStruct.mat';
 if isfile(f)
     S = load(f); fn = fieldnames(S); Tr = S.(fn{1}); dtc = 0.020064;
     Dfix = []; Dad = []; fr = [];

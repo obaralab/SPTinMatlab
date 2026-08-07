@@ -12,7 +12,7 @@ function spt_run_feedback_smoke()
 % is symlinked; _settings.txt is COPIED because the exporter appends to it, and save/fopen follow a
 % symlink straight back into WithER.
 here = fileparts(mfilename('fullpath')); addpath(here);
-W = '/Users/safal-mac/Desktop/IntegratedPipeline/WithER';
+W = '/Users/safal-mac/Documents/IntegratedPipeline/WithER';
 base = '250408_WT_012_spt1';
 srcCsv = fullfile(W,'tracks',[base '_spots.csv']);
 assert(isfile(srcCsv), 'test data missing: %s', srcCsv);

@@ -196,7 +196,7 @@ through the four stages Tool 3 runs, to the files the Compare tab reads. Same ru
 number is either measured out of the repo with the derivation shown, or explicitly marked as not
 measured.
 
-Measurements here are on `/Users/safal-mac/Desktop/IntegratedPipeline/Project/analysis` — the only
+Measurements here are on `/Users/safal-mac/Documents/IntegratedPipeline/Project/analysis` — the only
 folder in the tree that has actually been through all four stages — read straight out of the HDF5
 with `h5py`, no MATLAB. That build holds **2 cells**: `250408_FFAT_001_spt1` (nT 477, nF 366,
 34,701 localizations, 19.9% occupancy) and `250408_WT_010_spt1` (nT 1295, nF 334, 96,183

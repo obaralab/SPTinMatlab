@@ -11,7 +11,7 @@ function spt_named_build_smoke()
 %
 % Runs against a TEMP project whose inputs are symlinks to WithER — nothing is written into WithER.
 here = fileparts(mfilename('fullpath')); addpath(here); addpath(fullfile(here,'..','drivers'));
-W   = '/Users/safal-mac/Desktop/IntegratedPipeline/WithER';
+W   = '/Users/safal-mac/Documents/IntegratedPipeline/WithER';
 % Resolve WHATEVER build the reference project has — it may well be a NAMED one (the very feature
 % under test), so hardcoding TrackStruct.mat here would skip the test on a correctly-named project.
 src = cs_active_trackstruct(fullfile(W,'analysis'));

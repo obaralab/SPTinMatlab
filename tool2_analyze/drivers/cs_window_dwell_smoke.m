@@ -3,7 +3,7 @@ function cs_window_dwell_smoke()
 % and per-window k_out; (B) a hand-built CSW with a known inside/outside sequence to verify the
 % (span+1)*dt dwell accounting and window clipping against a closed-form expectation.
 here = fileparts(mfilename('fullpath')); addpath(here);
-anaDir = '/Users/safal-mac/Desktop/IntegratedPipeline/Project/analysis';
+anaDir = '/Users/safal-mac/Documents/IntegratedPipeline/Project/analysis';
 
 fprintf('\n========== PART A: real mapped data ==========\n');
 assert(isfile(fullfile(anaDir,'CSW_final.mat')),'run cs_window_mapper first');

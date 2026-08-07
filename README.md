@@ -23,7 +23,7 @@ different tool — or a different session — without re-running anything upstre
 ## Launch
 
 ```matlab
-addpath('/Users/safal-mac/Desktop/IntegratedPipeline/SPTinMatlab')
+addpath('/Users/safal-mac/Documents/IntegratedPipeline/SPTinMatlab')
 run_track      % Tool 1  spt_app         — Experiment · Match files · Detect · Track & filter
 run_curate     % Tool 2  spt_curate_app  — Experiment · Import & Curate · Build & QC
 run_analyze    % Tool 3  spt_analyze_app — Experiment · Contact sites · Refine · Sites · Dwell · Compare
@@ -140,7 +140,7 @@ folder to the path and call it by name. Each prints a line per assertion and end
 banner or a MATLAB error naming what broke.
 
 ```matlab
-addpath(genpath('/Users/safal-mac/Desktop/IntegratedPipeline/SPTinMatlab'))
+addpath(genpath('/Users/safal-mac/Documents/IntegratedPipeline/SPTinMatlab'))
 spt_geo_strict_smoke        % strict ER-geodesic fails closed (27 assertions)
 spt_batch_overwrite_smoke   % Tool 2's batch cannot overwrite Tool 1's output
 spt_curate_review_smoke     % the curate review workflow; manual keep/reject is durable

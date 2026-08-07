@@ -3,7 +3,7 @@ function spt_split_smoke()
 % the Tool 2 wrapper (spt_curate_app == 'curate') opens the curate tabs, and setting a project in
 % ANALYZE mode does not crash on the absent Import & Curate tab (the guarded embedImportCurate path).
 here = fileparts(mfilename('fullpath')); addpath(here);
-proj = '/Users/safal-mac/Desktop/IntegratedPipeline/Project';
+proj = '/Users/safal-mac/Documents/IntegratedPipeline/Project';
 
 % Experiment is tab 1 in EVERY mode (and in Tool 1) — the manifest is the setup step and lives in
 % the same place whichever tool you opened.

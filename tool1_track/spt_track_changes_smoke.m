@@ -3,7 +3,7 @@ function spt_track_changes_smoke()
 % Detect tab has the Top%/Quality-≥ mode with percentile default 6 and a working enable-toggle;
 % (3) the provenance writers record mode + quality_min and upsert the project summary CSV.
 here = fileparts(mfilename('fullpath')); addpath(here);
-mov  = '/Users/safal-mac/Desktop/IntegratedPipeline/WithER/spt/250408_WT_012_spt1.tif';
+mov  = '/Users/safal-mac/Documents/IntegratedPipeline/WithER/spt/250408_WT_012_spt1.tif';
 
 %% (1) PLAYER: true movie length vs track span -------------------------------------------------
 assert(isfile(mov), 'test movie missing'); ninfo = numel(imfinfo(mov));

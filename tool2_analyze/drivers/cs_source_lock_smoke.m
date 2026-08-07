@@ -3,7 +3,7 @@ function cs_source_lock_smoke()
 % source='tracked' makes cs_footprints_build + cs_window_mapper use the tracked matrix regardless of
 % opts.src ('all').
 here = fileparts(mfilename('fullpath')); addpath(here); addpath(fullfile(here,'..','ContactSites_robust'));
-src = '/Users/safal-mac/Desktop/IntegratedPipeline/Project/analysis';
+src = '/Users/safal-mac/Documents/IntegratedPipeline/Project/analysis';
 tmp = fullfile(tempdir,'cs_srclock'); if isfolder(tmp), rmdir(tmp,'s'); end
 mkdir(tmp); mkdir(fullfile(tmp,'csIDs')); mkdir(fullfile(tmp,'Densities'));
 S = load(fullfile(src,'TrackStruct.mat')); fn=fieldnames(S); Tr=S.(fn{1});
