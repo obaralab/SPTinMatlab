@@ -1557,7 +1557,7 @@ say('Ready — pick a project folder to begin.');
         % CSV, and embedded on CS_final. Non-fatal if it fails on odd data.
         try, computeCSDensityMetrics(); catch ME, say('CS density metrics skipped: %s', ME.message); end
         fillCStable();
-        lRes.Text = sprintf('%d contact sites (%d mito). p + enrich in table -> analysis/cs_density_metrics.csv. Click a row, then ▶ Play.', nCS, sum(logical([CS.MitoFlag])));
+        lRes.Text = sprintf('%d contact sites (%d mito). p + enrich in table -> analysis/cs_density_metrics.csv. Click a row, then ▶ Play.', nCS, sum(cs_sites_near(CS,'mito')));
         cla(csAx); title(csAx,'Select a contact site from the list');
         if ~isempty(csAxRad) && isgraphics(csAxRad), cla(csAxRad); title(csAxRad,'local density'); end
         refreshScale();   % now that rho is loaded, show the actual raster px/size in the scale readout
@@ -1578,7 +1578,7 @@ say('Ready — pick a project folder to begin.');
                 if isfinite(M(k).prob_mass),  pm=round(M(k).prob_mass,4); end
                 if isfinite(M(k).enrichment), en=round(M(k).enrichment,2); end
             end
-            rows(k,:)={sprintf('%d',round(CS(k).csID)), sprintf('%d',round(ci)), fn, tern(logical(CS(k).MitoFlag),'mito','non'), ...
+            rows(k,:)={sprintf('%d',round(CS(k).csID)), sprintf('%d',round(ci)), fn, tern(cs_site_near(CS(k),'mito'),'mito','non'), ...
                 numel(CS(k).tracks), round(csData.dwell(k),3), pm, en};   % CS id + cell as integer strings (no float display)
         end
         csTable.Data=rows;
@@ -1810,7 +1810,7 @@ say('Ready — pick a project folder to begin.');
         else,                                  insideTxt = 'not yet refined (no boundary)'; end
         lRes.Text = sprintf(['CS %d · cell %d%s · %s · %d/%d tracks touch boundary · %s · ' ...
             '%d loc across member tracks'' whole trajectories · touching %s: %s'], ...
-            csData.CS(k).csID, csData.CS(k).cellIndex, fnTxt, tern(logical(csData.CS(k).MitoFlag),'MITO','non'), ...
+            csData.CS(k).csID, csData.CS(k).cellIndex, fnTxt, tern(cs_site_near(csData.CS(k),'mito'),'MITO','non'), ...
             numel(cols), numel(allc), insideTxt, nTot, idlabel, mat2str(idvec(:)'));
         fillCStrkList(k);   % per-CS track list (click to isolate)
     end
@@ -2318,7 +2318,7 @@ say('Ready — pick a project folder to begin.');
             end
         end
         title(csAx,sprintf('CS %d · cell %d · %s · %d/%d tracks touch · frame %d · dwell %.3g s%s', ...
-            CS(k).csID, ci, tern(logical(CS(k).MitoFlag),'MITO','non'), numel(cols), numel(CS(k).tracks), f, csData.dwell(k), pkTxt));
+            CS(k).csID, ci, tern(cs_site_near(CS(k),'mito'),'MITO','non'), numel(cols), numel(CS(k).tracks), f, csData.dwell(k), pkTxt));
         drawnow limitrate;
     end
 
@@ -2399,7 +2399,7 @@ say('Ready — pick a project folder to begin.');
             else
                 % colour each non-selected boundary by its MITO FLAG so the classification reads at a
                 % glance against the mito overlay: magenta = flagged mito, white = non-mito.
-                mflag = isfield(CS,'MitoFlag') && ~isempty(CS(q).MitoFlag) && logical(CS(q).MitoFlag);
+                mflag = cs_site_near(CS(q),'mito');
                 if mflag, bcol=[1 0.35 1 0.9]; lw=1.4; else, bcol=[1 1 1 0.7]; lw=1; end
                 plot(axCSall,[bx;bx(1)],[by;by(1)],'-','Color',bcol,'LineWidth',lw,'HitTest','off');
                 text(axCSall,mean(bx),mean(by),num2str(CS(q).csID),'Color',[1 1 0.4],'FontSize',8, ...
@@ -2408,7 +2408,7 @@ say('Ready — pick a project folder to begin.');
         end
         hold(axCSall,'off'); pbaspect(axCSall,[1 1 1]); xlim(axCSall,[0 fov]); ylim(axCSall,[0 fov]);
         fnT=''; if isfield(Tr,'file') && ~isempty(Tr(ci).file), fnT=[' · ' Tr(ci).file]; end
-        selMito = isfield(CS,'MitoFlag') && ~isempty(CS(k).MitoFlag) && logical(CS(k).MitoFlag);
+        selMito = cs_site_near(CS(k),'mito');
         title(axCSall,sprintf('Whole cell%s · %d tracks · CS %d = %s   (magenta boundary = mito)', ...
             fnT, N, CS(k).csID, tern(selMito,'MITO','non-mito')),'FontSize',9);
         xlabel(axCSall,'x (µm)'); ylabel(axCSall,'y (µm)');
@@ -2520,8 +2520,9 @@ say('Ready — pick a project folder to begin.');
 
     function onCSToggleMito()
         if isempty(csData) || isempty(csSelK), return; end
-        k=csSelK; csData.CS(k).MitoFlag = ~logical(csData.CS(k).MitoFlag);
-        d=csTable.Data; d{k,4}=tern(csData.CS(k).MitoFlag,'mito','non'); csTable.Data=d;   % 'mito' is col 4 now
+        k=csSelK;
+        csData.CS(k) = cs_site_set_near(csData.CS(k), 'mito', ~cs_site_near(csData.CS(k),'mito'));
+        d=csTable.Data; d{k,4}=tern(cs_site_near(csData.CS(k),'mito'),'mito','non'); csTable.Data=d;   % 'mito' is col 4 now
         drawCS(csPlayFrame); try, drawCSallPanel(k); catch, end   % whole-cell boundary colour depends on MitoFlag
         % Dwell + Compare both group/label by MitoFlag -> invalidate so they regroup on next open.
         dwellData=[]; cmpData=[];
@@ -2529,7 +2530,7 @@ say('Ready — pick a project folder to begin.');
         try
             if isfield(csData,'anaDir') && ~isempty(csData.anaDir), ad=csData.anaDir; else, ad=getAnalysisDir(); end
             CS=csData.CS; save(fullfile(ad,'CS_final.mat'),'CS'); %#ok<NASGU>
-            say('CS %d -> %s; CS_final.mat re-saved', csData.CS(k).csID, tern(csData.CS(k).MitoFlag,'mito','non'));
+            say('CS %d -> %s; CS_final.mat re-saved', csData.CS(k).csID, tern(cs_site_near(csData.CS(k),'mito'),'mito','non'));
         catch ME, say('CS_final.mat save failed: %s', ME.message); end
     end
 
@@ -3033,7 +3034,7 @@ say('Ready — pick a project folder to begin.');
         clsMap=containers.Map('KeyType','char','ValueType','any');  % "ci_col" -> enter/exit class of the track's PRIMARY (longest-residence) CS
         for k=1:numel(CS)
             if isempty(CS(k).refboundary) || isempty(CS(k).CSmatrix) || size(CS(k).CSmatrix,3)<3, continue; end
-            ci=CS(k).cellIndex; mito=logical(CS(k).MitoFlag); cols=CS(k).tracks;
+            ci=CS(k).cellIndex; mito=cs_site_near(CS(k),'mito'); cols=CS(k).tracks;
             bx=CS(k).refboundary(:,1)/1000; by=CS(k).refboundary(:,2)/1000;   % um rel refCenter
             for jj=1:min(numel(cols),size(CS(k).CSmatrix,2))
                 fr=CS(k).CSmatrix(:,jj,1); xr=CS(k).CSmatrix(:,jj,2); yr=CS(k).CSmatrix(:,jj,3);
@@ -3281,7 +3282,7 @@ say('Ready — pick a project folder to begin.');
                 dens=struct('rgb',ind2rgb(uint8(round(g)),turbo(256)),'alpha',a,'ext',[-hwc hwc]);
             end
         catch, dens=[]; end
-        dwSel=struct('ci',ci,'col',col,'tid',tid,'k',k,'jj',jj,'csID',CS(k).csID,'mito',logical(CS(k).MitoFlag), ...
+        dwSel=struct('ci',ci,'col',col,'tid',tid,'k',k,'jj',jj,'csID',CS(k).csID,'mito',cs_site_near(CS(k),'mito'), ...
             'fr',fr,'xr',xr,'yr',yr,'idxList',idxList,'bx',bx,'by',by,'dt',dwellData.dt,'evT',evT,'D',D,'dens',dens);
     end
 
@@ -3535,7 +3536,7 @@ say('Ready — pick a project folder to begin.');
             evK = []; if ~isempty(ev), evK=[ev.csK]; end
             for k=1:numel(CS)
                 if isempty(CS(k).refboundary), continue; end   % only real (refined) sites
-                flag=logical(CS(k).MitoFlag);
+                flag=cs_site_near(CS(k),'mito');
                 dws=[]; if ~isempty(ev), dws=[ev(evK==k).dwell]; end
                 if isempty(dws), medDw=NaN;meanDw=NaN;kout=NaN;
                 else, medDw=median(dws);meanDw=mean(dws);kout=numel(dws)/max(sum(dws),eps); end
@@ -3575,7 +3576,7 @@ say('Ready — pick a project folder to begin.');
             idx=find([CS.cellIndex]==ci); nCS=numel(idx);
             flags=false(1,nCS); ccAll=[]; nTrk=0; areas=[]; perims=[]; majors=[]; minors=[];
             for a=1:nCS
-                k=idx(a); flags(a)=logical(CS(k).MitoFlag);
+                k=idx(a); flags(a)=cs_site_near(CS(k),'mito');
                 if isfield(CS,'tracksCCids'), ccAll=[ccAll CS(k).tracksCCids(:)']; end %#ok<AGROW>
                 nTrk=nTrk+numel(CS(k).tracks);
                 if ~isempty(CS(k).refboundary)
@@ -3855,7 +3856,7 @@ function rec = csDensMetricOne(cs, cc, file, blank, binArea)
 % struct (whole-cell density map + cached localizations) or [] when the cell had no usable
 % localizations; file is the cell's tracks-file name resolved by the caller.
 rec = blank;
-rec.csID = cs.csID; rec.cellIndex = cs.cellIndex; rec.mito = logical(cs.MitoFlag);
+rec.csID = cs.csID; rec.cellIndex = cs.cellIndex; rec.mito = cs_site_near(cs,'mito');
 rec.file = file;
 if isempty(cc) || isempty(cs.refboundary), return; end
 rc = cs.refCenter;

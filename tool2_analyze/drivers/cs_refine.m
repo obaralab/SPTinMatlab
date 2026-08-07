@@ -502,7 +502,7 @@ finishUI(nCell);
 
     function updateMitoFlagBtn(c)
         if isempty(btnMitoFlag) || ~isgraphics(btnMitoFlag), return; end
-        if c>=1 && c<=numel(CSdata) && logical(CSdata(c).MitoFlag)
+        if c>=1 && c<=numel(CSdata) && cs_site_near(CSdata(c),'mito')
             btnMitoFlag.Text='Flag: MITO ✓'; btnMitoFlag.FontColor=[0.6 0.1 0.6];
         else
             btnMitoFlag.Text='Flag: non-mito'; btnMitoFlag.FontColor=[0.2 0.2 0.2];
@@ -513,9 +513,12 @@ finishUI(nCell);
         if isempty(curArgs), return; end
         c = curArgs{2};
         if c<1 || c>numel(CSdata), return; end
-        CSdata(c).MitoFlag = double(~logical(CSdata(c).MitoFlag));   % flip; saved when the cell writes
+        % Flip; saved when the cell writes. This used to store double(0/1) while the pipeline app
+        % stored a logical, so one CSdata could hold both classes. The flag is a boolean now —
+        % cs_site_set_near is the single writer and always stores a 1x1 logical.
+        CSdata(c) = cs_site_set_near(CSdata(c), 'mito', ~cs_site_near(CSdata(c),'mito'));
         updateMitoFlagBtn(c);
-        if logical(CSdata(c).MitoFlag), lab='MITO'; else, lab='non-mito'; end
+        if cs_site_near(CSdata(c),'mito'), lab='MITO'; else, lab='non-mito'; end
         if ~isempty(msg) && isgraphics(msg)
             msg.Text = sprintf('CS %d set to %s (saved with this cell).', CSdata(c).csID, lab);
         end
@@ -911,8 +914,7 @@ end
 % -------------------------------------------------------------------------
 function listCSs = local_listCSs(CSdata, MitoFlag)
 if isempty(CSdata), listCSs = []; return; end
-MitoFlagList = false(1,numel(CSdata));
-for k = 1:numel(CSdata), MitoFlagList(k) = logical(CSdata(k).MitoFlag); end
+MitoFlagList = cs_sites_near(CSdata, 'mito');
 switch MitoFlag
     case 1,   listCSs = find(MitoFlagList);
     case -1,  listCSs = find(~MitoFlagList);

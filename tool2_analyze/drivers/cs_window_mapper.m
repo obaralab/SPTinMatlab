@@ -227,8 +227,9 @@ for i = 1:nCells
         cc.rho_bg = occBg(Dens, rawCounts);
         cc.Xc     = sX(okc); cc.Yc = sY(okc);
         cc.cellTot= numel(cc.Xc);
-        cs = struct('csID',j,'cellIndex',i,'MitoFlag',sites.mito(j), ...
+        cs = struct('csID',j,'cellIndex',i, ...
                     'refCenter',cUm,'refboundary',refb*1000);   % nm rel centre for the kernel
+        cs = cs_site_set_near(cs, 'mito', sites.mito(j));
         rec = csDensMetricOne(cs, cc, base, blank, SF^2);
 
         % (6) append flat record
@@ -241,7 +242,7 @@ for i = 1:nCells
         e.boundaries=struct('x',refb(:,1)+cUm(1),'y',refb(:,2)+cUm(2));   % abs um (compat)
         e.tracks=tracks; e.nTracks=numel(tracks); e.LocIDs=LocIDs; e.nMemberLocs=numel(LocIDs);
         e.trackLocsInside=trackLocsInside; e.trackLocsWin=trackLocsWin; e.trackPctInside=trackPctInside;   % per-track dwell fraction
-        e.CSmatrix=CSmatrix; e.MitoFlag=logical(sites.mito(j));
+        e.CSmatrix=CSmatrix; e=cs_site_set_near(e,'mito',sites.mito(j));
         e.SF=SF; e.grid=grid; e.binAreaUm2=SF^2; e.dt=dt;
         e.areaUm2=rec.area_um2; e.nLocInside=rec.n_loc_in; e.cellTotalLocWin=rec.cell_total;
         e.probMass=rec.prob_mass; e.peakProb=rec.peak_prob; e.peakProbRaw=rec.peak_prob_raw;
