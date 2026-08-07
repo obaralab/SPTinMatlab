@@ -116,7 +116,55 @@ assert(~isequal(cs_channel_colour('er',1,PICK), cs_channel_colour('er',1,DWEL)),
     'premise: the two panels pin ER differently');
 fprintf('  4 channels -> 4 distinct colours in both panels; the rota is shared, the pins are not\n');
 
+fprintf('\n========== PART E: the curate viewer shows every channel too ==========\n');
+% track_viewer's set_overlay / overlayImage / clear_overlay were ALREADY keyed by dynamic field
+% name; what was pinned to two was the surrounding UI — two Show boxes, two colour dropdowns, two
+% auto-load lines, two draw branches, two manual-pick menu items.
+vsrc = fileread(fullfile(fileparts(here),'app','track_viewer.m'));
+assert(~contains(vsrc, "c.er_chk   = uicheckbox"), 'track_viewer still declares a literal ER checkbox');
+assert(~contains(vsrc, "c.col_mito = uidropdown"), 'track_viewer still declares a literal mito colour dropdown');
+assert(~contains(vsrc, "isfield(ov,'mito') && ~isempty(ov.mito)"), 'the two-line auto-load is back');
+assert(contains(vsrc, 'S.chanKeys'), 'track_viewer does not carry a channel list');
+assert(contains(vsrc, 'c.chan_chk') && contains(vsrc, 'c.chan_col'), 'the controls are not generated');
+
+% Open it on the 3-channel project and count what it built.
+figV = uifigure('Visible','off','Position',[100 100 1500 950]);
+closeV = onCleanup(@() closeIfThere(figV));
+pnV = uipanel(figV,'Units','normalized','Position',[0 0 1 1]);
+tracksDir = fullfile(proj,'tracks'); if ~isfolder(tracksDir), mkdir(tracksDir); end
+track_viewer(pnV, tracksDir, [], {}, struct('readPrefer','raw','preserveCloud',true));
+drawnow; pause(0.4);
+vt = arrayfun(@(h) string(h.Text), findobj(figV,'Type','uicheckbox'));
+for want = {'Show ER','Show Mito','Show Lysosome'}
+    assert(any(strcmp(vt, want{1})), 'track_viewer has no "%s" control', want{1});
+end
+dd = findobj(figV,'Type','uidropdown');
+ddv = arrayfun(@(h) string(h.Value), dd);
+assert(any(strcmp(ddv,'green')) && any(strcmp(ddv,'magenta')), 'ER/mito default colours changed');
+% The rota is indexed by DECLARATION POSITION, so the third channel takes rota{3}, not rota{1} —
+% positions 1-2 go unused whenever ER and mito are declared first. Deterministic is what matters.
+assert(any(strcmp(ddv, defColourOf('lyso',3))), 'the third channel got no distinct default colour');
+fprintf('  viewer built: %s\n', strjoin(cellstr(vt(startsWith(vt,"Show "))'), ', '));
+
+% Defaults must not collide with each other or with the track colours (kept=blue, excluded=red).
+nm = arrayfun(@(i) string(defColourOf(sub2key(i), i)), (1:4)');
+assert(numel(unique(nm))==4, 'two channels default to the same overlay colour');
+assert(~any(ismember(nm, ["blue","red"])), 'an overlay default collides with a track colour');
+fprintf('  4 channels -> %s (none clashing with kept=blue / excluded=red)\n', strjoin(cellstr(nm'), ', '));
+
 fprintf('\ncs_channel_ui_smoke: PASS\n');
+end
+
+function name = defColourOf(key, idx)
+% Mirrors track_viewer's defOverlayColour, which is a local function of that file. PART E's live
+% dropdown check is what catches the two drifting apart.
+switch lower(char(key))
+    case 'er',   name = 'green';
+    case 'mito', name = 'magenta';
+    otherwise
+        rota = {'cyan','orange','purple','yellow','grey'};
+        name = rota{mod(max(round(idx),1) - 1, numel(rota)) + 1};
+end
 end
 
 function k = sub2key(i)

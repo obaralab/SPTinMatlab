@@ -82,10 +82,27 @@ S.playing        = false;
 S.play_timer     = [];
 S.resample_seed  = 1;
 S.filter_log     = {};   % cell array of filter action records
-S.er_img         = [];   % ER overlay: whole-movie occupancy/MIP (the spatial overview)
-S.mito_img       = [];   % mito overlay: whole-movie occupancy/MIP
-S.er_path='';   S.mito_path='';    S.er_nfr=0; S.mito_nfr=0;              % per-frame seg stacks: path + page count
-S.er_fg=[];     S.mito_fg=[];      S.er_isMask=false; S.mito_isMask=false; % fg label + whether it's a mask
+% Reference-channel overlays are KEYED: per declared channel the viewer holds S.<key>_img (the
+% whole-movie occupancy/MIP overview), _path and _nfr (the per-frame seg stack), _fg and _isMask.
+% set_overlay / overlayImage / clear_overlay already address these by DYNAMIC field name, so they
+% needed no change at all — what was hard-coded was the two-of-everything around them: two
+% checkboxes, two colour dropdowns, two auto-load lines, two draw branches, two menu items.
+% Keep the channel RECORDS, not just the keys: cs_channel_fields(key) derives a generic label from
+% the key ('lyso' -> 'Lyso'), while cs_channel_fields(record) carries the one the project DECLARED
+% ('Lysosome'). Passing the key here is what silently drops a configured label.
+S.chans = cs_channel_config();                    % built-in default when no project is known
+try
+    if nargin >= 2 && ~isempty(exportDir)
+        S.chans = cs_channel_config(fileparts(char(exportDir)));
+    end
+catch
+end
+S.chanKeys = cs_channel_keys(S.chans);
+for kvInit = 1:numel(S.chanKeys)
+    kvf = S.chanKeys{kvInit};
+    S.([kvf '_img'])=[]; S.([kvf '_path'])=''; S.([kvf '_nfr'])=0;
+    S.([kvf '_fg'])=[];  S.([kvf '_isMask'])=false;
+end
 S.spt_img=[]; S.spt_path=''; S.spt_nfr=0; S.spt_fg=[]; S.spt_isMask=false; S.spt_hi=[]; S.spt_lo=[];  % raw SPT movie (selected-track background)
 S.ovH_sp = [];   % overview overlay image handle (retinted per frame during playback)
 S.overlayFcn     = [];   % overlayFcn(base) -> struct('er',path,'mito',path) for auto-load
@@ -400,12 +417,14 @@ c.ov_fov.Layout.Row=row; c.ov_fov.Layout.Column=2;
 % the status label below says so, and the pickers remain on that label's context menu as the escape
 % hatch, rather than occupying a row in the normal flow.
 row=row+1;
-c.er_chk   = uicheckbox(lg,'Text','Show ER','Value',true,...
-    'ValueChangedFcn',@(~,~) update_spatial(),'FontSize',9);
-c.er_chk.Layout.Row=row; c.er_chk.Layout.Column=1;
-c.mito_chk = uicheckbox(lg,'Text','Show mito','Value',true,...
-    'ValueChangedFcn',@(~,~) update_spatial(),'FontSize',9);
-c.mito_chk.Layout.Row=row; c.mito_chk.Layout.Column=2;
+c.chan_chk = gobjects(1, numel(S.chanKeys));       % one Show box per declared channel, two per row
+for kvBox = 1:numel(S.chanKeys)
+    colN = 2 - mod(kvBox,2);                       % 1,2,1,2,…
+    if colN==1 && kvBox>1, row=row+1; end
+    c.chan_chk(kvBox) = uicheckbox(lg,'Text',['Show ' cs_channel_fields(S.chans(kvBox)).label], ...
+        'Value',true,'ValueChangedFcn',@(~,~) update_spatial(),'FontSize',9);
+    c.chan_chk(kvBox).Layout.Row=row; c.chan_chk(kvBox).Layout.Column=colN;
+end
 % -- raw SPT movie as the selected-track background (zoomed to the track, plays per frame) --
 row=row+1;
 c.spt_chk = uicheckbox(lg,'Text','Raw SPT bg','Value',true,'FontSize',9, ...
@@ -421,12 +440,14 @@ c.spt_con = uispinner(lg,'Limits',[0.1 1],'Value',1.0,'Step',0.05,'FontSize',9, 
 c.spt_con.Layout.Row=row; c.spt_con.Layout.Column=2;
 % -- colour choices (overlay + tracks) --
 COL_ITEMS = {'green','magenta','cyan','blue','red','orange','yellow','purple','grey','black'};
-row=row+1; lbl2(lg,row,'ER colour:');
-c.col_er = uidropdown(lg,'Items',COL_ITEMS,'Value','green','FontSize',9,'ValueChangedFcn',@(~,~) on_color_change());
-c.col_er.Layout.Row=row; c.col_er.Layout.Column=2;
-row=row+1; lbl2(lg,row,'Mito colour:');
-c.col_mito = uidropdown(lg,'Items',COL_ITEMS,'Value','magenta','FontSize',9,'ValueChangedFcn',@(~,~) on_color_change());
-c.col_mito.Layout.Row=row; c.col_mito.Layout.Column=2;
+c.chan_col = gobjects(1, numel(S.chanKeys));       % one colour dropdown per declared channel
+for kvCol = 1:numel(S.chanKeys)
+    row=row+1; lbl2(lg,row,[cs_channel_fields(S.chans(kvCol)).label ' colour:']);
+    c.chan_col(kvCol) = uidropdown(lg,'Items',COL_ITEMS, ...
+        'Value',defOverlayColour(S.chanKeys{kvCol}, kvCol), ...
+        'FontSize',9,'ValueChangedFcn',@(~,~) on_color_change());
+    c.chan_col(kvCol).Layout.Row=row; c.chan_col(kvCol).Layout.Column=2;
+end
 row=row+1; lbl2(lg,row,'Kept colour:');
 c.col_kept = uidropdown(lg,'Items',COL_ITEMS,'Value','blue','FontSize',9,'ValueChangedFcn',@(~,~) on_color_change());
 c.col_kept.Layout.Row=row; c.col_kept.Layout.Column=2;
@@ -439,8 +460,11 @@ c.ov_lbl = uilabel(lg,'Text','Overlay: resolving from the Experiment tab folders
 % The escape hatch for when the automatic match fails: right-click this label. Nothing in the normal
 % flow needs it, so it does not get a row.
 c.ov_lbl.ContextMenu = uicontextmenu(ancestor(lg,'figure'));
-uimenu(c.ov_lbl.ContextMenu,'Text','Pick an ER image manually…',  'MenuSelectedFcn',@(~,~) pick_overlay('er'));
-uimenu(c.ov_lbl.ContextMenu,'Text','Pick a mito image manually…','MenuSelectedFcn',@(~,~) pick_overlay('mito'));
+for kvMenu = 1:numel(S.chanKeys)                   % one manual-pick escape hatch per channel
+    Fmenu = cs_channel_fields(S.chans(kvMenu));
+    uimenu(c.ov_lbl.ContextMenu,'Text',sprintf('Pick a %s image manually…', Fmenu.label), ...
+        'MenuSelectedFcn',@(~,~) pick_overlay(Fmenu.key));
+end
 c.ov_lbl.Layout.Row=row; c.ov_lbl.Layout.Column=[1 2];
 
 % -- Batch filter --
@@ -1475,12 +1499,23 @@ end
     function auto_load_overlay(base)
         % Resolve THIS cell's ER + mito stacks from the host's resolver and load them,
         % replacing the previous cell's overlay (fixes the "leftover from past" overlay).
-        clear_overlay('er'); clear_overlay('mito'); clear_overlay('spt'); S.spt_hi=[]; S.spt_lo=[];
+        for kvClr = 1:numel(S.chanKeys), clear_overlay(S.chanKeys{kvClr}); end
+        clear_overlay('spt'); S.spt_hi=[]; S.spt_lo=[];
         if isempty(S.overlayFcn), return; end
         try, ov = S.overlayFcn(base); catch, ov=[]; end
         if isempty(ov) || ~isstruct(ov), return; end
-        try, if isfield(ov,'er')   && ~isempty(ov.er),   set_overlay('er',   load_overlay_stack(ov.er));   end, catch, end
-        try, if isfield(ov,'mito') && ~isempty(ov.mito), set_overlay('mito', load_overlay_stack(ov.mito)); end, catch, end
+        % Every declared channel. The resolver answers with a keyed ov.seg.<key> (what spt_match
+        % returns now); the flat ov.er / ov.mito is still accepted so an older resolver keeps working.
+        for kvLoad = 1:numel(S.chanKeys)
+            kvk = S.chanKeys{kvLoad};
+            pth = '';
+            if isfield(ov,'seg') && isstruct(ov.seg) && isfield(ov.seg,kvk), pth = ov.seg.(kvk); end
+            if isempty(pth) && isfield(ov,kvk), pth = ov.(kvk); end
+            try
+                if ~isempty(pth), set_overlay(kvk, load_overlay_stack(pth)); end
+            catch
+            end
+        end
         % raw SPT movie: keep it a full-intensity image (never treat as a mask) + a robust display max.
         try
             if isfield(ov,'spt') && ~isempty(ov.spt)
@@ -1533,13 +1568,19 @@ end
             end
         catch
         end
-        haveE=~isempty(S.er_img); haveM=~isempty(S.mito_img);
-        if haveE||haveM
-            parts={}; if haveE, parts{end+1}='ER'; end; if haveM, parts{end+1}='mito'; end %#ok<AGROW>
-            pf=''; if (S.er_nfr>1)||(S.mito_nfr>1), pf='  (per-frame)'; end
+        parts={}; anyPerFrame=false;
+        for kvLbl = 1:numel(S.chanKeys)
+            kvk = S.chanKeys{kvLbl};
+            if isempty(S.([kvk '_img'])), continue; end
+            parts{end+1} = cs_channel_fields(S.chans(kvLbl)).label; %#ok<AGROW>
+            if S.([kvk '_nfr'])>1, anyPerFrame=true; end
+        end
+        if ~isempty(parts)
+            pf=''; if anyPerFrame, pf='  (per-frame)'; end
             c.ov_lbl.Text=['Auto overlay: ' strjoin(parts,' + ') pf '  (Experiment tab folders)'];
         else
-            c.ov_lbl.Text='No ER/mito found for this cell (set folders on the Experiment tab, or Pick manually).';
+            c.ov_lbl.Text=['No reference-channel segmentation found for this cell ' ...
+                           '(set folders on the Experiment tab, or Pick manually).'];
         end
     end
 
@@ -1577,17 +1618,24 @@ end
         % ER + mito as an RGB image (colours from the dropdowns), per-pixel opacity 0.5 on the
         % organelle foreground and 0 elsewhere. `frame` (0-based) selects the mask page; [] = first frame.
         rgb=[]; alpha=[];
-        showER   = c.er_chk.Value   && ~isempty(S.er_img);
-        showMito = c.mito_chk.Value && ~isempty(S.mito_img);
-        if ~showER && ~showMito, return, end
-        mI=[]; eI=[];
-        if showMito, mI=overlayImage('mito',frame); end
-        if showER,   eI=overlayImage('er',  frame); end
-        ref=mI; if isempty(ref), ref=eI; end
+        % Composite every ticked channel. add_channel accumulates and the alpha is a max, so both are
+        % commutative — declaration order gives the same image the old mito-then-ER pair did.
+        nCh = numel(S.chanKeys); imgs = cell(1,nCh); shows = false(1,nCh);
+        for kvS = 1:nCh
+            kvk = S.chanKeys{kvS};
+            shows(kvS) = numel(c.chan_chk)>=kvS && isgraphics(c.chan_chk(kvS)) && ...
+                         c.chan_chk(kvS).Value && ~isempty(S.([kvk '_img']));
+            if shows(kvS), imgs{kvS} = overlayImage(kvk, frame); end
+        end
+        if ~any(shows), return, end
+        ref=[]; for kvR=1:nCh, if ~isempty(imgs{kvR}), ref=imgs{kvR}; break; end, end
         if isempty(ref), return, end
         H=size(ref,1); W=size(ref,2); rgb=zeros(H,W,3); a=zeros(H,W);
-        if showMito && ~isempty(mI) && isequal(size(mI),[H W]), rgb=add_channel(rgb,mI,track_color('col_mito','magenta')); a=max(a,normImg(mI)); end
-        if showER   && ~isempty(eI) && isequal(size(eI),[H W]), rgb=add_channel(rgb,eI,track_color('col_er','green'));    a=max(a,normImg(eI)); end
+        for kvD = 1:nCh
+            if ~shows(kvD) || isempty(imgs{kvD}) || ~isequal(size(imgs{kvD}),[H W]), continue; end
+            rgb = add_channel(rgb, imgs{kvD}, chan_color(kvD, S.chanKeys{kvD}));
+            a   = max(a, normImg(imgs{kvD}));
+        end
         rgb=min(rgb,1);
         alpha = a * 0.5;   % semi-transparent where organelle
     end
@@ -1601,6 +1649,17 @@ end
     function rgb = track_color(field, defname)
         % RGB for a colour dropdown (or the default if the control is missing)
         if isfield(c,field) && isgraphics(c.(field)), rgb = color_rgb(c.(field).Value); else, rgb = color_rgb(defname); end
+    end
+
+    function rgb = chan_color(idx, key)
+        % RGB for one reference channel's overlay. The dropdowns live in an ARRAY now (one per
+        % declared channel) rather than as c.col_er / c.col_mito, so this indexes rather than
+        % looking up a field name.
+        if isfield(c,'chan_col') && numel(c.chan_col) >= idx && isgraphics(c.chan_col(idx))
+            rgb = color_rgb(c.chan_col(idx).Value);
+        else
+            rgb = color_rgb(defOverlayColour(key, idx));
+        end
     end
 
     function rgb = color_rgb(name)
@@ -2924,4 +2983,18 @@ end
 function h = wide_txt(grid, row, val)
     h = uitextarea(grid,'Value',val,'FontSize',8);
     h.Layout.Row=row; h.Layout.Column=[1 2];
+end
+
+function name = defOverlayColour(key, idx)
+% Default dropdown colour NAME (not RGB — these are uidropdown values) for one reference channel.
+% ER green and mito magenta are what this viewer has always defaulted to. Anything else takes a rota
+% that deliberately avoids those two AND the track colours (kept=blue, excluded=red), so a third
+% channel is not mistakable for any of them at a glance.
+switch lower(char(key))
+    case 'er',   name = 'green';
+    case 'mito', name = 'magenta';
+    otherwise
+        rota = {'cyan','orange','purple','yellow','grey'};
+        name = rota{mod(max(round(idx),1) - 1, numel(rota)) + 1};
+end
 end

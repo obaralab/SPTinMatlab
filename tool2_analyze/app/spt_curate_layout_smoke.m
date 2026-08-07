@@ -97,9 +97,15 @@ for q = 1:numel(bs2), bt(end+1,1) = string(bs2(q).Text); end %#ok<AGROW>
 assert(~any(contains(bt,'Pick ER')) && ~any(contains(bt,'Pick mito')), ...
     'the manual overlay pickers are still taking rows in the control column');
 src = fileread(fullfile(fileparts(mfilename('fullpath')),'track_viewer.m'));
-assert(contains(src,'Pick an ER image manually'), ...
+% The menu items are GENERATED per declared channel now, so this can no longer pin the literal
+% 'Pick an ER image manually'. The intent is unchanged: a failed auto-match must stay recoverable,
+% so there must still be a manual picker wired to pick_overlay on the status label's context menu.
+assert(contains(src,'image manually') && contains(src,'pick_overlay('), ...
     'the manual picker was removed with no escape hatch — a failed auto-match would be unrecoverable');
-fprintf('overlay pickers moved to the status label''s context menu\n');
+assert(contains(src,'c.ov_lbl.ContextMenu'), 'the picker is no longer on the status label context menu');
+% ...and it must be one per channel, not a hard-coded pair.
+assert(contains(src,'for kvMenu'), 'the manual pickers are hard-coded again rather than generated');
+fprintf('overlay pickers generated per channel, on the status label''s context menu\n');
 
 fprintf('\nALL CURATE-LAYOUT ASSERTIONS PASSED.\n');
 end
