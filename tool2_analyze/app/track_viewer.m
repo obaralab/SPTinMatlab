@@ -197,6 +197,59 @@ c.file_lbl = uilabel(lg,'Text','—','FontSize',8,...
     'FontColor',[0.3 0.3 0.3],'WordWrap','on','HorizontalAlignment','center');
 c.file_lbl.Layout.Row = row; c.file_lbl.Layout.Column = [1 2];
 
+
+% ---- The overlay controls live HERE, near the top, because they are used constantly while
+% reviewing and they used to sit below Export and Batch — far enough down the scroll that you
+% had to go looking for the one thing you toggle most. Everything below this point is set once
+% per cell or per run; this is not.
+% The overlay is the reason this panel exists, so it gets its own heading and each channel gets ONE
+% row: the Show box beside the colour that box turns on. They used to be split — every Show box
+% here, every colour dropdown four rows below the raw-SPT controls — so neither half looked like it
+% belonged to the other, and the colour for a channel you had just switched off was still sitting
+% there. Paired, the block reads as "the channels, and how they are drawn".
+COL_ITEMS = {'green','magenta','cyan','blue','red','orange','yellow','purple','grey','black'};
+row=row+1; sec_lbl(lg,row,'REFERENCE CHANNELS — overlay');
+c.chan_chk = gobjects(1, numel(S.chanKeys));
+c.chan_col = gobjects(1, numel(S.chanKeys));
+for kvBox = 1:numel(S.chanKeys)
+    Fk = cs_channel_fields(S.chans(kvBox));
+    row=row+1;
+    c.chan_chk(kvBox) = uicheckbox(lg,'Text',['Show ' Fk.label], ...
+        'Value',true,'ValueChangedFcn',@(~,~) update_spatial(),'FontSize',9, ...
+        'Tooltip',sprintf('Draw the %s segmentation over the overview map.', Fk.label));
+    c.chan_chk(kvBox).Layout.Row=row; c.chan_chk(kvBox).Layout.Column=1;
+    c.chan_col(kvBox) = uidropdown(lg,'Items',COL_ITEMS, ...
+        'Value',defOverlayColour(S.chanKeys{kvBox}, kvBox), ...
+        'FontSize',9,'ValueChangedFcn',@(~,~) on_color_change(), ...
+        'Tooltip',sprintf('Colour the %s overlay is drawn in.', Fk.label));
+    c.chan_col(kvBox).Layout.Row=row; c.chan_col(kvBox).Layout.Column=2;
+end
+% -- raw SPT movie as the selected-track background (zoomed to the track, plays per frame) --
+row=row+1;
+c.spt_chk = uicheckbox(lg,'Text','Raw SPT bg','Value',true,'FontSize',9, ...
+    'Tooltip','Show the raw SPT movie behind the selected track (zoomed, plays per frame). Only the selected + nearby spots are ringed on top.', ...
+    'ValueChangedFcn',@(~,~) refreshTraj());
+c.spt_chk.Layout.Row=row; c.spt_chk.Layout.Column=1;
+c.spt_con = uispinner(lg,'Limits',[0.1 1],'Value',1.0,'Step',0.05,'FontSize',9, ...
+    'Tooltip',['Brightness about the automatic range. 1.0 is the range ImageJ''s Auto measures over ' ...
+               'a sample of the whole stack; lower pulls the white point in and brightens. It used ' ...
+               'to scale from zero with no black point, which washed the background to 79% white ' ...
+               'and clipped almost every spot.'], ...
+    'ValueChangedFcn',@(~,~) refreshTraj());
+c.spt_con.Layout.Row=row; c.spt_con.Layout.Column=2;
+row=row+1;
+c.ov_lbl = uilabel(lg,'Text','Overlay: resolving from the Experiment tab folders…',...
+    'FontSize',8,'WordWrap','on','FontColor',[0.3 0.3 0.3]);
+% The escape hatch for when the automatic match fails: right-click this label. Nothing in the normal
+% flow needs it, so it does not get a row.
+c.ov_lbl.ContextMenu = uicontextmenu(ancestor(lg,'figure'));
+for kvMenu = 1:numel(S.chanKeys)                   % one manual-pick escape hatch per channel
+    Fmenu = cs_channel_fields(S.chans(kvMenu));
+    uimenu(c.ov_lbl.ContextMenu,'Text',sprintf('Pick a %s image manually…', Fmenu.label), ...
+        'MenuSelectedFcn',@(~,~) pick_overlay(Fmenu.key));
+end
+c.ov_lbl.Layout.Row=row; c.ov_lbl.Layout.Column=[1 2];
+
 % -- Tracking parameters (from YOUR TrackMate run) — drive the crowding metrics --
 % What Tool 1 ran with — SHOWN, never edited. All four used to be (or looked like) inputs; a spinner
 % here invited you to type a number that then disagreed with the tracks on disk. The two that do
@@ -346,7 +399,6 @@ c.link_pad = uispinner(lg,'Limits',[0 20],'Value',2,'Step',1,'FontSize',9, ...
     'Tooltip','Frames shown either side of the link when looping it.', ...
     'ValueChangedFcn',@(~,~) set_link_pad());
 c.link_pad.Layout.Row=row; c.link_pad.Layout.Column=2;
-% The zoom toggle moved to the transport row under the movie it reframes — see c.zoom_btn.
 
 row=row+1;
 c.cut_btn = wide_btn(lg,row,'✂ Cut link',[0.70 0.12 0.12],'white');
@@ -399,8 +451,9 @@ row=row+1; sec_lbl(lg,row,'PLAYBACK');
 row=row+1;
 
 
-% -- Structure overlay (ER / mito) --
-row=row+1; sec_lbl(lg,row,'OVERLAY (ER / mito structure)');
+% -- What is left here is set once per cell, not toggled: the physical width the overlay is
+% drawn across, and the two TRACK colours. The channel show/colour pairs moved to the top.
+row=row+1; sec_lbl(lg,row,'DISPLAY (set once per cell)');
 row=row+1; lbl2(lg,row,'Overlay FOV (um):');
 c.ov_fov = uispinner(lg,'Limits',[1 500],'Value',27.61,'Step',0.5,'FontSize',9,...
     'Tooltip',['Physical width the raw movie and the ER/mito overlay are drawn across. Read from ' ...
@@ -413,41 +466,6 @@ c.ov_fov.Layout.Row=row; c.ov_fov.Layout.Column=2;
 % meant "the automatic match failed", and it had no way to tell you that. When the match DOES fail
 % the status label below says so, and the pickers remain on that label's context menu as the escape
 % hatch, rather than occupying a row in the normal flow.
-% The overlay is the reason this panel exists, so it gets its own heading and each channel gets ONE
-% row: the Show box beside the colour that box turns on. They used to be split — every Show box
-% here, every colour dropdown four rows below the raw-SPT controls — so neither half looked like it
-% belonged to the other, and the colour for a channel you had just switched off was still sitting
-% there. Paired, the block reads as "the channels, and how they are drawn".
-COL_ITEMS = {'green','magenta','cyan','blue','red','orange','yellow','purple','grey','black'};
-row=row+1; sec_lbl(lg,row,'REFERENCE CHANNELS — overlay');
-c.chan_chk = gobjects(1, numel(S.chanKeys));
-c.chan_col = gobjects(1, numel(S.chanKeys));
-for kvBox = 1:numel(S.chanKeys)
-    Fk = cs_channel_fields(S.chans(kvBox));
-    row=row+1;
-    c.chan_chk(kvBox) = uicheckbox(lg,'Text',['Show ' Fk.label], ...
-        'Value',true,'ValueChangedFcn',@(~,~) update_spatial(),'FontSize',9, ...
-        'Tooltip',sprintf('Draw the %s segmentation over the overview map.', Fk.label));
-    c.chan_chk(kvBox).Layout.Row=row; c.chan_chk(kvBox).Layout.Column=1;
-    c.chan_col(kvBox) = uidropdown(lg,'Items',COL_ITEMS, ...
-        'Value',defOverlayColour(S.chanKeys{kvBox}, kvBox), ...
-        'FontSize',9,'ValueChangedFcn',@(~,~) on_color_change(), ...
-        'Tooltip',sprintf('Colour the %s overlay is drawn in.', Fk.label));
-    c.chan_col(kvBox).Layout.Row=row; c.chan_col(kvBox).Layout.Column=2;
-end
-% -- raw SPT movie as the selected-track background (zoomed to the track, plays per frame) --
-row=row+1;
-c.spt_chk = uicheckbox(lg,'Text','Raw SPT bg','Value',true,'FontSize',9, ...
-    'Tooltip','Show the raw SPT movie behind the selected track (zoomed, plays per frame). Only the selected + nearby spots are ringed on top.', ...
-    'ValueChangedFcn',@(~,~) refreshTraj());
-c.spt_chk.Layout.Row=row; c.spt_chk.Layout.Column=1;
-c.spt_con = uispinner(lg,'Limits',[0.1 1],'Value',1.0,'Step',0.05,'FontSize',9, ...
-    'Tooltip',['Brightness about the automatic range. 1.0 is the range ImageJ''s Auto measures over ' ...
-               'a sample of the whole stack; lower pulls the white point in and brightens. It used ' ...
-               'to scale from zero with no black point, which washed the background to 79% white ' ...
-               'and clipped almost every spot.'], ...
-    'ValueChangedFcn',@(~,~) refreshTraj());
-c.spt_con.Layout.Row=row; c.spt_con.Layout.Column=2;
 % -- colour choices (tracks; the per-channel overlay colours live with their Show boxes above) --
 row=row+1; lbl2(lg,row,'Kept colour:');
 c.col_kept = uidropdown(lg,'Items',COL_ITEMS,'Value','blue','FontSize',9,'ValueChangedFcn',@(~,~) on_color_change());
@@ -455,18 +473,6 @@ c.col_kept.Layout.Row=row; c.col_kept.Layout.Column=2;
 row=row+1; lbl2(lg,row,'Excluded colour:');
 c.col_excl = uidropdown(lg,'Items',COL_ITEMS,'Value','red','FontSize',9,'ValueChangedFcn',@(~,~) on_color_change());
 c.col_excl.Layout.Row=row; c.col_excl.Layout.Column=2;
-row=row+1;
-c.ov_lbl = uilabel(lg,'Text','Overlay: resolving from the Experiment tab folders…',...
-    'FontSize',8,'WordWrap','on','FontColor',[0.3 0.3 0.3]);
-% The escape hatch for when the automatic match fails: right-click this label. Nothing in the normal
-% flow needs it, so it does not get a row.
-c.ov_lbl.ContextMenu = uicontextmenu(ancestor(lg,'figure'));
-for kvMenu = 1:numel(S.chanKeys)                   % one manual-pick escape hatch per channel
-    Fmenu = cs_channel_fields(S.chans(kvMenu));
-    uimenu(c.ov_lbl.ContextMenu,'Text',sprintf('Pick a %s image manually…', Fmenu.label), ...
-        'MenuSelectedFcn',@(~,~) pick_overlay(Fmenu.key));
-end
-c.ov_lbl.Layout.Row=row; c.ov_lbl.Layout.Column=[1 2];
 
 % -- Batch filter --
 row=row+1; sec_lbl(lg,row,'BATCH FILTER (all files · same thresholds as above)');
@@ -559,7 +565,7 @@ ax_tr.Toolbar.Visible = 'off';
 % about them changes: the button TEXT stays exactly 'Play' and 'Pause' (spt_linkcut_smoke matches
 % those labels exactly, and its substring fallback would otherwise pick '▶ Play link'), and FPS stays
 % a uispinner with Limits [1 60] and its live ValueChangedFcn (spt_curate_review_smoke asserts both).
-tg_ = uigridlayout(rg,[1 6],'ColumnWidth',{64,64,86,'1x',34,58}, ...
+tg_ = uigridlayout(rg,[1 5],'ColumnWidth',{64,64,'1x',34,58}, ...
     'Padding',[0 0 0 0],'ColumnSpacing',6); tg_.Layout.Row = 2;
 c.play_btn  = uibutton(tg_,'Text','Play', 'FontSize',10,'FontWeight','bold', ...
     'BackgroundColor',[0.18 0.80 0.44],'FontColor','white');
@@ -567,14 +573,6 @@ c.pause_btn = uibutton(tg_,'Text','Pause','FontSize',10,'FontWeight','bold', ...
     'BackgroundColor',[0.91 0.30 0.24],'FontColor','white');
 c.play_btn.ButtonPushedFcn  = @(~,~) play_whole_track();   % whole-track Play also leaves link-loop mode
 c.pause_btn.ButtonPushedFcn = @(~,~) do_pause();
-% Zoom belongs WITH the transport, not 1200 px away in the control column — it changes what the
-% movie next to it shows. It was a checkbox called 'Zoom map to the selected link' buried under
-% MISLINKAGE; as a state button here it is one press while you are already looking at the panel.
-c.zoom_btn = uibutton(tg_,'state','Text','🔍 Zoom','FontSize',10,'FontWeight','bold', ...
-    'Value',true,'BackgroundColor',[0.86 0.90 0.96], ...
-    'Tooltip',['Frame the trajectory panel on the SELECTED LINK rather than the whole track, so the ' ...
-               'individual emitters and their rings are resolvable. Off keeps the whole track in view.'], ...
-    'ValueChangedFcn',@(~,~) on_zoom_toggle());
 uilabel(tg_,'Text','');                                    % spacer
 uilabel(tg_,'Text','fps','HorizontalAlignment','right','FontSize',9);
 c.fps = uispinner(tg_,'Limits',[1 60],'Value',15,'Step',1,'FontSize',9, ...
@@ -2333,18 +2331,12 @@ end
         end
     end
 
-    function on_zoom_toggle()
-        % Tint tracks the state so the button reads as pressed at a glance, then reframe.
-        if isfield(c,'zoom_btn') && isgraphics(c.zoom_btn)
-            if c.zoom_btn.Value, c.zoom_btn.BackgroundColor = [0.86 0.90 0.96];
-            else,                c.zoom_btn.BackgroundColor = [0.94 0.94 0.94]; end
-        end
-        refreshTraj();
-    end
-
     function tf = zoom_to_link()
+        % Always. With a link on the cursor the panel frames THAT link rather than the whole track,
+        % which is the only zoom level at which two emitters a step apart are distinguishable — the
+        % question the panel exists to answer. It was briefly a button next to Play/Pause and before
+        % that a checkbox under MISLINKAGE; nobody wants the un-zoomed view, so it is not a choice.
         tf = true;
-        if isfield(c,'zoom_btn') && isgraphics(c.zoom_btn), tf = logical(c.zoom_btn.Value); end
     end
 
     function set_link_pad()
