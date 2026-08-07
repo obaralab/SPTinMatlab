@@ -22,12 +22,21 @@ different tool — or a different session — without re-running anything upstre
 
 ## Launch
 
+Point this at wherever **your** copy of `SPTinMatlab` lives — the folder holding the three
+`run_*.m` files. Nothing else needs setting up; the tools add their own sub-folders.
+
 ```matlab
-addpath('/Users/safal-mac/Documents/IntegratedPipeline/SPTinMatlab')
+addpath('/path/to/SPTinMatlab')     % once per MATLAB session
 run_track      % Tool 1  spt_app         — Experiment · Match files · Detect · Track & filter
 run_curate     % Tool 2  spt_curate_app  — Experiment · Import & Curate · Build & QC
 run_analyze    % Tool 3  spt_analyze_app — Experiment · Contact sites · Refine · Sites · Dwell · Compare
 ```
+
+To avoid retyping it: **Home → Set Path → Add Folder…**, pick that folder, then **Save**.
+
+New to MATLAB, or setting this up on a new machine? Read **[docs/GETTING_STARTED.md](docs/GETTING_STARTED.md)**
+first — it covers the two required toolboxes (**Image Processing**, **Statistics and Machine
+Learning**), how your data folders must be named, and what the common first-run errors mean.
 
 **Experiment is tab 1 in all three tools**, and the tabs are numbered in the title bar so the order is
 visible. The manifest itself lives at the project top level (`<project>/experiment_details.mat`, not
@@ -139,8 +148,13 @@ Every `*_smoke.m` is a self-contained assertion script: no test framework, no ar
 folder to the path and call it by name. Each prints a line per assertion and ends in either a `PASSED`
 banner or a MATLAB error naming what broke.
 
+Most of them read a real dataset (`WithER/`, `Project/`, `Control/`) by absolute path, so they run
+on the author's machine and will stop at a `test data missing` assert anywhere else. That is a
+limitation of the tests, not of the toolkit — the three tools themselves contain no absolute paths
+and run from a single `addpath` on any machine.
+
 ```matlab
-addpath(genpath('/Users/safal-mac/Documents/IntegratedPipeline/SPTinMatlab'))
+addpath(genpath('/path/to/SPTinMatlab'))
 spt_geo_strict_smoke        % strict ER-geodesic fails closed (27 assertions)
 spt_batch_overwrite_smoke   % Tool 2's batch cannot overwrite Tool 1's output
 spt_curate_review_smoke     % the curate review workflow; manual keep/reject is durable
