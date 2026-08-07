@@ -1108,25 +1108,42 @@ end
         dens_v = local_density(spots_t.FRAME, spots_t.X_um, spots_t.Y_um, CF, CX, CY, R);
         spots_t.LOCAL_DENSITY = dens_v;
 
-        track_ids = unique(spots_t.TRACK_ID); n_t = numel(track_ids);
+        % ONE sort, then walk contiguous per-track blocks of plain numeric arrays.
+        %
+        % This loop used to be
+        %     r = sortrows(spots_t(spots_t.TRACK_ID==track_ids(ti),:),'FRAME')
+        % per track — a logical mask over EVERY row of the spots table plus a sortrows, inside a
+        % loop over every track. It is the same shape that made ⚠ Next track slow, and it is the
+        % worse of the two because it runs on every load, every cut, every crowding-parameter change
+        % and once per cell in a batch. Measured on the WithER cell (194k rows in tracks, 12,556
+        % tracks) that shape costs 9.9 s; sorting once and slicing arrays costs ~0.05 s.
+        spots_t = sortrows(spots_t, {'TRACK_ID','FRAME'});
+        tidv = spots_t.TRACK_ID;
+        [track_ids, ia] = unique(tidv, 'stable');           % sorted, so ia are the block starts
+        n_t = numel(track_ids);
+        st_ = ia(:); en_ = [st_(2:end)-1; numel(tidv)];
+        X = spots_t.X_um; Y = spots_t.Y_um; F = spots_t.FRAME;
+        Q = spots_t.QUALITY; LD = spots_t.LOCAL_DENSITY;
+        useMax = strcmp(density_stat(),'max');
         TRACK_ID=track_ids; n_spots=zeros(n_t,1); x_mean=zeros(n_t,1); y_mean=zeros(n_t,1);
         frame_start=zeros(n_t,1); frame_end=zeros(n_t,1); mean_quality=zeros(n_t,1);
         mean_local_density=zeros(n_t,1);
         disp_variance=nan(n_t,1); max_step_um=nan(n_t,1); confinement=nan(n_t,1);
         for ti=1:n_t
-            r = sortrows(spots_t(spots_t.TRACK_ID==track_ids(ti),:),'FRAME');
-            n_spots(ti)=height(r); x_mean(ti)=mean(r.X_um); y_mean(ti)=mean(r.Y_um);
-            frame_start(ti)=min(r.FRAME); frame_end(ti)=max(r.FRAME);
-            mean_quality(ti)=mean(r.QUALITY,'omitnan');
-            if strcmp(density_stat(),'max')
-                mean_local_density(ti) = max(r.LOCAL_DENSITY,[],'omitnan');   % worst single frame
+            r = st_(ti):en_(ti);
+            xs = X(r); ys = Y(r); fs = F(r);
+            n_spots(ti)=numel(r); x_mean(ti)=mean(xs); y_mean(ti)=mean(ys);
+            frame_start(ti)=min(fs); frame_end(ti)=max(fs);
+            mean_quality(ti)=mean(Q(r),'omitnan');
+            if useMax
+                mean_local_density(ti) = max(LD(r),[],'omitnan');   % worst single frame
             else
-                mean_local_density(ti) = mean(r.LOCAL_DENSITY,'omitnan');     % time-averaged crowding
+                mean_local_density(ti) = mean(LD(r),'omitnan');     % time-averaged crowding
             end
-            if height(r)>=2
-                dx=diff(r.X_um); dy=diff(r.Y_um); d=sqrt(dx.^2+dy.^2);
+            if numel(r)>=2
+                dx=diff(xs); dy=diff(ys); d=sqrt(dx.^2+dy.^2);
                 disp_variance(ti)=var(d); max_step_um(ti)=max(d);
-                e2e=sqrt((r.X_um(end)-r.X_um(1))^2+(r.Y_um(end)-r.Y_um(1))^2); pl=sum(d);
+                e2e=sqrt((xs(end)-xs(1))^2+(ys(end)-ys(1))^2); pl=sum(d);
                 if pl>0, confinement(ti)=e2e/pl; end
             end
         end
