@@ -183,6 +183,20 @@ mark{ background:var(--accent-soft); color:inherit; border-radius:3px; padding:0
 </div>
 <div class="hitcount" id="hits" hidden></div>
 <div class="noresult" id="nores" hidden></div>
+<h4>Set up</h4>
+  <a href="#setup-install">MATLAB and the two add-ons</a>
+  <a href="#setup-ver">&nbsp;&nbsp;What you need</a>
+  <a href="#setup-addons">&nbsp;&nbsp;Installing the add-ons</a>
+  <a href="#setup-code">&nbsp;&nbsp;Getting the code</a>
+  <a href="#setup-folders">How your data must be laid out</a>
+  <a href="#setup-tree">&nbsp;&nbsp;The three folders you make</a>
+  <a href="#setup-naming">&nbsp;&nbsp;The naming rule</a>
+  <a href="#setup-nochannels">&nbsp;&nbsp;If you lack a channel</a>
+  <a href="#setup-run">Running the three tools</a>
+  <a href="#setup-path">&nbsp;&nbsp;Tell MATLAB where the code is</a>
+  <a href="#setup-order">&nbsp;&nbsp;Then, in order</a>
+  <a href="#setup-trouble">&nbsp;&nbsp;First-run problems</a>
+
 
   <h4>Start</h4>
   <a href="#overview">Overview &amp; data flow</a>
@@ -322,6 +336,7 @@ mark{ background:var(--accent-soft); color:inherit; border-radius:3px; padding:0
 
 <div class="tabs" role="tablist" aria-label="Documentation sections">
   <button role="tab" data-group="home"  aria-selected="true">Start here</button>
+  <button role="tab" data-group="setup" aria-selected="false">Set&nbsp;up</button>
   <button role="tab" data-group="t1"    aria-selected="false">1 · Track</button>
   <button role="tab" data-group="t2"    aria-selected="false">2 · Curate &amp; Build</button>
   <button role="tab" data-group="t3"    aria-selected="false">3 · Analyze</button>
@@ -336,6 +351,12 @@ mark{ background:var(--accent-soft); color:inherit; border-radius:3px; padding:0
     <p class="sub">Single-particle tracking of an ER membrane protein at ER&ndash;mitochondria contact
       sites &mdash; from raw movies to per-site residence times. Three focused apps, coupled
       <em>through files only</em>, so you can stop, inspect and resume at any stage.</p>
+  </div>
+
+  <div class="note" style="margin:0 0 18px">
+    <b>First time on this machine?</b> Start with
+    <a href="#setup-install">Set&nbsp;up</a> — MATLAB and its two required add-ons, how your data
+    folders must be named, and how to launch each tool. Roughly 20 minutes, once.
   </div>
 
   <div class="cards">
@@ -394,6 +415,145 @@ mark{ background:var(--accent-soft); color:inherit; border-radius:3px; padding:0
 <div class="results" id="results" hidden></div>
 
 <div id="doc">
+
+<h2 id="setup-install">Set up · MATLAB and the two add-ons</h2>
+<p class="lead">Everything a new machine needs, once. If MATLAB is already installed with the two
+toolboxes below, skip to <a href="#setup-folders">laying out your data</a>.</p>
+
+<h3 id="setup-ver">What you need</h3>
+<table>
+  <tr><th>Thing</th><th>Which</th><th>Needed by</th></tr>
+  <tr><td>MATLAB</td><td><b>R2024b</b> — what this is built and tested on. Newer very likely works; older is untested.</td><td>everything</td></tr>
+  <tr><td>Add-on</td><td><b>Image Processing Toolbox</b></td><td>Tools 1, 2 and 3</td></tr>
+  <tr><td>Add-on</td><td><b>Statistics and Machine Learning Toolbox</b></td><td>Tools 2 and 3</td></tr>
+</table>
+<p>Most universities have a site licence — search <i>"[your university] MATLAB licence"</i>. You need
+a MathWorks account made with your university email.</p>
+
+<h3 id="setup-addons">Installing the add-ons</h3>
+<p>You do <b>not</b> need to reinstall MATLAB if you missed them the first time.</p>
+<ol>
+  <li>Open MATLAB.</li>
+  <li><b>Home</b> tab → <kbd>Add-Ons</kbd> → <kbd>Get Add-Ons</kbd>.</li>
+  <li>Search <b>Image Processing Toolbox</b> → <kbd>Install</kbd>.</li>
+  <li>Search <b>Statistics and Machine Learning Toolbox</b> → <kbd>Install</kbd>.</li>
+</ol>
+<p>Then check they are really there. Type this at the <code>&gt;&gt;</code> prompt:</p>
+<pre><code>ver</code></pre>
+<p>You must see <b>both</b> of these in the list:</p>
+<pre><code>Image Processing Toolbox                 Version ...
+Statistics and Machine Learning Toolbox  Version ...</code></pre>
+<div class="warn">If either is missing, nothing below will work. Image Processing reads the TIFF
+stacks and does the mask and density work; Statistics does the diffusion fitting and the
+Monte-Carlo null behind contact-site detection.</div>
+
+<h3 id="setup-code">Getting the code onto your computer</h3>
+<p>Put the <code>SPTinMatlab</code> folder somewhere sensible and remember the path — you need it to
+launch. Avoid Downloads, and avoid spaces in the path if you can.</p>
+<p>Check you have the whole thing. At the top level you should see:</p>
+<pre><code>SPTinMatlab/
+├── run_track.m
+├── run_curate.m
+├── run_analyze.m
+├── tool1_track/
+├── tool2_analyze/
+└── docs/</code></pre>
+<p>If those three <code>run_*.m</code> files are not at the top level, you are looking at the wrong
+folder or one with an extra layer of nesting. <b>Do not rename anything inside</b> — the tools find
+each other by name.</p>
+
+<h2 id="setup-folders">Set up · How your data must be laid out</h2>
+<p class="lead">This is where most first attempts fail. Five minutes here saves an afternoon.</p>
+
+<h3 id="setup-tree">The three folders you make</h3>
+<p>One folder per experiment. Inside it, exactly three sub-folders — you make these; the tools make
+the rest.</p>
+<pre><code>MyExperiment/          ← "the project folder". Point the tools at THIS.
+├── spt/               ← your single-particle movies   (you)
+├── er_seg/            ← ER segmentation masks         (you)
+├── mito_seg/          ← mitochondria masks            (you)
+├── tracks/            ← Tool 1 writes this
+└── analysis/          ← Tools 2 and 3 write this</code></pre>
+<div class="warn"><b>Spell them exactly <code>spt</code>, <code>er_seg</code>,
+<code>mito_seg</code></b> — lower case, with the underscore. This one bites people: Tool 1 also
+accepts <code>erseg</code> and <code>mitoseg</code> <i>without</i> the underscore, but Tools 2 and 3
+do not. Name them the short way and Tool 1 looks like it worked, then Tool 3 quietly finds no masks
+and you get no contact sites, with no error.</div>
+
+<h3 id="setup-naming">The naming rule</h3>
+<p>Each cell is three files that <b>share a stem</b> and differ only in the ending. The shared part
+is the <b>cell key</b>, and matching is done on it.</p>
+<table>
+  <tr><th></th><th>Example</th><th>Ending</th></tr>
+  <tr><td>movie</td><td><code>250408_WT_012_C3.tif</code></td><td><code>_C3</code> — your channel token, anything</td></tr>
+  <tr><td>ER mask</td><td><code>250408_WT_012_er.tiff</code></td><td><code>_er</code></td></tr>
+  <tr><td>mito mask</td><td><code>250408_WT_012_mito.tiff</code></td><td><code>_mito</code></td></tr>
+</table>
+<p>Any of these endings work:</p>
+<ul>
+  <li><b>movie</b> — <code>_spt</code>, <code>_spt1</code>, <code>_spt2</code>…, or your own token like <code>_C3</code>, <code>_VAPB</code></li>
+  <li><b>ER</b> — <code>_er</code>, <code>_er_mip</code>, <code>_2_TA_BC</code></li>
+  <li><b>mito</b> — <code>_mito</code>, <code>_mito_mip</code>, <code>_ch1_mito</code>, <code>_3_TA_BC</code></li>
+</ul>
+<div class="note">If your movies carry a channel token, <b>the tools work it out themselves</b> by
+comparing movie names against mask names. Leave Tool 1's <b>Strip regex</b> box <b>empty</b> and the
+Scan line tells you which token it found and why.</div>
+<p><b>ilastik users:</b> exports ending <code>_Probabilities</code>, <code>_Simple Segmentation</code>,
+<code>_Segmentation</code>, <code>_Uncertainty</code> or <code>_Object Predictions</code> are stripped
+automatically — no renaming needed.</p>
+
+<h3 id="setup-nochannels">If you do not have both channels</h3>
+<p>You do not need both. Declare what the project has in a <code>channels.json</code> at the project
+root:</p>
+<pre><code>{ "channels": [ { "key": "er", "role": "support" } ] }</code></pre>
+<p>With no such file you get the standard ER + mito setup, which is what you want in almost every
+case. See <a href="#transparency">Transparency &amp; provenance</a> for what the roles mean.</p>
+
+<h2 id="setup-run">Set up · Running the three tools</h2>
+
+<h3 id="setup-path">Tell MATLAB where the code is</h3>
+<p>Once per MATLAB session, with your own path:</p>
+<pre><code>addpath('/Users/yourname/Documents/SPTinMatlab')</code></pre>
+<p>Nothing visible happens. That is correct.</p>
+<div class="note"><b>To stop retyping it:</b> <b>Home</b> → <kbd>Set Path</kbd> →
+<kbd>Add Folder…</kbd>, pick the <code>SPTinMatlab</code> folder, then <kbd>Save</kbd>. Now it is
+remembered and you can skip this step forever.</div>
+
+<h3 id="setup-order">Then, in order</h3>
+<pre><code>run_track      % Tool 1 — detect and track
+run_curate     % Tool 2 — review, then build
+run_analyze    % Tool 3 — contact sites and dwell</code></pre>
+<p>Each tool reads what the previous one wrote, so the order matters. Full walkthroughs are in
+<a href="#t1">Tool 1</a>, <a href="#t2curate">Tool 2</a> and <a href="#t3contact">Tool 3</a>; the
+short version:</p>
+<ol>
+  <li><b>Tool 1 · Match files</b> — pick the project folder (the one <i>containing</i>
+      <code>spt/</code>, not <code>spt/</code> itself), press <kbd>Scan</kbd>, and
+      <b>read the result line</b>. Green with a cell count and a token is good; <b>amber means your
+      naming does not pair up</b> — go back to the naming rule above. Then Detect → Track → filter →
+      <kbd>Export</kbd>.</li>
+  <li><b>Tool 2 · Import &amp; Curate</b> — cells load themselves from <code>tracks/</code>; there is
+      no file picker. Review, then <kbd>Export curated</kbd> (or <kbd>Export + Next ▶</kbd>). On
+      <b>Build &amp; QC</b> type a <b>Name</b> and press <kbd>▶ Build + QC</kbd>. This is the slow
+      step, done once.</li>
+  <li><b>Tool 3</b> — set the project folder, then <b>Contact sites</b> → <b>Refine</b> →
+      <b>Sites</b> → <b>Dwell</b>.</li>
+</ol>
+
+<h3 id="setup-trouble">First-run problems</h3>
+<table>
+  <tr><th>What you see</th><th>What it means</th><th>Fix</th></tr>
+  <tr><td><code>Undefined function 'run_track'</code></td><td>MATLAB does not know where the code is</td><td>Redo the <code>addpath</code> above with the right path</td></tr>
+  <tr><td><code>Undefined function 'imgaussfilt'</code></td><td>A toolbox is missing</td><td>Install the add-ons, then confirm with <code>ver</code></td></tr>
+  <tr><td>Scan finds cells but <b>0</b> ER / mito</td><td>The names do not pair up</td><td>Check the endings and the shared stem</td></tr>
+  <tr><td>Scan finds <b>no</b> cells</td><td>Wrong folder, or movies are not <code>.tif</code></td><td>Point at the folder containing <code>spt/</code></td></tr>
+  <tr><td>Tool 3 says there is no build</td><td>Tool 2 never finished one</td><td>Go back and press <kbd>▶ Build + QC</kbd></td></tr>
+  <tr><td>The first build is slow</td><td>It genuinely is — MSD for every track</td><td>Once per build; later stages are fast</td></tr>
+</table>
+<div class="note"><b>Nothing is ever overwritten silently.</b> Every stage writes new files, so when
+a step goes wrong you can look at exactly what it produced and re-run only that step. The deeper
+troubleshooting list is in <a href="#trouble">Troubleshooting</a>.</div>
+
 
 
 
@@ -2986,6 +3146,7 @@ filter.exported        = 2026-07-29 11:02:13</code></pre>
   // Which tool each top-level section belongs to. Sections are grouped at RUNTIME by walking the
   // h2s in document order, so no id or body markup had to change and every deep link still works.
   var BOUNDS = [
+    ['setup-install','setup'], ['setup-folders','setup'], ['setup-run','setup'],
     ['overview','home'], ['quickstart','home'],
     ['t1','t1'],
     ['t2curate','t2'], ['t2build','t2'],
@@ -3015,7 +3176,7 @@ filter.exported        = 2026-07-29 11:02:13</code></pre>
   doc.parentNode.insertBefore(pre, doc);
 
   // ---- wrap each h2 + its following siblings into a section we can show and hide ----
-  var sections = [], cur = null, curGroup = 'home';
+  var sections = [], cur = null, curGroup = 'setup';
   Array.prototype.slice.call(doc.childNodes).forEach(function(node){
     if(node.nodeType === 1 && node.tagName === 'H2'){
       curGroup = groupOf[node.id] || curGroup;
