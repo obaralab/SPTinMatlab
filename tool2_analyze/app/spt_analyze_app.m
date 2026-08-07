@@ -55,7 +55,6 @@ tRefine=[]; tSites=[]; tDwell=[]; tExpt=[]; tCompare=[];              % downstre
 ddTimeUnit=[]; lblBuild=[]; tblBuild=[]; txtBuild=[];                 % Build handles
 buildChanKeys = {};   % the channel columns tblBuild was BUILT with — onCalEdit derives its column
                       % index map from this, so adding a channel cannot silently shift calibration
-axSiteD=[];   % Sites tab: rolling D of the member tracks, split inside/outside the footprint
 chanTok=''; chanWhy='';   % SPT channel token derived per project (see spt_channel_token)
 calibKnown=false;   % is the panel calibration supported by THIS project (adopted or typed)?
 buildTracks=[]; ddQCcell=[]; axLen=[]; axMSD=[]; axCov=[]; axDist=[]; axDdist=[]; lblQCm=[]; eMsdFrac=[];   % QC handles
@@ -1075,17 +1074,18 @@ end
         spt_axes_policy(axSite);
         pcS = uigridlayout(cn,[1 1],'Padding',[0 0 0 0]);          % embedded member-track player
         if exist('spt_track_movie','file')==2, sitePlayer = spt_track_movie(pcS); end
-        rp = uigridlayout(mn,[9 1],'RowHeight',{22,'1x','1.1x',28,28,28,28,28,28},'Padding',[0 0 0 0],'RowSpacing',4);
+        % 8 rows for 8 children. The rolling-D axes was row 3 ('1.1x'); when it went, BOTH the count
+        % and RowHeight had to shrink with it — a grid with more declared rows than children leaves a
+        % dead band, and one with fewer silently invents '1x' rows that are zero pixels tall here.
+        rp = uigridlayout(mn,[8 1],'RowHeight',{22,'1x',28,28,28,28,28,28},'Padding',[0 0 0 0],'RowSpacing',4);
         uilabel(rp,'Text','member tracks (click to select)','FontWeight','bold','FontColor',[0.35 0.35 0.4]);
         lstMembers = uilistbox(rp,'Items',{'—'},'ValueChangedFcn',@(s,e) onMemberSelect(), ...
             'Tooltip','Member tracks of the selected site. Click one to highlight it on the density and enable single-track play / delete.');
-        % Rolling D for this site's members, split by the footprint. The retired STEP bridge existed to
-        % answer exactly this — does a molecule move differently while it is at a contact site — and
-        % the pipeline now has its own per-localization estimate, so the question is answerable from
-        % what is already in the build rather than from an export round trip.
-        axSiteD = uiaxes(rp); title(axSiteD,'rolling D — click a member track');
-        axSiteD.FontSize = 8; xlabel(axSiteD,'frame'); ylabel(axSiteD,'D (µm²/s)');
-        spt_axes_policy(axSiteD);
+        % The rolling-D panel was here. Removed: it was hard to read and its per-localization estimate
+        % is noisy enough that the plot invited conclusions the data does not support. The QUESTION it
+        % asked — does a molecule move differently while it is at a site — is still answered, by the
+        % 'med D in' / 'med D out' columns of the table above, which come from the same siteTrackD
+        % split and are a number rather than a shape. siteTrackD is untouched.
         btnPlaySite = uibutton(rp,'Text','▶ Play all member tracks','ButtonPushedFcn',@(s,e) onPlaySite(), ...
             'Tooltip','Play ALL of this site''s member tracks over the raw SPT movie (each a distinct colour) with per-frame ER/mito overlay.');
         btnPlayOne = uibutton(rp,'Text','▶ Play selected track','ButtonPushedFcn',@(s,e) onPlaySiteOne(), ...
@@ -1227,7 +1227,6 @@ end
             lstMembers.Items = items; lstMembers.ItemsData = tdata;   % select -> track column
             if siteMemberSel>0 && any(tdata==siteMemberSel), lstMembers.Value = siteMemberSel; end
         end
-        drawSiteD(e, siteMemberSel);   % the rolling-D panel follows the selected site
     end
 
     function [pct, nin, ntot] = siteTrackStats(e)
@@ -1339,53 +1338,6 @@ end
         drawSiteInspector(siteSelIdx);
         lblSites.Text = sprintf('Site %d %s · %d site(s) and %d track(s) pending. 💾 Save removals to apply.', ...
             e.csID, act, numel(pendDelSite), numel(pendExcl));
-    end
-
-    function drawSiteD(e, selCol)
-        % Two views of the same thing, chosen by whether a member track is selected.
-        %
-        % No selection -> every member track as a paired in/out pair, joined by a line. The slope IS
-        % the answer: a line sloping down to the right is a track that was slower while it was at the
-        % site. That reads at a glance across 3-20 members in a way twenty overlaid traces do not.
-        %
-        % A track selected -> its rolling D against frame, with the localizations INSIDE the footprint
-        % coloured separately and each side's median drawn as a dashed line.
-        if isempty(axSiteD) || ~isgraphics(axSiteD), return; end
-        cla(axSiteD); axSiteD.XLimMode='auto'; axSiteD.YLimMode='auto';
-        if isempty(e), title(axSiteD,'rolling D — click a member track'); return; end
-        [dI, dO, per] = siteTrackD(e);
-        if isempty(per)
-            title(axSiteD,'rolling D — no D in this build (rebuild on the Build & QC tab)');
-            xlabel(axSiteD,''); ylabel(axSiteD,'D (µm²/s)'); return;
-        end
-        hold(axSiteD,'on');
-        sel = []; if nargin>1 && ~isempty(selCol), sel = find([per.col]==selCol,1); end
-
-        if isempty(sel)
-            for q = 1:numel(per)
-                a = per(q).dIn; b = per(q).dOut;
-                if ~isfinite(a) || ~isfinite(b), continue; end
-                col = [0.55 0.55 0.6]; if a < b, col = [0.13 0.45 0.75]; end   % blue = slower inside
-                plot(axSiteD, [1 2], [a b], '-o', 'Color', col, 'MarkerFaceColor', col, ...
-                     'MarkerSize', 3.5, 'LineWidth', 0.9);
-            end
-            xlim(axSiteD,[0.8 2.2]); axSiteD.XTick=[1 2]; axSiteD.XTickLabel={'inside','outside'};
-            xlabel(axSiteD,''); ylabel(axSiteD,'median D (µm²/s)');
-            nSlow = sum(arrayfun(@(x) isfinite(x.dIn)&&isfinite(x.dOut)&&x.dIn<x.dOut, per));
-            nBoth = sum(arrayfun(@(x) isfinite(x.dIn)&&isfinite(x.dOut), per));
-            title(axSiteD, sprintf('D in %s vs out %s · %d/%d slower inside', ...
-                fmtD_(dI), fmtD_(dO), nSlow, nBoth), 'FontSize', 8);
-        else
-            pk = per(sel);
-            plot(axSiteD, pk.t(~pk.in), pk.d(~pk.in), '.', 'Color',[0.6 0.6 0.65], 'MarkerSize',7);
-            plot(axSiteD, pk.t( pk.in), pk.d( pk.in), '.', 'Color',[0.85 0.25 0.15], 'MarkerSize',9);
-            if isfinite(pk.dOut), yline(axSiteD, pk.dOut, ':', 'Color',[0.45 0.45 0.5]); end
-            if isfinite(pk.dIn),  yline(axSiteD, pk.dIn,  '--','Color',[0.85 0.25 0.15]); end
-            xlabel(axSiteD,'frame'); ylabel(axSiteD,'D (µm²/s)');
-            title(axSiteD, sprintf('track %d · in %s (n=%d) · out %s (n=%d)', ...
-                pk.col, fmtD_(pk.dIn), pk.nIn, fmtD_(pk.dOut), pk.nOut), 'FontSize', 8);
-        end
-        hold(axSiteD,'off'); box(axSiteD,'on');
     end
 
     function [dIn, dOut, perTrk] = siteTrackD(e)

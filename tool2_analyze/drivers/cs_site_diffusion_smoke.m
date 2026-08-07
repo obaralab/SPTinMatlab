@@ -69,7 +69,14 @@ hdr = src(i(1):i(1)+400);
 assert(~contains(hdr,'enrich'), 'the Sites table still has an enrich column');
 assert(contains(hdr,'med D in') && contains(hdr,'med D out'), 'the D columns are missing');
 assert(contains(src,'function [dIn, dOut, perTrk] = siteTrackD'), 'siteTrackD is missing');
-assert(contains(src,'function drawSiteD'), 'the rolling-D panel is missing');
+% The rolling-D PLOT is gone from the Sites tab — it was hard to read and its per-localization
+% estimate is noisy enough to invite conclusions the data does not support. The split it drew is
+% still computed and still reported, as the two table columns asserted above, so the arithmetic
+% pinned by this file is as load-bearing as it ever was. Assert the panel stays gone rather than
+% leaving nothing behind: it had a call site, an axes handle and a draw function, and a partial
+% revival would leave a dead axes in an 8-row grid.
+assert(~contains(src,'drawSiteD') && ~contains(src,'axSiteD'), ...
+    'the rolling-D panel is back on the Sites tab — it was removed deliberately');
 % the underlying field must survive — removing it from the screen must not delete the data
 assert(contains(src,'e.enrichment'), ...
     'enrichment was removed from the DATA as well as the display; CSW/CSV consumers would break');
