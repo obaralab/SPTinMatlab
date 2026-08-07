@@ -1,7 +1,9 @@
 function [tok, info] = spt_channel_token(sptDir, erDir, mitoDir)
 %SPT_CHANNEL_TOKEN  Work out the SPT channel token from the files, instead of asking for it.
 %
-%   [tok, info] = spt_channel_token(sptDir, erDir, mitoDir)
+%   [tok, info] = spt_channel_token(sptDir, erDir, mitoDir)   two fixed channels
+%   [tok, info] = spt_channel_token(sptDir, spec)             N channels; spec is the 1xN
+%                                                             key/dir/suffix struct spt_match takes
 %
 %   tok  : the token to strip from SPT names so they key against the segmentations ('_C3', '_VAPB',
 %          …), or '' when none is needed / none could be determined.
@@ -31,11 +33,21 @@ spt = baseNames(sptDir, {'.tif','.tiff'});
 info.nTotal = numel(spt);
 if isempty(spt), info.why = 'no SPT stacks found'; return; end
 
-% Segmentation keys, with the seg suffix removed — the same suffixes spt_match strips, so the two
-% agree about what a cell is called.
-segs = [segKeys(erDir, '_(2_TA_BC|er_mip|er)'), segKeys(mitoDir, '_(3_TA_BC|mito_mip|ch1_mito|mito)')];
+% Segmentation keys, with each channel's own suffix removed — the same suffixes spt_match strips, so
+% the two agree about what a cell is called. The spec form takes the suffixes from the project's
+% channel config, so a token can be derived against channels this file has never heard of.
+if isstruct(erDir)
+    spec = erDir;                                        % spt_channel_token(sptDir, spec)
+else
+    spec = struct('key',{'er','mito'}, 'dir',{erDir, mitoDir}, ...
+                  'suffix',{'_(2_TA_BC|er_mip|er)', '_(3_TA_BC|mito_mip|ch1_mito|mito)'});
+end
+segs = {};
+for c = 1:numel(spec)
+    segs = [segs, segKeys(spec(c).dir, spec(c).suffix)]; %#ok<AGROW>
+end
 segs = reshape(unique(segs), 1, []);
-if isempty(segs), info.why = 'no ER or mito segmentations found'; return; end
+if isempty(segs), info.why = 'no segmentations found in any reference channel'; return; end
 
 % For every (spt, seg) pair where the seg key is a prefix of the SPT base, the remainder is a
 % candidate token. Count how many cells each candidate would resolve.

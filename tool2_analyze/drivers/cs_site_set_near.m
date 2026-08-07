@@ -25,7 +25,7 @@ function cs = cs_site_set_near(cs, key, tf)
 % Errors on a non-scalar or non-finite value rather than coercing it. A writer that quietly turns
 % NaN into false hides the bug that produced the NaN; a reader that does the same only survives one.
 F = cs_channel_fields(key);
-if isempty(F.site)
+if ~strcmp(F.role,'proximity')
     error('cs_site_set_near:noSiteFlag', ...
         'Channel ''%s'' is a %s channel and has no per-site flag.', F.key, F.role);
 end
@@ -42,9 +42,10 @@ if isfield(cs, F.box.site) && isstruct(cs.(F.box.site)) && isscalar(cs.(F.box.si
 end                                              % can arrive as [] from combine_trackstructs
 box.(F.key) = tf;
 cs.(F.box.site) = box;
-fld = F.site;                                    % canonical unless the record already spells it
-for i = 1:numel(F.siteAny)                       % the other way
-    if isfield(cs, F.siteAny{i}), fld = F.siteAny{i}; break; end
+if isempty(F.site), return; end                  % a channel newer than the keyed storage is
+fld = F.site;                                    % keyed-only: there is no flat name to mirror to.
+for i = 1:numel(F.siteAny)                       % Otherwise: canonical, unless the record already
+    if isfield(cs, F.siteAny{i}), fld = F.siteAny{i}; break; end   % spells it the other way.
 end
 cs.(fld) = tf;                                   % flat legacy field, kept in step-2 dual-write
 end

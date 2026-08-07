@@ -14,15 +14,15 @@ function tf = cs_site_near(cs, key)
 % the two guarded ones, which errors.
 tf = false;
 F = cs_channel_fields(key);
-if isempty(F.site), return; end                  % e.g. 'er' — a support channel has no site flag
+if ~strcmp(F.role,'proximity'), return; end      % a SUPPORT channel has no per-site flag at all
 if ~isstruct(cs), return; end
 [v, keyed] = cs_channel_boxed(cs, F.box.site, F.key);   % cs.near.<key> — the keyed form wins
 if ~keyed
     fld = '';                                    % the same flag is spelled 'MitoFlag' on CS/CSW
-    for i = 1:numel(F.siteAny)                   % records and 'mito' on footprint / dwell records
+    for i = 1:numel(F.siteAny)                   % records and 'mito' on footprint / dwell records.
         if isfield(cs, F.siteAny{i}), fld = F.siteAny{i}; break; end
-    end
-    if isempty(fld), return; end
+    end                                          % A channel newer than the keyed storage has no
+    if isempty(fld), return; end                 % flat spelling at all — keyed or nothing.
     v = cs.(fld);
 end
 if isempty(v), return; end                       % legacy CSdata templates ship MitoFlag = []

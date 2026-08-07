@@ -61,6 +61,7 @@ NCOL = 12;   % ...'dwell' = median % of associated tracks' localizations inside 
 st.win=zeros(0,2); st.nW=0;
 st.sites={}; st.wrc={}; st.wdens={}; st.werM={}; st.wmitoM={}; st.wnull={};
 st.thumbAx=[]; st.selList=[]; st.erPath=''; st.mitoPath=''; st.segNfr=0; st.segMitoNfr=0; st.erMip=[];
+st.supportWhy='';   % non-empty when the support was DERIVED from the localizations, not measured
 
 % =====================================================================
 % UI
@@ -282,15 +283,31 @@ onCell();
     end
 
     function m = erMipMask(base)
-        % whole-movie ER support from the MIP (fallback when a window has no start-frame ER mask)
-        m = true(st.grid, st.grid);
+        % Whole-movie support: the ER MIP when there is one (the fallback for a window with no
+        % start-frame ER mask). When the project has NO support channel AT ALL, derive the support
+        % from the localizations instead of returning the whole frame — over the whole frame the
+        % background median is taken mostly over empty coverslip, collapses to the eps guard in
+        % cs_detect, and enrichment inflates without bound. See cs_support_mask.
+        st.supportWhy = '';
+        m = [];
         prefix = regexprep(base,'_spt\d+$','','ignorecase');
         p = fullfile(st.mipDir,[prefix '_er_mip.tif']);
         if isfile(p)
             try, e=double(imread(p)); if ndims(e)==3, e=mean(e,3); end
-                m = imresize(e,[st.grid st.grid],'bilinear') > 0.05*max(e(:)); catch, end
+                m = imresize(e,[st.grid st.grid],'bilinear') > 0.05*max(e(:)); catch, m=[]; end
         end
-        if ~any(m(:)), m = true(st.grid, st.grid); end
+        if ~isempty(m) && any(m(:)), return; end
+        if ~isempty(st.erPath)
+            % A support channel EXISTS, this cell just has no MIP. Unchanged behaviour on purpose:
+            % switching method for one cell of a with-ER project would make its enrichment
+            % incomparable to the rest, which is a decision, not a fallback.
+            m = true(st.grid, st.grid); return
+        end
+        f0 = min(st.aF); f1 = max(st.aF);
+        if isempty(f0) || ~isfinite(f0), m = true(st.grid, st.grid); return; end
+        rc = cs_window_density(st.aX, st.aY, st.aF, f0, f1, st.SF, st.grid, st.grid, st.sig);
+        [m, si] = cs_support_mask(rc);
+        st.supportWhy = si.why;
     end
 
     function m = segMaskAt(segPath, nfr, frame0)
@@ -873,6 +890,9 @@ onCell();
         s=sprintf('%s · detections %d · tracked %d (%.0f%%) · %s · %s', ...
             char(st.Tracks(st.ci).file), st.nAll, st.nDet, pct, wtxt, ...
             tern(st.haveMD,'mito from MITODIST','no MITODIST'));
+        % A derived support is reported, never silent: the background denominator was estimated from
+        % the same localizations the sites are found in, and a reader of the numbers must know.
+        if ~isempty(st.supportWhy), s = sprintf('%s · ⚠ %s', s, st.supportWhy); end
     end
     function n=totalSites(), n=0; for w=1:st.nW, n=n+size(st.sites{w},1); end, end
     function drawThumbAll(), for w=1:st.nW, drawThumb(w); end, end

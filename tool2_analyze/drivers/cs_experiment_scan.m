@@ -11,6 +11,9 @@ function cells = cs_experiment_scan(folders)
 % cells(k) fields:
 %   file, day, condition('') , exclude(false), reason(''), notes('')
 %   project, analysis, tracks, spt, erSeg, mitoSeg, trackstruct   (resolved paths)
+%   seg          struct with one field per CHANNEL KEY holding that channel's resolved path — the
+%                keyed form, and the only one a project's third channel appears in. erSeg/mitoSeg
+%                stay as the flat mirror the rest of the codebase still reads.
 %   nTracks, status (struct from cs_experiment_status — stage LAMPS plus the per-stage spot and
 %           track COUNTS: nSpotsRaw, nTracksRaw, nTracksFiltered, nTracksCurated, nTracksMetrics,
 %           nTracksKept, nSpotsInTracks, nSpotsKept, nTracksBuilt, nSpotsBuilt, nCellsBuilt)
@@ -33,10 +36,11 @@ for i = 1:numel(folders)
     [bases, seg] = enumerateCells(P);                  % cell base names + a per-base seg/spt map
     for b = 1:numel(bases)
         base = bases{b};
-        sp = ''; er = ''; mi = '';
-        if isKey(seg, base), s = seg(base); sp = s.spt; er = s.erSeg; mi = s.mitoSeg; end
+        sp = ''; er = ''; mi = ''; sg = struct();
+        if isKey(seg, base), s = seg(base); sp = s.spt; er = s.erSeg; mi = s.mitoSeg; sg = s.seg; end
         rec = struct('file',base,'day',P.day,'condition','','exclude',false,'reason','','notes','', ...
-            'project',P.project,'analysis',P.analysis,'tracks',P.tracks,'spt',sp,'erSeg',er,'mitoSeg',mi, ...
+            'project',P.project,'analysis',P.analysis,'tracks',P.tracks,'spt',sp, ...
+            'seg',sg,'erSeg',er,'mitoSeg',mi, ...
             'trackstruct',tsOrDefault_(P.analysis),'nTracks',0, ...
             'status',struct(),'folder',P.analysis,'hasCSW',false,'hasDwell',false);
         rec.status  = cs_experiment_status(rec);
@@ -81,10 +85,17 @@ function [bases, seg] = enumerateCells(P)
 bases = {}; seg = containers.Map('KeyType','char','ValueType','any');
 if isfolder(P.spt) && exist('spt_match','file')==2
     try
-        m = spt_match(P.spt, P.erSeg, P.mitoSeg, '_VAPB');
+        % Channels come from the project's own config (built-in ER/mito default when it has none),
+        % and the channel token is DERIVED from the file names rather than typed. It used to be the
+        % literal '_VAPB', which silently enumerated nothing on any dataset named otherwise — the
+        % user's live data uses '_C3'. spt_analyze_app was fixed for this; this was the last one.
+        spec = cs_channel_segspec(cs_channel_config(P.project), P.project);
+        tok  = '';
+        try tok = spt_channel_token(P.spt, spec); catch, end
+        m = spt_match(P.spt, spec, tok);
         for i = 1:numel(m)
             [~,b] = fileparts(m(i).spt); bases{end+1} = b; %#ok<AGROW>
-            seg(b) = struct('spt',m(i).spt,'erSeg',m(i).erSeg,'mitoSeg',m(i).mitoSeg);
+            seg(b) = struct('spt',m(i).spt,'erSeg',m(i).erSeg,'mitoSeg',m(i).mitoSeg,'seg',m(i).seg);
         end
     catch
     end
@@ -108,6 +119,6 @@ end
 
 function c = emptyCells()
 c = struct('file',{},'day',{},'condition',{},'exclude',{},'reason',{},'notes',{}, ...
-    'project',{},'analysis',{},'tracks',{},'spt',{},'erSeg',{},'mitoSeg',{},'trackstruct',{}, ...
+    'project',{},'analysis',{},'tracks',{},'spt',{},'seg',{},'erSeg',{},'mitoSeg',{},'trackstruct',{}, ...
     'nTracks',{},'status',{},'folder',{},'hasCSW',{},'hasDwell',{});
 end

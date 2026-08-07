@@ -25,8 +25,19 @@ for i = 1:numel(keys)
 end
 assert(isequal(cs_channel_fields('MITO'), cs_channel_fields('mito')), 'key must be case-insensitive');
 assert(isempty(cs_channel_fields('er').site), 'a support channel has no per-site flag');
-threw = false; try, cs_channel_fields('lyso'); catch, threw = true; end
-assert(threw, 'an unknown channel key must error, not read as "absent"');
+% A well-formed key this build has no LEGACY names for is a configured channel, not an error: it is
+% keyed-only, which is what every new channel is. A MALFORMED key still errors, because the key
+% becomes a struct field name in the keyed storage. Typos in a real key are caught by
+% cs_channel_config, where the names are declared, rather than here where they are read.
+Flyso = cs_channel_fields('lyso');
+assert(strcmp(Flyso.key,'lyso') && strcmp(Flyso.role,'proximity'), 'an unknown key defaults to proximity');
+assert(isempty(Flyso.mat) && isempty(Flyso.spots) && isempty(Flyso.site) && isempty(Flyso.siteAny), ...
+    'a channel newer than the keyed storage has NO flat legacy names');
+assert(strcmp(Flyso.folder,'lyso_seg') && strcmp(Flyso.label,'Lyso'), 'generic conventions derived from the key');
+for badKey = {'2bad','','has space','Up-Case!'}
+    threw = false; try, cs_channel_fields(badKey{1}); catch, threw = true; end
+    assert(threw, 'a malformed channel key must error: ''%s''', badKey{1});
+end
 
 fprintf('\n========== PART B: per-spot distances, cloud + tracked ==========\n');
 nF = 4; nT = 3;
