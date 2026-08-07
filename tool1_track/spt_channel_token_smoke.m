@@ -72,5 +72,27 @@ assert(~contains(src, "spt_match(fullfile(d,'spt'), fullfile(d,'er_seg'), fullfi
 assert(contains(src, 'spt_channel_token'), 'spt_analyze_app does not derive the token');
 fprintf('  spt_analyze_app derives the token instead of hardcoding it\n');
 
+% ---- and so must TOOL 1, which kept the literal long after Tool 2 lost it ----------------------
+% The field defaulted to '_VAPB', and spt_app never called spt_channel_token at all, so the Match
+% tab silently resolved zero segmentations on this same '_C3' dataset. Blank now means DERIVE; a
+% typed value is an override.
+src1 = fileread(fullfile(here,'spt_app.m'));
+assert(~contains(src1, "uieditfield(g,'text','Value','_VAPB')"), ...
+    'spt_app still defaults the strip regex to _VAPB');
+assert(contains(src1, 'spt_channel_token'), 'spt_app does not derive the token');
+assert(contains(src1, 'matchDerived'), 'spt_app has no derive-and-score path');
+
+% Prove the ladder picks the token the files actually support, not the legacy default. Score each
+% candidate the way spt_app does: how many cells resolved a segmentation.
+nres = @(m) sum(arrayfun(@(x) ~isempty(x.erSeg) || ~isempty(x.mitoSeg), m));
+sD = fullfile(r,'spt'); eD = fullfile(r,'er_seg'); mD = fullfile(r,'mito_seg');
+nNone   = nres(spt_match(sD, eD, mD, ''));
+nLegacy = nres(spt_match(sD, eD, mD, '_VAPB'));
+nDerive = nres(spt_match(sD, eD, mD, ['(?:' regexptranslate('escape',tok) ')$']));
+assert(nDerive > nLegacy && nDerive > nNone, ...
+    'the derived token must win the scoring (derived %d, legacy %d, none %d)', nDerive, nLegacy, nNone);
+fprintf('  spt_app scores derived=%d legacy=%d none=%d -> derived wins\n', nDerive, nLegacy, nNone);
+fprintf('  spt_app derives the token instead of defaulting to _VAPB\n');
+
 fprintf('\nALL CHANNEL-TOKEN ASSERTIONS PASSED.\n');
 end

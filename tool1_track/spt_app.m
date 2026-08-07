@@ -115,8 +115,10 @@ tg.SelectedTab = tMatch;   % ...but open on Match files: that is where a fresh s
         uibutton(g,'Text','Pick…','ButtonPushedFcn',@(s,e) pick(eMi));
 
         uilabel(g,'Text','Strip regex','HorizontalAlignment','right', ...
-            'Tooltip','Extra token stripped from names so SPT matches the seg files (e.g. _VAPB).');
-        eStrip = uieditfield(g,'text','Value','_VAPB');
+            'Tooltip',['Extra token stripped from names so SPT matches the seg files. LEAVE BLANK ' ...
+                       'to read it from the file names — Scan reports which token it used. Type one ' ...
+                       'only to override that.']);
+        eStrip = uieditfield(g,'text','Placeholder','blank = derive it from the file names');
         uibutton(g,'Text','Scan','FontWeight','bold','BackgroundColor',[0.18 0.45 0.70], ...
             'FontColor','w','ButtonPushedFcn',@(s,e) onScan());
 
@@ -141,7 +143,17 @@ tg.SelectedTab = tMatch;   % ...but open on Match files: that is where a fresh s
             if hasEr && ~isfolder(erD), lbl.Text='ER seg folder not found.'; lbl.FontColor=[0.75 0.1 0.1]; return; end
             if hasMi && ~isfolder(miD), lbl.Text='Mito seg folder not found.'; lbl.FontColor=[0.75 0.1 0.1]; return; end
 
-            c = spt_match(sptD, erD, miD, strip);
+            % A BLANK field means derive the token. It used to default to '_VAPB', which silently
+            % resolved no segmentations at all on any dataset named otherwise — the live data here
+            % is '_C3'. Tool 2 was fixed for this; Tool 1 kept the literal and never called
+            % spt_channel_token. A typed value still wins outright: the field is an override, not a
+            % setting, so re-scanning a different project re-derives instead of carrying a stale one.
+            if isempty(strip)
+                [c, tokUsed, tokWhy] = matchDerived(sptD, erD, miD);
+            else
+                c = spt_match(sptD, erD, miD, strip);
+                tokUsed = strip; tokWhy = 'strip regex as typed';
+            end
             for k = 1:numel(c)
                 c(k).use = true; c(k).diamUm = 0.5; c(k).keepPct = 6; c(k).thrAbs = [];
                 % thrMode/qualThr left UNSET at init on purpose: un-previewed cells inherit the CURRENT
@@ -162,13 +174,56 @@ tg.SelectedTab = tMatch;   % ...but open on Match files: that is where a fresh s
             tbl.Data = D;
             nEr = sum(arrayfun(@(x) ~isempty(x.erSeg), c));
             nMi = sum(arrayfun(@(x) ~isempty(x.mitoSeg), c));
-            lbl.Text = sprintf('%d cell(s): SPT %d, ER-seg %s, mito-seg %s.', numel(c), numel(c), ...
+            lbl.Text = sprintf('%d cell(s): SPT %d, ER-seg %s, mito-seg %s · token %s (%s).', ...
+                numel(c), numel(c), ...
                 tern(hasEr, sprintf('%d/%d', nEr, numel(c)), 'off'), ...
-                tern(hasMi, sprintf('%d/%d', nMi, numel(c)), 'off'));
-            lbl.FontColor = [0.2 0.5 0.2];
+                tern(hasMi, sprintf('%d/%d', nMi, numel(c)), 'off'), ...
+                tern(isempty(tokUsed), '(none)', ['"' tokUsed '"']), tokWhy);
+            % Amber, not green, when nothing resolved: with both seg folders set and zero matches the
+            % naming convention is wrong, and that used to look identical to a successful scan.
+            if (hasEr || hasMi) && nEr == 0 && nMi == 0
+                lbl.FontColor = [0.6 0.4 0.1];
+            else
+                lbl.FontColor = [0.2 0.5 0.2];
+            end
             onCalAuto();                         % auto pixel size from the first cell's TIFF
             refreshDetectCells();                % populate the Detect tab's cell list
             refreshCurateCells();                % populate the filter cell list
+        end
+
+        function [best, tok, why] = matchDerived(sptD, erD, miD)
+            % The same ladder Tool 2 uses (spt_analyze_app onPickProject): the token READ from the
+            % file names first, then the legacy '_VAPB', then nothing — each scored by how many
+            % cells actually resolved a segmentation, so the winner is decided by the files rather
+            % than by a default. The derived token is anchored and escaped; '_VAPB' is passed raw,
+            % as it always was, because anchoring would defeat the infix case it exists for.
+            % Seed with the strip-nothing case rather than []: it always succeeds when the SPT
+            % folder is valid (the caller has already checked), so `best` is a STRUCT ARRAY from
+            % here on. Returning a double [] would quietly change the class of `matched`.
+            best = spt_match(sptD, erD, miD, '');
+            tok  = ''; why = 'names match with nothing stripped';
+            nBest = nResolved(best);
+            cands = {};
+            try
+                [t0, ti] = spt_channel_token(sptD, erD, miD);
+                if ~isempty(t0), cands{end+1} = {['(?:' regexptranslate('escape',t0) ')$'], t0, ti.why}; end
+            catch
+            end
+            cands{end+1} = {'_VAPB', '_VAPB', 'legacy _VAPB token'};
+            for q = 1:numel(cands)
+                try mq = spt_match(sptD, erD, miD, cands{q}{1}); catch, continue; end
+                nq = nResolved(mq);
+                if nq > nBest, nBest = nq; best = mq; tok = cands{q}{2}; why = cands{q}{3}; end
+            end
+            if nBest <= 0, why = 'no ER/mito matched any naming convention'; end
+        end
+
+        function n = nResolved(m)
+            % How many cells this candidate actually paired with a segmentation — the only thing
+            % worth scoring a naming convention on.
+            n = 0;
+            if isempty(m), return; end
+            n = sum(arrayfun(@(x) ~isempty(x.erSeg) || ~isempty(x.mitoSeg), m));
         end
 
         function onUseEdit(e)
