@@ -43,14 +43,17 @@ ck = findobj(fig,'Type','uicheckbox');
 
 radS  = one(sp, @(x) isequal(x.Limits,[0.1 20]), 'density radius spinner');
 statD = one(dd, @(x) iscell(x.ItemsData) && any(strcmp(x.ItemsData,'mean')), 'density statistic dropdown');
-cloudC= one(ck, @(x) contains(string(x.Text),'untracked'), 'count-untracked checkbox');
+% The count-untracked CHECKBOX is gone: crowding now always counts the whole localization cloud,
+% so there is no control to find. Part (3) below asserts the behaviour directly instead.
+assert(~any(arrayfun(@(x) contains(string(x.Text),'untracked'), ck)), ...
+    'the count-untracked checkbox is back — crowding must always count the whole cloud');
 bApply= btnOf(bs,'Apply filter');
 
 % CROWDED = tracks 1-3 (sat in a dense field), ISOLATED = tracks 4-6 (alone)
 CROWDED = [1 2 3]; ISOLATED = [4 5 6];
 
 %% (2) the radius is the defect: small radius cannot separate, wide radius can ------------------
-setv(radS, 0.8); setv(statD, 'mean'); cloudC.Value = true; fire(cloudC);
+setv(radS, 0.8); setv(statD, 'mean');
 dNarrow = dens_by_track(fig);
 sepNarrow = min(dNarrow(CROWDED)) - max(dNarrow(ISOLATED));
 
@@ -79,17 +82,17 @@ assert(all(ismember(ISOLATED, st.kept)), 'the isolated tracks were not all kept 
 assert(~any(ismember(CROWDED, st.kept)), 'a crowded track survived threshold %.2f', thr);
 fprintf('threshold %.2f keeps exactly the %d isolated tracks\n', thr, numel(ISOLATED));
 
-%% (3) untracked detections must count -----------------------------------------------------------
-% Track 7 sits in a cloud made ONLY of untracked detections. With the box ticked it reads crowded;
-% unticked it reads empty, which is precisely how the shipped metric missed most of the field.
+%% (3) untracked detections ALWAYS count ---------------------------------------------------------
+% Track 7 sits in a cloud made ONLY of untracked detections, so it is the whole test: if the metric
+% counted just spots in surviving tracks, track 7 would read empty. That used to be a checkbox, and
+% unticking it measured a crowding that does not exist — on the reference cell two thirds of the
+% detections in the field stopped counting as neighbours. There is no longer a way to turn it off.
 dOn = dens_by_track(fig);
-cloudC.Value = false; fire(cloudC);
-dOff = dens_by_track(fig);
-cloudC.Value = true;  fire(cloudC);
 assert(numel(dOn) >= 7, 'fixture did not produce the untracked-crowd track');
-assert(dOn(7) > 2, 'track 7 sits in an untracked crowd but scored only %.2f with counting ON', dOn(7));
-assert(dOff(7) < 0.5, 'track 7 still scored %.2f with untracked counting OFF', dOff(7));
-fprintf('untracked crowd: track 7 scores %.2f counted / %.2f uncounted\n', dOn(7), dOff(7));
+assert(dOn(7) > 2, ...
+    ['track 7 sits in a crowd of UNTRACKED detections and scored only %.2f — the metric is ' ...
+     'ignoring the cloud again'], dOn(7));
+fprintf('untracked crowd always counts: track 7 scores %.2f\n', dOn(7));
 
 %% (4) mean vs max ------------------------------------------------------------------------------
 % Track 8 is isolated for most of its life and dips into the crowd briefly.

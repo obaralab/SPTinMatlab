@@ -105,6 +105,12 @@ for kvInit = 1:numel(S.chanKeys)
 end
 S.spt_img=[]; S.spt_path=''; S.spt_nfr=0; S.spt_fg=[]; S.spt_isMask=false; S.spt_hi=[]; S.spt_lo=[];  % raw SPT movie (selected-track background)
 S.ovH_sp = [];   % overview overlay image handle (retinted per frame during playback)
+% What Tool 1 actually ran with, read from <base>_settings.txt. These are RECORDS, not settings:
+% the panel shows them and nothing here can change them. They still DRIVE two things — the
+% mislinkage step floor (link_um) and the jump gate (max_gap_um) — which is the point: those gates
+% should reflect the run that produced the tracks, not a number typed afterwards.
+S.tool1 = struct('linkUm',NaN,'gapUm',NaN,'maxGap',NaN,'diamUm',NaN);
+S.trk = containers.Map('KeyType','double','ValueType','any');   % tid -> per-track x/y/frame/spotId
 S.overlayFcn     = [];   % overlayFcn(base) -> struct('er',path,'mito',path) for auto-load
 DENSITY_RADIUS   = 1.0;
 if nargin >= 3 && ~isempty(overlayFcn) && isa(overlayFcn,'function_handle'), S.overlayFcn = overlayFcn; end
@@ -192,27 +198,28 @@ c.file_lbl = uilabel(lg,'Text','—','FontSize',8,...
 c.file_lbl.Layout.Row = row; c.file_lbl.Layout.Column = [1 2];
 
 % -- Tracking parameters (from YOUR TrackMate run) — drive the crowding metrics --
-row=row+1; sec_lbl(lg,row,'TRACKING PARAMETERS (from Tool 1 run)');
+% What Tool 1 ran with — SHOWN, never edited. All four used to be (or looked like) inputs; a spinner
+% here invited you to type a number that then disagreed with the tracks on disk. The two that do
+% real work still do it, from the recorded value: link_um is the floor under the mislinkage flag and
+% max_gap_um IS the jump gate. Change them by re-running Tool 1, which is the only thing that can
+% actually change the tracks.
+row=row+1; sec_lbl(lg,row,'FROM THE TOOL 1 RUN (read-only)');
 row=row+1; lbl2(lg,row,'Linking max dist (µm):');
-c.link_dist = uispinner(lg,'Limits',[0.05 20],'Value',1.0,'Step',0.1,'FontSize',9, ...
-    'Tooltip',['Frame-to-frame LAP search radius you used. Recorded for provenance, and it sets ' ...
-    'the floor under the mislinkage flag. The crowding metric has its OWN radius below — the two ' ...
-    'answer different questions and were wrongly tied together.'], ...
-    'ValueChangedFcn',@(~,~) on_param_change());
+c.link_dist = uilabel(lg,'Text','—','FontSize',9,'FontColor',[0.35 0.35 0.35], ...
+    'Tooltip','Tool 1''s tracking.link_um. Sets the floor under the mislinkage step flag.');
 c.link_dist.Layout.Row=row; c.link_dist.Layout.Column=2;
 row=row+1; lbl2(lg,row,'Gap-close max dist (µm):');
-c.gap_dist = uispinner(lg,'Limits',[0.05 20],'Value',1.0,'Step',0.1,'FontSize',9, ...
-    'Tooltip','Gap-closing LAP max distance. A single step longer than this can only be a mis-link (used by the jump filter).', ...
-    'ValueChangedFcn',@(~,~) on_param_change());
+c.gap_dist = uilabel(lg,'Text','—','FontSize',9,'FontColor',[0.35 0.35 0.35], ...
+    'Tooltip','Tool 1''s tracking.max_gap_um. A step longer than this can only be a mis-link — it is the jump gate.');
 c.gap_dist.Layout.Row=row; c.gap_dist.Layout.Column=2;
 row=row+1; lbl2(lg,row,'Max frame gap:');
-% Read-only. setnum fills it from tracking.max_gap_frames and NOTHING in this file ever reads it —
-% it is pure provenance from Tool 1, so offering a spinner invited the user to change a number that
-% could not do anything. The other two look identical but are NOT records: link_dist sets the
-% step-flag threshold and gap_dist IS the jump filter, so both stay editable.
 c.max_frame_gap = uilabel(lg,'Text','—','FontSize',9,'FontColor',[0.35 0.35 0.35], ...
     'Tooltip','From Tool 1''s tracking.max_gap_frames. Provenance only — nothing here reads it.');
 c.max_frame_gap.Layout.Row=row; c.max_frame_gap.Layout.Column=2;
+row=row+1; lbl2(lg,row,'Spot diameter (µm):');
+c.spot_diam = uilabel(lg,'Text','—','FontSize',9,'FontColor',[0.35 0.35 0.35], ...
+    'Tooltip','Tool 1''s detection.diameter_um. The emitter ring in the trajectory panel is drawn at this size.');
+c.spot_diam.Layout.Row=row; c.spot_diam.Layout.Column=2;
 
 % -- Crowding metric --  how "local density" is measured, before you threshold it
 row=row+1; sec_lbl(lg,row,'CROWDING — how density is measured');
@@ -231,13 +238,11 @@ c.dens_stat = uidropdown(lg,'Items',{'mean (time-averaged)','max (worst frame)'}
     'cell its median is 2 for every track-length class — so mean discriminates far better.'], ...
     'ValueChangedFcn',@(~,~) on_param_change());
 c.dens_stat.Layout.Row=row; c.dens_stat.Layout.Column=2;
-row=row+1;
-c.dens_cloud = uicheckbox(lg,'Text','Count untracked detections too','Value',true,'FontSize',9, ...
-    'Tooltip',['Count the WHOLE localization cloud, not just spots in surviving tracks. The ' ...
-    'reference cell holds 220,401 detections but only 73,994 in tracks — untick this and two ' ...
-    'thirds of what you can see in the field of view stops counting as crowding.'], ...
-    'ValueChangedFcn',@(~,~) on_param_change());
-c.dens_cloud.Layout.Row=row; c.dens_cloud.Layout.Column=[1 2];
+% Crowding ALWAYS counts the whole localization cloud. This used to be a checkbox, and unticking it
+% measured a crowding that does not exist: the reference cell holds 220,401 detections and only
+% 73,994 of them are in surviving tracks, so two thirds of what is physically in the field stopped
+% counting as neighbours. A molecule is crowded by everything around it, not only by the things the
+% tracker managed to link.
 row=row+1;
 c.dens_lbl = uilabel(lg,'Text','—','FontSize',8.5,'FontColor',[0.25 0.45 0.25],'WordWrap','on');
 c.dens_lbl.Layout.Row=row; c.dens_lbl.Layout.Column=[1 2];
@@ -341,12 +346,7 @@ c.link_pad = uispinner(lg,'Limits',[0 20],'Value',2,'Step',1,'FontSize',9, ...
     'Tooltip','Frames shown either side of the link when looping it.', ...
     'ValueChangedFcn',@(~,~) set_link_pad());
 c.link_pad.Layout.Row=row; c.link_pad.Layout.Column=2;
-row=row+1;
-c.zoom_link = uicheckbox(lg,'Text','Zoom map to the selected link','Value',true,'FontSize',9, ...
-    'Tooltip',['Frame the trajectory panel on the link instead of the whole track, so the individual ' ...
-               'emitters and their rings are resolvable. Untick to keep the whole track in view.'], ...
-    'ValueChangedFcn',@(~,~) refreshTraj());
-c.zoom_link.Layout.Row=row; c.zoom_link.Layout.Column=[1 2];
+% The zoom toggle moved to the transport row under the movie it reframes — see c.zoom_btn.
 
 row=row+1;
 c.cut_btn = wide_btn(lg,row,'✂ Cut link',[0.70 0.12 0.12],'white');
@@ -381,9 +381,10 @@ c.export_btn.ButtonPushedFcn = @(~,~) do_export();
 row=row+1;
 c.export_next_btn = wide_btn(lg,row,'Export + Next ▶',[0.15 0.36 0.30],'white');
 c.export_next_btn.ButtonPushedFcn = @(~,~) do_export_next();
-row=row+1;
-c.ws_btn = wide_btn(lg,row,'Send data to workspace',[0.40 0.20 0.60],'white');
-c.ws_btn.ButtonPushedFcn = @(~,~) send_to_workspace();
+% "Send data to workspace" was here. It predates the named-build handoff: everything it assignin'd
+% into the base workspace is now written to disk by Export and read by Tool 2's Build tab, so its
+% only remaining use was ad-hoc poking at variables that no longer match what the pipeline consumes.
+% send_to_workspace() itself is kept below, unwired, for anyone who wants it from the command line.
 
 % -- Playback --
 row=row+1; sec_lbl(lg,row,'PLAYBACK');
@@ -391,14 +392,10 @@ row=row+1; sec_lbl(lg,row,'PLAYBACK');
 % at the far left of the window and watched the result at the far right. They are built into the
 % Selected-track panel now, immediately under the movie. Everything below is a DISPLAY parameter for
 % that movie rather than transport, so it stays with the other display controls.
-row=row+1; lbl2(lg,row,'Emitter r (um):');
-c.emitter_rad = uispinner(lg,'Limits',[0.01 2],'Value',0.25,'Step',0.05,...
-    'FontSize',9,'ValueChangedFcn',@(~,~) refreshTraj());
-c.emitter_rad.Layout.Row=row; c.emitter_rad.Layout.Column=2;
-row=row+1; lbl2(lg,row,'Link ring r (um):');
-c.nearby_rad = uispinner(lg,'Limits',[0.05 5],'Value',0.5,'Step',0.05,...
-    'FontSize',9,'ValueChangedFcn',@(~,~) refreshTraj());
-c.nearby_rad.Layout.Row=row; c.nearby_rad.Layout.Column=2;
+% The emitter and link rings used to be two spinners here. They are drawn from Tool 1's recorded
+% detection.diameter_um instead: the ring you want around a spot is the size the detector actually
+% looked for, and inventing a different radius by hand made the panel show a footprint the data
+% never had. Two fewer controls, and the ring now means something.
 row=row+1;
 
 
@@ -416,14 +413,27 @@ c.ov_fov.Layout.Row=row; c.ov_fov.Layout.Column=2;
 % meant "the automatic match failed", and it had no way to tell you that. When the match DOES fail
 % the status label below says so, and the pickers remain on that label's context menu as the escape
 % hatch, rather than occupying a row in the normal flow.
-row=row+1;
-c.chan_chk = gobjects(1, numel(S.chanKeys));       % one Show box per declared channel, two per row
+% The overlay is the reason this panel exists, so it gets its own heading and each channel gets ONE
+% row: the Show box beside the colour that box turns on. They used to be split — every Show box
+% here, every colour dropdown four rows below the raw-SPT controls — so neither half looked like it
+% belonged to the other, and the colour for a channel you had just switched off was still sitting
+% there. Paired, the block reads as "the channels, and how they are drawn".
+COL_ITEMS = {'green','magenta','cyan','blue','red','orange','yellow','purple','grey','black'};
+row=row+1; sec_lbl(lg,row,'REFERENCE CHANNELS — overlay');
+c.chan_chk = gobjects(1, numel(S.chanKeys));
+c.chan_col = gobjects(1, numel(S.chanKeys));
 for kvBox = 1:numel(S.chanKeys)
-    colN = 2 - mod(kvBox,2);                       % 1,2,1,2,…
-    if colN==1 && kvBox>1, row=row+1; end
-    c.chan_chk(kvBox) = uicheckbox(lg,'Text',['Show ' cs_channel_fields(S.chans(kvBox)).label], ...
-        'Value',true,'ValueChangedFcn',@(~,~) update_spatial(),'FontSize',9);
-    c.chan_chk(kvBox).Layout.Row=row; c.chan_chk(kvBox).Layout.Column=colN;
+    Fk = cs_channel_fields(S.chans(kvBox));
+    row=row+1;
+    c.chan_chk(kvBox) = uicheckbox(lg,'Text',['Show ' Fk.label], ...
+        'Value',true,'ValueChangedFcn',@(~,~) update_spatial(),'FontSize',9, ...
+        'Tooltip',sprintf('Draw the %s segmentation over the overview map.', Fk.label));
+    c.chan_chk(kvBox).Layout.Row=row; c.chan_chk(kvBox).Layout.Column=1;
+    c.chan_col(kvBox) = uidropdown(lg,'Items',COL_ITEMS, ...
+        'Value',defOverlayColour(S.chanKeys{kvBox}, kvBox), ...
+        'FontSize',9,'ValueChangedFcn',@(~,~) on_color_change(), ...
+        'Tooltip',sprintf('Colour the %s overlay is drawn in.', Fk.label));
+    c.chan_col(kvBox).Layout.Row=row; c.chan_col(kvBox).Layout.Column=2;
 end
 % -- raw SPT movie as the selected-track background (zoomed to the track, plays per frame) --
 row=row+1;
@@ -438,16 +448,7 @@ c.spt_con = uispinner(lg,'Limits',[0.1 1],'Value',1.0,'Step',0.05,'FontSize',9, 
                'and clipped almost every spot.'], ...
     'ValueChangedFcn',@(~,~) refreshTraj());
 c.spt_con.Layout.Row=row; c.spt_con.Layout.Column=2;
-% -- colour choices (overlay + tracks) --
-COL_ITEMS = {'green','magenta','cyan','blue','red','orange','yellow','purple','grey','black'};
-c.chan_col = gobjects(1, numel(S.chanKeys));       % one colour dropdown per declared channel
-for kvCol = 1:numel(S.chanKeys)
-    row=row+1; lbl2(lg,row,[cs_channel_fields(S.chans(kvCol)).label ' colour:']);
-    c.chan_col(kvCol) = uidropdown(lg,'Items',COL_ITEMS, ...
-        'Value',defOverlayColour(S.chanKeys{kvCol}, kvCol), ...
-        'FontSize',9,'ValueChangedFcn',@(~,~) on_color_change());
-    c.chan_col(kvCol).Layout.Row=row; c.chan_col(kvCol).Layout.Column=2;
-end
+% -- colour choices (tracks; the per-channel overlay colours live with their Show boxes above) --
 row=row+1; lbl2(lg,row,'Kept colour:');
 c.col_kept = uidropdown(lg,'Items',COL_ITEMS,'Value','blue','FontSize',9,'ValueChangedFcn',@(~,~) on_color_change());
 c.col_kept.Layout.Row=row; c.col_kept.Layout.Column=2;
@@ -558,7 +559,7 @@ ax_tr.Toolbar.Visible = 'off';
 % about them changes: the button TEXT stays exactly 'Play' and 'Pause' (spt_linkcut_smoke matches
 % those labels exactly, and its substring fallback would otherwise pick '▶ Play link'), and FPS stays
 % a uispinner with Limits [1 60] and its live ValueChangedFcn (spt_curate_review_smoke asserts both).
-tg_ = uigridlayout(rg,[1 5],'ColumnWidth',{64,64,'1x',34,58}, ...
+tg_ = uigridlayout(rg,[1 6],'ColumnWidth',{64,64,86,'1x',34,58}, ...
     'Padding',[0 0 0 0],'ColumnSpacing',6); tg_.Layout.Row = 2;
 c.play_btn  = uibutton(tg_,'Text','Play', 'FontSize',10,'FontWeight','bold', ...
     'BackgroundColor',[0.18 0.80 0.44],'FontColor','white');
@@ -566,6 +567,14 @@ c.pause_btn = uibutton(tg_,'Text','Pause','FontSize',10,'FontWeight','bold', ...
     'BackgroundColor',[0.91 0.30 0.24],'FontColor','white');
 c.play_btn.ButtonPushedFcn  = @(~,~) play_whole_track();   % whole-track Play also leaves link-loop mode
 c.pause_btn.ButtonPushedFcn = @(~,~) do_pause();
+% Zoom belongs WITH the transport, not 1200 px away in the control column — it changes what the
+% movie next to it shows. It was a checkbox called 'Zoom map to the selected link' buried under
+% MISLINKAGE; as a state button here it is one press while you are already looking at the panel.
+c.zoom_btn = uibutton(tg_,'state','Text','🔍 Zoom','FontSize',10,'FontWeight','bold', ...
+    'Value',true,'BackgroundColor',[0.86 0.90 0.96], ...
+    'Tooltip',['Frame the trajectory panel on the SELECTED LINK rather than the whole track, so the ' ...
+               'individual emitters and their rings are resolvable. Off keeps the whole track in view.'], ...
+    'ValueChangedFcn',@(~,~) on_zoom_toggle());
 uilabel(tg_,'Text','');                                    % spacer
 uilabel(tg_,'Text','fps','HorizontalAlignment','right','FontSize',9);
 c.fps = uispinner(tg_,'Limits',[1 60],'Value',15,'Step',1,'FontSize',9, ...
@@ -759,7 +768,38 @@ end
         if ~ismember('ORIG_TRACK_ID', S.spots_t.Properties.VariableNames), return; end
         S.spots_t = apply_cuts_to(S.spots_t, S.cuts);
         S.spots_t = sortrows(S.spots_t, {'TRACK_ID','FRAME'});
+        rebuild_track_cache();          % the ONE place spots_t settles — see link_info
         S.track_metrics = compute_metrics_from_spots(S.spots_t);
+    end
+
+    function rebuild_track_cache()
+        % Per-track NUMERIC arrays, built in one pass over the (TRACK_ID, FRAME)-sorted table.
+        %
+        % This exists because ⚠ Next track was slow. link_info used to do
+        %     sel = sortrows(S.spots_t(S.spots_t.TRACK_ID==tid,:),'FRAME')
+        % which is a logical mask over EVERY row of the spots table plus a sortrows — per track. Its
+        % caller flagged_tracks() runs it once for every kept track, and both ⚠ Next track and every
+        % change of the flag ratio call that. On a 74k-spot cell with ~700 kept tracks this was ~50M
+        % row comparisons and ~700 MATLAB table-subscript operations per press; table subscripting is
+        % the expensive half. With the cache each link_info is O(track length) and touches no table.
+        S.trk = containers.Map('KeyType','double','ValueType','any');
+        if isempty(S.spots_t), return; end
+        vn = S.spots_t.Properties.VariableNames;
+        if ~all(ismember({'TRACK_ID','FRAME','X_um','Y_um','SPOT_ID'}, vn)), return; end
+        tid = double(S.spots_t.TRACK_ID);
+        if isempty(tid), return; end
+        ord = (1:numel(tid))';
+        if ~issorted(tid)                                   % apply_cuts sorts, but never assume it
+            [~, ord] = sortrows([tid, double(S.spots_t.FRAME)]);
+            tid = tid(ord);
+        end
+        X = double(S.spots_t.X_um(ord)); Y = double(S.spots_t.Y_um(ord));
+        F = double(S.spots_t.FRAME(ord)); P = S.spots_t.SPOT_ID(ord);
+        st = find([true; diff(tid)~=0]); en = [st(2:end)-1; numel(tid)];
+        for k = 1:numel(st)
+            r = st(k):en(k);
+            S.trk(tid(st(k))) = struct('x',X(r),'y',Y(r),'f',F(r),'s',P(r));
+        end
     end
 
     function T = apply_cuts_to(T, cuts)
@@ -1000,8 +1040,10 @@ end
     end
 
     function tf = density_use_cloud()
+        % Always. Crowding is "how many molecules were physically near this one", and the tracker's
+        % success at linking them has nothing to do with that. Kept as a function rather than
+        % inlining `true` so the call sites still read as a question with one answer.
         tf = true;
-        if isfield(c,'dens_cloud') && isgraphics(c.dens_cloud), tf = c.dens_cloud.Value; end
     end
 
     function [CF, CX, CY] = density_source(spots_t, cloud)
@@ -1288,7 +1330,7 @@ end
         keep = keep & (isnan(tm.mean_local_density) | tm.mean_local_density <= c.max_dn.Value);
         if isfield(c,'reject_jumps') && isgraphics(c.reject_jumps) && c.reject_jumps.Value ...
                 && ismember('max_step_um',tm.Properties.VariableNames)
-            keep = keep & (isnan(tm.max_step_um) | tm.max_step_um <= c.gap_dist.Value);
+            keep = keep & (isnan(tm.max_step_um) | tm.max_step_um <= tool1_gap());
         end
     end
 
@@ -1364,7 +1406,7 @@ end
         clog('APPLY: %d kept / %d rejected of %d  ·  disp var <= %.4f · density <= %.0f%s%s', ...
             n_k, n_t-n_k, n_t, c.max_dv.Value, c.max_dn.Value, ...
             tern_(isfield(c,'reject_jumps') && isgraphics(c.reject_jumps) && c.reject_jumps.Value, ...
-                  sprintf(' · jump > %.3g µm', c.gap_dist.Value), ''), ...
+                  sprintf(' · jump > %.3g µm', tool1_gap()), ''), ...
             tern_(nov>0, sprintf('  (%d manual override%s kept)', nov, tern_(nov==1,'','s')), ''));
         man_store();
         refresh_toggle_btn();
@@ -1472,11 +1514,22 @@ end
         f = fullfile(folder, [base '_settings.txt']);
         if exist(f,'file')~=2, return; end
         try, txt = fileread(f); catch, return; end
-        setnum = @(fld, key) local_set_spinner(fld, local_settings_num(txt, key));
-        setnum('link_dist',      'tracking.link_um');
-        setnum('gap_dist',       'tracking.max_gap_um');
-        local_set_record('max_frame_gap', local_settings_num(txt, 'tracking.max_gap_frames'));
+        % Values land in S.tool1 (what the code reads) AND in the labels (what you read). Keeping
+        % them in one place is why the gates cannot drift from the run that made the tracks.
+        S.tool1.linkUm = local_settings_num(txt, 'tracking.link_um');
+        S.tool1.gapUm  = local_settings_num(txt, 'tracking.max_gap_um');
+        S.tool1.maxGap = local_settings_num(txt, 'tracking.max_gap_frames');
+        S.tool1.diamUm = local_settings_num(txt, 'detection.diameter_um');
+        local_set_record('link_dist',     S.tool1.linkUm);
+        local_set_record('gap_dist',      S.tool1.gapUm);
+        local_set_record('max_frame_gap', S.tool1.maxGap);
+        local_set_record('spot_diam',     S.tool1.diamUm);
     end
+
+    % ---- the recorded Tool 1 numbers, with the fallbacks the gates used before there was a file ----
+    function v = tool1_link(),  v = S.tool1.linkUm; if ~(isfinite(v) && v>0), v = 1.0;  end, end
+    function v = tool1_gap(),   v = S.tool1.gapUm;  if ~(isfinite(v) && v>0), v = 1.0;  end, end
+    function v = tool1_diam(),  v = S.tool1.diamUm; if ~(isfinite(v) && v>0), v = 0.5;  end, end
 
     function local_set_record(fld, val)
         % A provenance field is a LABEL, so it takes .Text, not .Value. Shows an em dash when Tool 1
@@ -1723,7 +1776,7 @@ end
             if ~isnan(tm_sel.mean_local_density) && tm_sel.mean_local_density > c.max_dn.Value, r{end+1} = 'density'; end
             if isfield(c,'reject_jumps') && isgraphics(c.reject_jumps) && c.reject_jumps.Value ...
                     && ismember('max_step_um',tm_sel.Properties.VariableNames) ...
-                    && ~isnan(tm_sel.max_step_um) && tm_sel.max_step_um > c.gap_dist.Value, r{end+1} = 'jump'; end
+                    && ~isnan(tm_sel.max_step_um) && tm_sel.max_step_um > tool1_gap(), r{end+1} = 'jump'; end
             if ~isempty(r), why = ['  ← rejected by ' strjoin(r,' + ')]; end
         end
         c.sel_lbl.Text = sprintf(['Track %d  [%s]%s\n' ...
@@ -1768,8 +1821,8 @@ end
         end
         sel=sortrows(S.spots_t(S.spots_t.TRACK_ID==S.selected_id,:),'FRAME');
         if height(sel)==0, return, end
-        er   = c.emitter_rad.Value;   % emitter footprint radius (um)
-        ring = c.nearby_rad.Value;    % link / confusion ring radius (um)
+        er   = tool1_diam()/2;        % emitter footprint radius = HALF Tool 1's detection diameter
+        ring = tool1_diam();          % confusion ring: one whole spot away, i.e. two touching spots
         pad  = max(ring*2, er*4);
         xl=[min(sel.X_um)-pad, max(sel.X_um)+pad];
         yl=[min(sel.Y_um)-pad, max(sel.Y_um)+pad];
@@ -1941,8 +1994,7 @@ end
     function thr = suspicious_thr()
         % Absolute ceiling: a step longer than the gap-close distance is a link the tracker was never
         % allowed to make in one hop. Kept, but it is NOT the main detector — see link_info.
-        thr = 1.0;
-        if isfield(c,'gap_dist') && isgraphics(c.gap_dist), thr = c.gap_dist.Value; end
+        thr = tool1_gap();   % carries its own fallback when Tool 1 wrote no settings file
     end
 
     function L = link_info(tid)
@@ -1958,15 +2010,23 @@ end
         L = struct('spotId',[],'t0',[],'t1',[],'step',[],'ratio',[],'gap',[],'susp',[], ...
                    'x0',[],'y0',[],'x1',[],'y1',[],'med',0);
         if ~S.loaded || isempty(tid), return; end
-        sel = sortrows(S.spots_t(S.spots_t.TRACK_ID==tid,:),'FRAME');
-        if height(sel) < 2, return; end
-        d  = sqrt(diff(sel.X_um).^2 + diff(sel.Y_um).^2);
+        % Straight out of the per-track cache (rebuild_track_cache) — no table subscripting, no
+        % per-track sortrows. The fallback keeps this correct if the cache has not been built yet.
+        if isfield(S,'trk') && isa(S.trk,'containers.Map') && isKey(S.trk, double(tid))
+            T_ = S.trk(double(tid));
+            xs = T_.x; ys = T_.y; fs = T_.f; ps = T_.s;
+        else
+            sel = sortrows(S.spots_t(S.spots_t.TRACK_ID==tid,:),'FRAME');
+            xs = sel.X_um; ys = sel.Y_um; fs = sel.FRAME; ps = sel.SPOT_ID;
+        end
+        if numel(fs) < 2, return; end
+        d  = sqrt(diff(xs).^2 + diff(ys).^2);
         med = median(d); if ~(med>0), med = eps; end
-        L.spotId = sel.SPOT_ID(1:end-1);
-        L.t0 = sel.FRAME(1:end-1)*S.frame_interval;  L.t1 = sel.FRAME(2:end)*S.frame_interval;
-        L.x0 = sel.X_um(1:end-1); L.y0 = sel.Y_um(1:end-1);
-        L.x1 = sel.X_um(2:end);   L.y1 = sel.Y_um(2:end);
-        L.step = d; L.ratio = d/med; L.gap = diff(sel.FRAME) > 1; L.med = med;
+        L.spotId = ps(1:end-1);
+        L.t0 = fs(1:end-1)*S.frame_interval;  L.t1 = fs(2:end)*S.frame_interval;
+        L.x0 = xs(1:end-1); L.y0 = ys(1:end-1);
+        L.x1 = xs(2:end);   L.y1 = ys(2:end);
+        L.step = d; L.ratio = d/med; L.gap = diff(fs) > 1; L.med = med;
         L.susp = (d > suspicious_thr()) | (L.ratio >= ratio_thr() & d >= step_floor());
     end
 
@@ -1981,10 +2041,7 @@ end
         % multiple of nothing: on the WithER cell, ratio alone at 3x flagged 649 of 838 tracks, which
         % is not triage. Tied to the linking radius rather than a fixed µm so it travels between
         % datasets — a step approaching that radius is the tracker at the limit of what it may link.
-        f = 0.4;
-        if isfield(c,'link_dist') && isgraphics(c.link_dist) && c.link_dist.Value>0
-            f = c.link_dist.Value/2;
-        end
+        f = tool1_link()/2;
     end
 
     function link_goto(delta)
@@ -2276,9 +2333,18 @@ end
         end
     end
 
+    function on_zoom_toggle()
+        % Tint tracks the state so the button reads as pressed at a glance, then reframe.
+        if isfield(c,'zoom_btn') && isgraphics(c.zoom_btn)
+            if c.zoom_btn.Value, c.zoom_btn.BackgroundColor = [0.86 0.90 0.96];
+            else,                c.zoom_btn.BackgroundColor = [0.94 0.94 0.94]; end
+        end
+        refreshTraj();
+    end
+
     function tf = zoom_to_link()
         tf = true;
-        if isfield(c,'zoom_link') && isgraphics(c.zoom_link), tf = c.zoom_link.Value; end
+        if isfield(c,'zoom_btn') && isgraphics(c.zoom_btn), tf = logical(c.zoom_btn.Value); end
     end
 
     function set_link_pad()
@@ -2478,7 +2544,7 @@ end
             tern_(~isempty(S.cuts), sprintf(' · %d link cut%s applied', numel(S.cuts), tern_(numel(S.cuts)==1,'','s')), ''));
         clog('   thresholds: disp var <= %.4f · density <= %.0f%s', c.max_dv.Value, c.max_dn.Value, ...
             tern_(isfield(c,'reject_jumps') && isgraphics(c.reject_jumps) && c.reject_jumps.Value, ...
-                  sprintf(' · jump gate > %.3g µm', c.gap_dist.Value), ''));
+                  sprintf(' · jump gate > %.3g µm', tool1_gap()), ''));
         clog('   -> %s  [_tracks_%s.xml · _spots_%s.csv · _track_metrics.csv · _filter_log.csv]', ...
             out_dir, S.exportSuffix, S.exportSuffix);
         % No modal box: it blocked the app and told you nothing the log does not. The status line
@@ -2516,7 +2582,7 @@ end
         thr_dv   = c.max_dv.Value;
         thr_dn   = c.max_dn.Value;
         jump_on  = isfield(c,'reject_jumps') && isgraphics(c.reject_jumps) && c.reject_jumps.Value;
-        thr_jump = c.gap_dist.Value;
+        thr_jump = tool1_gap();
         n_files = numel(S.file_list);
 
         % visible progress bar (uifigure dialog); fall back to the status line if this
