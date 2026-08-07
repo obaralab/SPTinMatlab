@@ -189,7 +189,9 @@ assert(isfield(cs_site_set_near(struct(),'mito',true),'MitoFlag'), 'a bare recor
 % Spelling follows the record, so field order at the call site is untouched.
 r = cs_site_set_near(struct('csID',1,'mito',false,'area',2), 'mito', true);
 assert(r.mito && ~isfield(r,'MitoFlag'), 'an existing ''mito'' spelling must be written in place');
-assert(isequal(fieldnames(r), {'csID';'mito';'area'}), 'field order must be preserved');
+assert(isequal(fieldnames(r), {'csID';'mito';'area';'near'}), ...
+    'the flat field keeps its position; the keyed container is appended');
+assert(r.near.mito, 'the keyed form must be written too');
 % Round-trip through the reader, including from the legacy classes the reader still accepts.
 for v = {1, 0, true, false}
     assert(cs_site_near(cs_site_set_near(struct(),'mito',v{1}),'mito') == logical(double(v{1})), 'round-trip');
@@ -202,6 +204,61 @@ end
 threw = false; try, cs_site_set_near(struct(),'er',true); catch, threw = true; end
 assert(threw, 'a support channel has no per-site flag to write');
 fprintf('  writer   : logical/double/int/single all stored as a 1x1 logical; NaN, [], vectors rejected\n');
+
+fprintf('\n========== PART C3: keyed storage wins, flat storage still works ==========\n');
+% Step 2 of the migration. Producers write both forms; readers prefer the keyed one. The point of
+% every case below is that an existing TrackStruct.mat / CS_final.mat needs NO conversion pass.
+
+% -- legacy-only (a build made before the migration): the flat field is still read.
+Tflat = T;   assert(~isfield(Tflat,'dist'), 'premise: the fixture is legacy-shaped');
+assert(isequaln(cs_channel_dist(Tflat,'mito','tracked'), reshape(T.mitoDist,[],1)), 'legacy tracked read');
+assert(isequaln(cs_channel_dist(Tflat,'mito','cloud'),   double(T.allSpots.MITODIST(:))), 'legacy cloud read');
+assert(cs_channel_has(Tflat,'mito') && cs_channel_has(Tflat,'er'), 'legacy availability');
+
+% -- keyed-only (what step 4 will leave behind): read without any flat field present.
+Tkey = rmfield(T, {'mitoDist','erDist'});
+Tkey.dist = struct('mito', T.mitoDist, 'er', T.erDist);
+Tkey.allSpots = rmfield(T.allSpots, {'MITODIST','ERDIST'});
+Tkey.allSpots.DIST = struct('mito', T.allSpots.MITODIST, 'er', T.allSpots.ERDIST);
+assert(isequaln(cs_channel_dist(Tkey,'mito','tracked'), reshape(T.mitoDist,[],1)), 'keyed tracked read');
+assert(isequaln(cs_channel_dist(Tkey,'er','cloud'),     double(T.allSpots.ERDIST(:))), 'keyed cloud read');
+assert(cs_channel_has(Tkey,'mito') && cs_channel_has(Tkey,'er'), 'keyed availability');
+[~, rawK] = cs_channel_has(Tkey,'mito');
+assert(isequaln(rawK, T.mitoDist), 'raw passthrough must come from the keyed store too');
+
+% -- both present and disagreeing: the keyed value wins. Producers write them from one source, so
+%    they can only differ in a hand-assembled struct — but the precedence must still be defined.
+Tboth = T; Tboth.dist = struct('mito', T.mitoDist * -1);
+assert(isequaln(cs_channel_dist(Tboth,'mito','tracked'), reshape(T.mitoDist * -1,[],1)), 'keyed wins');
+assert(isequaln(cs_channel_dist(Tboth,'er','tracked'),   reshape(T.erDist,[],1)), ...
+    'a PARTIALLY keyed struct must still find ER in the flat field');
+
+% -- dist = [], which is what combine_trackstructs deals into a field one source lacks.
+Tnil2 = T; Tnil2.dist = [];
+assert(isequaln(cs_channel_dist(Tnil2,'mito','tracked'), reshape(T.mitoDist,[],1)), '[] container falls back');
+Tnil3 = T; Tnil3.dist = struct();                       % present, but this cell imaged neither
+assert(isequaln(cs_channel_dist(Tnil3,'mito','tracked'), reshape(T.mitoDist,[],1)), 'empty container falls back');
+Tnil4 = rmfield(T,'mitoDist'); Tnil4.dist = struct('er', T.erDist);   % keyed, and mito really absent
+[dn4, hn4] = cs_channel_dist(Tnil4,'mito','tracked');
+assert(~hn4 && all(isnan(dn4)) && numel(dn4)==nF*nT, 'a channel absent from BOTH stores reads absent');
+assert(~cs_channel_has(Tnil4,'mito') && cs_channel_has(Tnil4,'er'), 'availability per channel');
+
+% -- the keyed store is size-gated exactly like the flat one.
+Tbad3 = T; Tbad3.dist = struct('mito', [1 2 3]);
+[db3, hb3] = cs_channel_dist(Tbad3,'mito','tracked');
+assert(~hb3 && numel(db3)==nF*nT, 'a mis-sized keyed array must not be preferred into a wrong read');
+
+% -- site flags: same precedence, and the writer produces both.
+assert(cs_site_near(struct('near',struct('mito',true)),'mito'), 'keyed flag reads');
+assert(~cs_site_near(struct('near',struct('mito',false),'MitoFlag',1),'mito'), 'keyed flag beats flat');
+assert(cs_site_near(struct('near',struct('er',true),'MitoFlag',1),'mito'), ...
+    'a container without THIS key falls through to the flat field');
+assert(cs_site_near(struct('near',[],'MitoFlag',1),'mito'), '[] container falls through');
+w = cs_site_set_near(struct('csID',3), 'mito', true);
+assert(w.near.mito && w.MitoFlag && islogical(w.near.mito), 'the writer emits both forms as logical');
+assert(cs_site_near(rmfield(w,'MitoFlag'),'mito'), 'the keyed form alone is enough to read back');
+fprintf('  migration: legacy-only, keyed-only, partial, [] and empty containers all resolve\n');
+fprintf('  precedence: keyed wins on conflict; mis-sized keyed arrays still fall to the size gate\n');
 
 fprintf('\n========== PART D: segmentation mask reader ==========\n');
 sp = fullfile(tempdir, sprintf('cs_channel_mask_smoke_%d.tif', feature('getpid')));

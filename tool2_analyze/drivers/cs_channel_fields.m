@@ -28,19 +28,34 @@ function f = cs_channel_fields(key)
 %           a reader can accept any; a writer must pick one, which is why 'site' stays singular.
 %   seg     per-cell record field holding the segmentation path ('erSeg' / 'mitoSeg')
 %   folder  project sub-folder holding the segmentation stacks ('er_seg' / 'mito_seg')
+%   box     the KEYED containers that replace the flat names above, channel-independent:
+%             box.mat   'dist'  -> Tracks(k).dist.<key>          [nFrames x nTracks] signed um
+%             box.spots 'DIST'  -> Tracks(k).allSpots.DIST.<key> [nDetections x 1]  signed um
+%             box.site  'near'  -> record.near.<key>             scalar logical
+%           Inside a container the field name IS the channel key, so a third channel needs no new
+%           name here at all — which is the whole point of moving the storage.
+%
+% MIGRATION (step 2). Producers write BOTH forms; readers prefer the keyed one and fall back to the
+% flat one, so a TrackStruct.mat built before this still loads with nothing to convert. An ABSENT
+% key inside a present container means "not imaged" and falls through to the flat name too — a
+% partially-keyed struct (dist.mito but no dist.er) must not read ER as missing. combine_trackstructs
+% fills a field one source lacks with [], so `dist` may also be a plain [] rather than a struct;
+% every reader treats that as "no keyed storage".
 %
 % A field that is '' means the channel genuinely has no such storage — callers must treat that as
 % "absent", not as an error. Unknown keys ERROR: until the channel config of step 3 exists, a typo
 % would otherwise be indistinguishable from a channel that was never imaged.
+BOX = struct('mat','dist','spots','DIST','site','near');   % same containers for every channel
 key = lower(strtrim(char(key)));
 switch key
     case 'er'
         f = struct('key','er','role','support','label','ER', ...
-            'mat','erDist','spots','ERDIST','site','','siteAny',{{}},'seg','erSeg','folder','er_seg');
+            'mat','erDist','spots','ERDIST','site','','siteAny',{{}},'seg','erSeg','folder','er_seg', ...
+            'box',BOX);
     case 'mito'
         f = struct('key','mito','role','proximity','label','Mito', ...
             'mat','mitoDist','spots','MITODIST','site','MitoFlag','siteAny',{{'MitoFlag','mito'}}, ...
-            'seg','mitoSeg','folder','mito_seg');
+            'seg','mitoSeg','folder','mito_seg','box',BOX);
     otherwise
         error('cs_channel_fields:unknownKey', ...
             'Unknown channel key ''%s''. Known keys: %s.', key, strjoin(cs_channel_keys(), ', '));

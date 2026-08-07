@@ -16,12 +16,15 @@ tf = false;
 F = cs_channel_fields(key);
 if isempty(F.site), return; end                  % e.g. 'er' — a support channel has no site flag
 if ~isstruct(cs), return; end
-fld = '';                                        % the same flag is spelled 'MitoFlag' on CS/CSW
-for i = 1:numel(F.siteAny)                       % records and 'mito' on footprint / dwell records
-    if isfield(cs, F.siteAny{i}), fld = F.siteAny{i}; break; end
+[v, keyed] = cs_channel_boxed(cs, F.box.site, F.key);   % cs.near.<key> — the keyed form wins
+if ~keyed
+    fld = '';                                    % the same flag is spelled 'MitoFlag' on CS/CSW
+    for i = 1:numel(F.siteAny)                   % records and 'mito' on footprint / dwell records
+        if isfield(cs, F.siteAny{i}), fld = F.siteAny{i}; break; end
+    end
+    if isempty(fld), return; end
+    v = cs.(fld);
 end
-if isempty(fld), return; end
-v = cs.(fld);
 if isempty(v), return; end                       % legacy CSdata templates ship MitoFlag = []
 if ~isnumeric(v) && ~islogical(v), return; end
 if isnumeric(v) && ~all(isfinite(v(:))), return; end   % NaN would throw in logical(); absent = false
