@@ -90,9 +90,24 @@ if isfolder(P.spt) && exist('spt_match','file')==2
         % literal '_VAPB', which silently enumerated nothing on any dataset named otherwise — the
         % user's live data uses '_C3'. spt_analyze_app was fixed for this; this was the last one.
         spec = cs_channel_segspec(cs_channel_config(P.project), P.project);
-        tok  = '';
-        try tok = spt_channel_token(P.spt, spec); catch, end
-        m = spt_match(P.spt, spec, tok);
+        % Prefer what Tool 1 RECORDED over re-deriving it. Deriving compares SPT names to
+        % segmentation names, so it only works when one is a prefix of the other; a regex typed in
+        % Tool 1 for unusual naming cannot be recovered that way at all. Fall back to deriving when
+        % nothing was recorded (a folder from an older Tool 1) or when the record resolves nothing,
+        % so a stale record cannot make this worse than it was.
+        tok = ''; m = [];
+        try
+            [reRec, ~, srcRec] = spt_settings_match(P.tracks);
+            if ~isempty(srcRec)
+                mR = spt_match(P.spt, spec, reRec);
+                if any(arrayfun(@(x) ~isempty(x.erSeg) || ~isempty(x.mitoSeg), mR)), m = mR; end
+            end
+        catch
+        end
+        if isempty(m)
+            try tok = spt_channel_token(P.spt, spec); catch, end
+            m = spt_match(P.spt, spec, tok);
+        end
         for i = 1:numel(m)
             [~,b] = fileparts(m(i).spt); bases{end+1} = b; %#ok<AGROW>
             seg(b) = struct('spt',m(i).spt,'erSeg',m(i).erSeg,'mitoSeg',m(i).mitoSeg,'seg',m(i).seg);

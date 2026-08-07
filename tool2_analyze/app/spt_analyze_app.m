@@ -236,6 +236,17 @@ end
         chanTok = ''; chanWhy = ''; matched = [];
         if exist('spt_match','file')==2
             cands = {};
+            % FIRST: what Tool 1 actually used, if it recorded it. Deriving works only when a
+            % segmentation name is a prefix of the SPT name; a regex typed in Tool 1 for unusual
+            % naming can never be re-derived, so the recorded value has to lead. Still scored
+            % against the others below, so a stale record cannot beat a convention that resolves
+            % more cells.
+            try
+                [reRec, tokRec, srcRec] = spt_settings_match(fullfile(d,'tracks'));
+                if ~isempty(srcRec)
+                    cands{end+1} = {reRec, tokRec, 'recorded by Tool 1 in _settings.txt'};
+                end
+            catch, end
             try, [t0, ti] = spt_channel_token(fullfile(d,'spt'), fullfile(d,'er_seg'), fullfile(d,'mito_seg'));
                  if ~isempty(t0), cands{end+1} = {['(?:' regexptranslate('escape',t0) ')$'], t0, ti.why}; end
             catch, end

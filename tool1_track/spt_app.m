@@ -149,13 +149,20 @@ tg.SelectedTab = tMatch;   % ...but open on Match files: that is where a fresh s
             % spt_channel_token. A typed value still wins outright: the field is an override, not a
             % setting, so re-scanning a different project re-derives instead of carrying a stale one.
             if isempty(strip)
-                [c, tokUsed, tokWhy] = matchDerived(sptD, erD, miD);
+                [c, tokUsed, tokWhy, stripRe] = matchDerived(sptD, erD, miD);
             else
                 c = spt_match(sptD, erD, miD, strip);
-                tokUsed = strip; tokWhy = 'strip regex as typed';
+                tokUsed = strip; tokWhy = 'strip regex as typed'; stripRe = strip;
             end
             for k = 1:numel(c)
                 c(k).use = true; c(k).diamUm = 0.5; c(k).keepPct = 6; c(k).thrAbs = [];
+                % Carry HOW this cell was matched onto the cell record, so spt_write_settings can
+                % record it beside the detection and tracking parameters. Without it the decision
+                % died with the scan: Tools 2 and 3 had to re-derive the token from the file names,
+                % which only works when the segmentation names are prefixes of the SPT names. A
+                % regex typed here because the naming is unusual was unrecoverable downstream.
+                c(k).chanTok = tokUsed;      % human-readable, e.g. '_C3'
+                c(k).stripRe = stripRe;      % the regex actually passed to spt_match
                 % thrMode/qualThr left UNSET at init on purpose: un-previewed cells inherit the CURRENT
                 % Detect-tab policy at run time (so "Quality ≥ X" applies to every ticked cell, not just one).
             end
@@ -191,7 +198,7 @@ tg.SelectedTab = tMatch;   % ...but open on Match files: that is where a fresh s
             refreshCurateCells();                % populate the filter cell list
         end
 
-        function [best, tok, why] = matchDerived(sptD, erD, miD)
+        function [best, tok, why, re] = matchDerived(sptD, erD, miD)
             % The same ladder Tool 2 uses (spt_analyze_app onPickProject): the token READ from the
             % file names first, then the legacy '_VAPB', then nothing — each scored by how many
             % cells actually resolved a segmentation, so the winner is decided by the files rather
@@ -202,6 +209,7 @@ tg.SelectedTab = tMatch;   % ...but open on Match files: that is where a fresh s
             % here on. Returning a double [] would quietly change the class of `matched`.
             best = spt_match(sptD, erD, miD, '');
             tok  = ''; why = 'names match with nothing stripped';
+            re   = '';                       % the REGEX that won, not just its human-readable token
             nBest = nResolved(best);
             cands = {};
             try
@@ -213,7 +221,7 @@ tg.SelectedTab = tMatch;   % ...but open on Match files: that is where a fresh s
             for q = 1:numel(cands)
                 try mq = spt_match(sptD, erD, miD, cands{q}{1}); catch, continue; end
                 nq = nResolved(mq);
-                if nq > nBest, nBest = nq; best = mq; tok = cands{q}{2}; why = cands{q}{3}; end
+                if nq > nBest, nBest = nq; best = mq; tok = cands{q}{2}; why = cands{q}{3}; re = cands{q}{1}; end
             end
             if nBest <= 0, why = 'no ER/mito matched any naming convention'; end
         end

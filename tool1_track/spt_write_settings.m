@@ -41,6 +41,13 @@ fprintf(fid, 'tracking.max_gap_frames = %d\n', prm.maxGap);
 fprintf(fid, 'tracking.lambda         = %.4g\n', prm.lambda);
 fprintf(fid, 'calibration.pixel_um    = %.6g\n', prm.pxUm);
 fprintf(fid, 'calibration.frame_s     = %.6g\n', prm.dtS);
+% HOW this cell's movie was paired with its segmentations. Tools 2 and 3 have to redo that pairing
+% to resolve overlays, and until this was recorded they could only RE-DERIVE the token by comparing
+% names — which works when a segmentation name is a prefix of the SPT name and not otherwise. A
+% regex typed in Tool 1 because the naming is unusual was lost the moment the scan ended.
+% strip_regex is what actually went to spt_match; channel_token is the readable form of it.
+fprintf(fid, 'matching.strip_regex    = %s\n', gs(cel,'stripRe','(none)'));
+fprintf(fid, 'matching.channel_token  = %s\n', gs(cel,'chanTok','(none)'));
 fprintf(fid, 'result.n_spots          = %d\n', numel(R.spotId));
 fprintf(fid, 'result.n_tracks         = %d\n', R.nTracks);
 fprintf(fid, 'result.have_er          = %d\n', R.haveEr);
@@ -57,3 +64,10 @@ end
 end
 
 function v = gf(s, f, d), if isfield(s,f) && ~isempty(s.(f)), v = s.(f); else, v = d; end, end
+
+function v = gs(s, f, d)
+% String field, or a placeholder. '(none)' rather than an empty line, because "matched with nothing
+% stripped" is a real, valid answer and must not read as "this run recorded nothing".
+v = d;
+if isfield(s,f) && ~isempty(s.(f)) && (ischar(s.(f)) || isstring(s.(f))), v = char(s.(f)); end
+end
