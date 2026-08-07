@@ -976,21 +976,11 @@ end
 function v=getf(s,f,d), if isstruct(s)&&isfield(s,f)&&~isempty(s.(f)), v=s.(f); else, v=d; end, end
 
 function c = chanColour(key, idx)
-%CHANCOLOUR  Contour colour for a channel. ER green and mito magenta are PINNED to the values this
-% panel has always drawn — a reader who knows the figures must not have to relearn them. Anything
-% else is taken from a fixed rota, so a third channel is distinct from both and stable across runs
-% (indexed by declaration order, not hashed, so it does not change when a project is edited).
-switch lower(char(key))
-    case 'er',   c = [0.25 1.00 0.50];
-    case 'mito', c = [1.00 0.30 0.85];
-    otherwise
-        rota = [0.30 0.75 1.00      % cyan-blue
-                1.00 0.80 0.20      % amber
-                0.70 0.55 1.00      % violet
-                1.00 0.45 0.30      % coral
-                0.55 1.00 0.85];    % mint
-        c = rota(mod(max(idx,1)-1, size(rota,1)) + 1, :);
-end
+%CHANCOLOUR  Contour colour for a channel in THIS panel. ER green and mito magenta are pinned to the
+% values it has always drawn — a reader who knows the figures must not have to relearn them. Every
+% other channel takes the shared rota, so the picker and the dwell overlay agree about what a new
+% channel looks like even though their pinned pairs differ.
+c = cs_channel_colour(key, idx, struct('er',[0.25 1.00 0.50], 'mito',[1.00 0.30 0.85]));
 end
 
 function s = chanBoxLabel(F)

@@ -81,21 +81,54 @@ assert(any(strcmp(t2,'ER')) && any(strcmp(t2,'mito')), 'the built-in default los
 assert(~any(strcmpi(t2,'lysosome')), 'a project with no config must not gain channels');
 fprintf('  no channels.json -> exactly the ER + mito panel it always was\n');
 
+fprintf('\n========== PART D: the dwell overlay cannot alias one channel onto another ==========\n');
+% The bug: dwellOrgMask picked its stack with `if strcmp(which,'mito'), p = da.mitoPath; else, p =
+% da.erPath; end` and cached under `segIdx*10 + (mito?1:2)`. EVERY non-mito channel therefore read
+% the ER stack and shared the ER cache slot — the wrong mask under the right label, silently.
+src = fileread(fullfile(fileparts(here),'app','spt_analyze_app.m'));
+assert(~contains(src, "segIdx*10"), 'the numeric orgCache key that aliased channels is back');
+assert(~contains(src, "if strcmp(which,'mito'), p = da.mitoPath; else, p = da.erPath; end"), ...
+    'dwellOrgMask still picks its stack with a two-way mito/ER test');
+assert(contains(src, "sprintf('%s@%d', which, segIdx)"), 'the cache key is not per-channel');
+assert(contains(src, "'KeyType','char'"), 'orgCache must be keyed by string, not by a packed number');
+% Cache keys for three channels across two frames must all be distinct.
+keys = {};
+for kk = {'er','mito','lyso'}
+    for f = [1 2]
+        keys{end+1} = sprintf('%s@%d', kk{1}, f); %#ok<AGROW>
+    end
+end
+assert(numel(unique(keys))==numel(keys), 'cache keys collide across channels');
+fprintf('  cache key is "<key>@<page>": %s — all distinct\n', strjoin(keys, ' '));
+
+% Colours: within a project no two channels may share one, in EITHER panel's pin set.
+PICK = struct('er',[0.25 1.00 0.50], 'mito',[1.00 0.30 0.85]);   % picker: contours
+DWEL = struct('er',[0.20 1.00 0.35], 'mito',[1.00 0.25 1.00]);   % dwell: translucent fills
+for pins = {PICK, DWEL}
+    cols = cell2mat(arrayfun(@(i) cs_channel_colour(sub2key(i), i, pins{1}), (1:4)', 'UniformOutput', false));
+    assert(size(unique(cols,'rows'),1)==4, 'two channels share a colour in one of the panels');
+end
+% The pinned pairs differ between panels on purpose (published figures), but the ROTA is shared, so
+% a newly declared channel looks the same in both.
+assert(isequal(cs_channel_colour('lyso',3,PICK), cs_channel_colour('lyso',3,DWEL)), ...
+    'a new channel must get the same rota colour in every panel');
+assert(~isequal(cs_channel_colour('er',1,PICK), cs_channel_colour('er',1,DWEL)), ...
+    'premise: the two panels pin ER differently');
+fprintf('  4 channels -> 4 distinct colours in both panels; the rota is shared, the pins are not\n');
+
 fprintf('\ncs_channel_ui_smoke: PASS\n');
+end
+
+function k = sub2key(i)
+ks = {'er','mito','lyso','perox'};
+k = ks{min(max(i,1), numel(ks))};
 end
 
 % ------------------------------------------------------------------------------------------------
 function c = colourOf(key, idx)
-% Reach the picker's local chanColour without opening a figure. It is a local function of
-% cs_window_picker.m, so this reproduces its contract rather than calling it; if the two ever
-% diverge, PART B still fails on the real panel.
-switch lower(char(key))
-    case 'er',   c = [0.25 1.00 0.50];
-    case 'mito', c = [1.00 0.30 0.85];
-    otherwise
-        rota = [0.30 0.75 1.00; 1.00 0.80 0.20; 0.70 0.55 1.00; 1.00 0.45 0.30; 0.55 1.00 0.85];
-        c = rota(mod(max(idx,1)-1, size(rota,1)) + 1, :);
-end
+% The picker's pins, through the SHARED palette function — not a reimplementation of it. This used
+% to duplicate the rota, which would have let the two drift apart silently.
+c = cs_channel_colour(key, idx, struct('er',[0.25 1.00 0.50], 'mito',[1.00 0.30 0.85]));
 end
 
 function closeIfThere(f)

@@ -84,7 +84,7 @@ pendExcl=struct('file',{},'csID',{},'window',{},'pickPx',{},'trackCol',{});
 pendDelSite=struct('file',{},'csID',{},'window',{},'pickPx',{});   % whole-site deletions marked but not yet saved   % track removals marked but not yet applied
 % Dwell tab handles
 axDwHist=[]; axKout=[]; tblDwell=[]; axDwTrace=[]; axDwDens=[]; lblDwell=[]; dwellRowMap=[];
-btnDwPlay=[]; sldDwFrame=[]; chkDwEr=[]; chkDwMito=[]; eDwFps=[]; lblDwAnim=[]; dwellAnim=[]; ddDwBg=[]; eDwContrast=[];
+btnDwPlay=[]; sldDwFrame=[]; chkDwChan=gobjects(1,0); eDwFps=[]; lblDwAnim=[]; dwellAnim=[]; ddDwBg=[]; eDwContrast=[];
 % Compare tab handles
 % Experiment tab — the shared experiment/condition panel (spt_experiment_panel)
 exptCtl=[];
@@ -1616,8 +1616,17 @@ end
         ddDwBg = uidropdown(ac,'Items',{'density (accumulated)','raw movie'},'Value','density (accumulated)','Tag','dwBg', ...
             'Tooltip','Backdrop: the accumulated localization density (shows the site + dwell context) or the raw SPT movie frame-by-frame (the actual data). The contact-site outline + dwell colouring + ER/mito overlay draw on either.', ...
             'ValueChangedFcn',@(s,e) onDwellBg());
-        chkDwEr   = uicheckbox(ac,'Text','ER','Value',false,'Tag','dwEr','ValueChangedFcn',@(s,e) dwellRedraw(), 'Tooltip','Overlay the ER segmentation (green) at the current frame.');
-        chkDwMito = uicheckbox(ac,'Text','mito','Value',true,'Tag','dwMito','ValueChangedFcn',@(s,e) dwellRedraw(), 'Tooltip','Overlay the mitochondria segmentation (magenta) at the current frame.');
+        % One overlay checkbox per declared channel, generated. mito stays ticked by default and ER
+        % unticked, as they always were; a newly declared channel starts unticked.
+        dwKeys = cs_channel_keys(cs_channel_config(projectDir));
+        chkDwChan = gobjects(1, numel(dwKeys));
+        for kDw = 1:numel(dwKeys)
+            Fd = cs_channel_fields(dwKeys{kDw});
+            lab = Fd.label; if ~strcmp(lab, upper(lab)), lab = lower(lab); end
+            chkDwChan(kDw) = uicheckbox(ac,'Text',lab,'Value',strcmp(Fd.key,'mito'), ...
+                'Tag',['dw_' Fd.key],'ValueChangedFcn',@(s,e) dwellRedraw(), ...
+                'Tooltip',sprintf('Overlay the %s segmentation at the current frame.', Fd.label));
+        end
         uilabel(ac,'Text','contrast','HorizontalAlignment','right','FontSize',10);
         eDwContrast = uispinner(ac,'Limits',[0.05 1],'Value',0.7,'Step',0.05,'Tag','dwContrast', ...
             'Tooltip','Display contrast for the backdrop — clips the bright end (LOWER = brighter). Handy for dark raw movies.', ...
@@ -1716,14 +1725,15 @@ end
         Dens = windowDens(ee.cellIndex, ee.winFrames, SF, g, ee.densSrc);
         bx = ee.refboundary(:,1)+cUm(1); by = ee.refboundary(:,2)+cUm(2);
         pad = max(0.6, 1.4*sqrt(max(ee.areaUm2,eps)/pi));
-        ov = struct('er','','mito',''); try, ov = resolveOverlay(ee.file); catch, end
+        ov = struct('er','','mito','','seg',struct()); try, ov = resolveOverlay(ee.file); catch, end
+        segAll = struct(); if isfield(ov,'seg') && isstruct(ov.seg), segAll = ov.seg; end
         bg = 'density (accumulated)'; if ~isempty(ddDwBg) && isgraphics(ddDwBg), bg = ddDwBg.Value; end
         da = struct('cUm',cUm,'bx',bx,'by',by,'dens',Dens,'SF',SF,'grid',g, ...
             'xa',xa(:),'ya',ya(:),'fr',fr(:),'ii',logical(ii(:)),'n',numel(fr), ...
             'xlim',[min(bx)-pad max(bx)+pad],'ylim',[min(by)-pad max(by)+pad], ...
-            'erPath',ov.er,'mitoPath',ov.mito,'sptPath',ov.spt,'cellIndex',ee.cellIndex, ...
+            'erPath',ov.er,'mitoPath',ov.mito,'seg',segAll,'sptPath',ov.spt,'cellIndex',ee.cellIndex, ...
             'backdrop',bg,'rawH',[],'rawW',[],'rawN',0,'rawLo',[],'rawHi',[], ...
-            'orgCache',containers.Map('KeyType','double','ValueType','any'), ...
+            'orgCache',containers.Map('KeyType','char','ValueType','any'), ...
             'name',sprintf('cell%d_track%d_site%d_win%d', ee.cellIndex, pt.trackCol, ee.csID, pt.window), ...
             'title',sprintf('track %d on site %d', pt.trackCol, ee.csID), ...
             'i',numel(fr),'timer',[],'playing',false, ...
@@ -1735,13 +1745,18 @@ end
             if n>1, sldDwFrame.Limits=[1 n]; else, sldDwFrame.Limits=[1 2]; end
             sldDwFrame.Value = min(max(n,1), sldDwFrame.Limits(2));
         end
-        haveMito = ~isempty(da.mitoPath) && isfile(da.mitoPath);
-        haveEr   = ~isempty(da.erPath)   && isfile(da.erPath);
-        if ~isempty(chkDwMito) && isgraphics(chkDwMito), chkDwMito.Enable=tern(haveMito,'on','off'); if ~haveMito, chkDwMito.Value=false; end, end
-        if ~isempty(chkDwEr)   && isgraphics(chkDwEr),   chkDwEr.Enable=tern(haveEr,'on','off');     if ~haveEr,   chkDwEr.Value=false;   end, end
+        % Enable each channel's box only if that channel actually resolved a stack for this cell.
+        anySeg = false;
+        for kEn = 1:numel(chkDwChan)
+            h = chkDwChan(kEn); if ~isgraphics(h), continue; end
+            kk_ = regexprep(char(h.Tag), '^dw_', '');
+            hasIt = isfield(da.seg,kk_) && ~isempty(da.seg.(kk_)) && isfile(da.seg.(kk_));
+            h.Enable = tern(hasIt,'on','off'); if ~hasIt, h.Value = false; end
+            anySeg = anySeg || hasIt;
+        end
         dwellRedraw(n);
         if ~isempty(lblDwAnim) && isgraphics(lblDwAnim)
-            lblDwAnim.Text = sprintf('%d frames%s', n, tern(haveMito||haveEr,'',' · no ER/mito seg'));
+            lblDwAnim.Text = sprintf('%d frames%s', n, tern(anySeg,'',' · no reference-channel seg'));
         end
     end
 
@@ -1828,11 +1843,16 @@ end
         set(da.h.head,'XData',da.xa(i),'YData',da.ya(i),'MarkerFaceColor',tern(inHead,[0.95 0.2 0.25],[1 1 0.2]));
         try, if ~isempty(da.h.org), delete(da.h.org(isgraphics(da.h.org))); end, catch, end
         oh = gobjects(0);
-        showM = ~isempty(chkDwMito) && isgraphics(chkDwMito) && strcmp(chkDwMito.Enable,'on') && chkDwMito.Value;
-        showE = ~isempty(chkDwEr)   && isgraphics(chkDwEr)   && strcmp(chkDwEr.Enable,'on')   && chkDwEr.Value;
         hold(axDwDens,'on');
-        if showM, oh = addOrgFill(oh, dwellOrgMask(da,'mito',da.fr(i)), [1 0.25 1]);  end
-        if showE, oh = addOrgFill(oh, dwellOrgMask(da,'er',  da.fr(i)), [0.2 1 0.35]); end
+        % One filled overlay per ticked channel. The pinned pair keeps this panel's published fill
+        % colours; anything newly declared takes the shared rota (cs_channel_colour).
+        DWPIN = struct('er',[0.2 1 0.35], 'mito',[1 0.25 1]);
+        for kSh = 1:numel(chkDwChan)
+            h = chkDwChan(kSh);
+            if ~isgraphics(h) || ~strcmp(h.Enable,'on') || ~h.Value, continue; end
+            kk_ = regexprep(char(h.Tag), '^dw_', '');
+            oh = addOrgFill(oh, dwellOrgMask(da, kk_, da.fr(i)), cs_channel_colour(kk_, kSh, DWPIN));
+        end
         % filled masks sit just ABOVE the backdrop but BELOW the outline/track (drop them to the
         % bottom, then push the backdrop below them) so the trajectory stays visible through the tint
         if ~isempty(oh)
@@ -1843,17 +1863,25 @@ end
     end
 
     function m = dwellOrgMask(da, which, frameVal)
-        % Cropped ER/mito mask + its µm extent at this track point's movie frame — for a FILLED overlay
-        % (like the players' tint) rather than an outline. Cached in da.orgCache (a handle Map, shared
-        % with dwellAnim). Registration: seg µm/px = FOVUM/seg width; frame→seg page = frame+1 (0-based;
-        % seconds mode divides by dt first). No imfinfo here — walking all IFDs of the multi-thousand-
-        % frame seg stack was the toggle/scrub hang; an out-of-range page just returns [] via the catch.
+        % Cropped mask + its µm extent for ONE channel at this track point's movie frame — for a
+        % FILLED overlay (like the players' tint) rather than an outline. Cached in da.orgCache (a
+        % handle Map, shared with dwellAnim). Registration: seg µm/px = FOVUM/seg width; frame→seg
+        % page = frame+1 (0-based; seconds mode divides by dt first). No imfinfo here — walking all
+        % IFDs of the multi-thousand-frame seg stack was the toggle/scrub hang; an out-of-range page
+        % just returns [] via the catch.
+        %
+        % `which` is a CHANNEL KEY. It used to be a two-way test — mito took da.mitoPath and
+        % EVERYTHING ELSE took da.erPath — so a third channel silently read the ER stack and cached
+        % under the ER slot: the wrong mask drawn under the right label, with no error. The path now
+        % comes from the keyed da.seg, and the cache key is a string, so channels cannot collide.
         m = [];
-        if strcmp(which,'mito'), p = da.mitoPath; else, p = da.erPath; end
+        which = char(which);
+        p = '';
+        if isfield(da,'seg') && isstruct(da.seg) && isfield(da.seg, which), p = da.seg.(which); end
         if isempty(p) || ~isfile(p), return; end
         if secsMode(), fIdx = round(frameVal/max(trackDt(da.cellIndex),eps)); else, fIdx = round(frameVal); end
         segIdx = max(fIdx + 1, 1);
-        keyv = segIdx*10 + tern(strcmp(which,'mito'),1,2);
+        keyv = sprintf('%s@%d', which, segIdx);
         if isKey(da.orgCache,keyv), m = da.orgCache(keyv); return; end
         try
             im = imread(p, segIdx); if size(im,3)==3, im = rgb2gray(im); end
