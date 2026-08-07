@@ -53,6 +53,8 @@ eProj=[]; eCalPx=[]; eCalFov=[]; eCalDt=[]; eCalPrec=[]; lblProj=[];   % top-bar
 tg=[]; tImport=[]; tBuild=[]; tCS=[];                                 % tabs
 tRefine=[]; tSites=[]; tDwell=[]; tExpt=[]; tCompare=[];              % downstream tabs (Refine/Sites/Dwell/Experiment/Compare)
 ddTimeUnit=[]; lblBuild=[]; tblBuild=[]; txtBuild=[];                 % Build handles
+buildChanKeys = {};   % the channel columns tblBuild was BUILT with — onCalEdit derives its column
+                      % index map from this, so adding a channel cannot silently shift calibration
 axSiteD=[];   % Sites tab: rolling D of the member tracks, split inside/outside the footprint
 chanTok=''; chanWhy='';   % SPT channel token derived per project (see spt_channel_token)
 calibKnown=false;   % is the panel calibration supported by THIS project (adopted or typed)?
@@ -317,9 +319,17 @@ end
         % rather than measured from that cell. The last four columns are editable, so a cell recorded
         % on a different camera or at a different frame rate can be corrected without touching the
         % others — which is what makes a comparison spanning two acquisitions come out in real units.
-        tblBuild = uitable(lp,'ColumnName',{'cell','tracks','med len','mito','ER','µm/px','FOV µm','dt s','prec nm','bin nm'}, ...
-            'ColumnWidth',{'auto',52,64,44,44, 60,58,60,58,54}, ...
-            'ColumnEditable',[false false false false false true true true true true], ...
+        % Header: three fixed columns, then ONE PRESENCE COLUMN PER DECLARED CHANNEL, then the five
+        % editable calibration columns. The channel block is generated in declaration order (so it
+        % agrees with the picker's checkboxes), which is why onCalEdit must not use literal column
+        % numbers — see buildChanKeys.
+        buildChanKeys = cs_channel_keys(cs_channel_config(projectDir));
+        chanHdr = cell(1,numel(buildChanKeys));
+        for kH = 1:numel(buildChanKeys), chanHdr{kH} = cs_channel_fields(buildChanKeys{kH}).label; end
+        tblBuild = uitable(lp, ...
+            'ColumnName',[{'cell','tracks','med len'}, chanHdr, {'µm/px','FOV µm','dt s','prec nm','bin nm'}], ...
+            'ColumnWidth',[{'auto',52,64}, repmat({44},1,numel(chanHdr)), {60,58,60,58,54}], ...
+            'ColumnEditable',[false false false, false(1,numel(chanHdr)), true true true true true], ...
             'CellEditCallback',@(s2,e2) onCalEdit(e2), ...
             'Tooltip',['Per-cell calibration — edit any of the last four for one cell without disturbing ' ...
                        'the rest. ° = inherited from the Calibration panel above rather than read from ' ...
@@ -2323,27 +2333,34 @@ end
     end
 
     function populateBuildSummary(Tracks, src, aDir)
-        n = numel(Tracks); D = cell(n,10); tot = 0; anyM=false; anyE=false;
+        nCh = numel(buildChanKeys);
+        n = numel(Tracks); D = cell(n, 3 + nCh + 5); tot = 0;
+        anyCh = false(1, nCh);
         buildTracks = Tracks;                                    % set FIRST: the calibration accessors read it
         for k = 1:n
             L = double(Tracks(k).lengths(:)); nt = numel(L); tot = tot + nt;
-            hm = cs_channel_has(Tracks(k),'mito');
-            he = cs_channel_has(Tracks(k),'er');
-            anyM = anyM||hm; anyE = anyE||he;
+            marks = cell(1, nCh);
+            for kC = 1:nCh
+                hc = cs_channel_has(Tracks(k), buildChanKeys{kC});
+                anyCh(kC) = anyCh(kC) || hc;
+                marks{kC} = tern(hc,'✓','–');
+            end
             sc = calSrc(k); inh = @(f) tern(strcmp(gs(sc,f),'image')||strcmp(gs(sc,f),'xml'),'','°');
-            D(k,:) = {char(Tracks(k).file), nt, round(median(L)), tern(hm,'✓','–'), tern(he,'✓','–'), ...
-                      sprintf('%.5g%s', trackPx(k),   inh('pixSizeUm')), ...
+            D(k,:) = [{char(Tracks(k).file), nt, round(median(L))}, marks, ...
+                     {sprintf('%.5g%s', trackPx(k),   inh('pixSizeUm')), ...
                       sprintf('%.5g%s', trackFov(k),  inh('fovUm')), ...
                       sprintf('%.5g%s', trackDt(k),   inh('dt_s')), ...
                       sprintf('%.4g%s', trackPrec(k), inh('precNm')), ...
-                      sprintf('%.4g%s', trackBin(k),  inh('binNm'))};
+                      sprintf('%.4g%s', trackBin(k),  inh('binNm'))}];
         end
         tblBuild.Data = D;
         ddQCcell.Items = [{'All (pooled)'}, cellfun(@char, {Tracks.file}, 'uni', 0)];
         ddQCcell.Value = 'All (pooled)';
         drawQC('All (pooled)');
-        logBuild(sprintf('Built %d cell(s), %d tracks -> %s  [%s tracks, mito=%s ER=%s]', ...
-            n, tot, fullfile(aDir,tsName), src, tern(anyM,'yes','no'), tern(anyE,'yes','no')));
+        chanTxt = '';   % '· mito=yes er=no', one term per declared channel
+        for kC = 1:nCh, chanTxt = sprintf('%s %s=%s', chanTxt, buildChanKeys{kC}, tern(anyCh(kC),'yes','no')); end
+        logBuild(sprintf('Built %d cell(s), %d tracks -> %s  [%s tracks,%s]', ...
+            n, tot, fullfile(aDir,tsName), src, chanTxt));
         setBuild(sprintf('Done — %d cell(s), %d tracks. %s in analysis/ (active). QC below.', n, tot, tsName),[0.2 0.5 0.2]);
     end
 
@@ -2352,9 +2369,14 @@ end
         % stored precision, so a correction that lived only in the table would silently not apply.
         try, r = ev.Indices(1); c = ev.Indices(2); catch, return; end
         if r < 1 || r > numel(buildTracks), return; end
-        fields = struct('x6','pixSizeUm','x7','fovUm','x8','dt_s','x9','precNm','x10','binNm');
-        fn = sprintf('x%d', c); if ~isfield(fields, fn), return; end
-        f = fields.(fn);
+        % The five calibration columns sit AFTER the three fixed ones and the generated per-channel
+        % block, so their positions depend on how many channels the project declares. Deriving the
+        % index instead of hard-coding x6..x10 is what stops a third channel from silently writing
+        % the pixel size into the FOV field.
+        calFields = {'pixSizeUm','fovUm','dt_s','precNm','binNm'};
+        idx = c - (3 + numel(buildChanKeys));
+        if idx < 1 || idx > numel(calFields), return; end
+        f = calFields{idx};
         v = str2double(regexprep(char(string(ev.NewData)), '[^0-9eE.+-]', ''));   % tolerate a pasted '°'
         if ~(isscalar(v) && isfinite(v) && v > 0)
             setBuild('Calibration must be a positive number — reverting that cell.',[0.7 0.2 0.2]);

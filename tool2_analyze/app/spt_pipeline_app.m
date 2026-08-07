@@ -1918,10 +1918,15 @@ say('Ready — pick a project folder to begin.');
         M=[]; if isfield(csData,'densMetrics'), M=csData.densMetrics; end
         d=csTable.Data;
         if ~isempty(d) && k<=size(d,1)
-            d{k,5}=numel(csData.CS(k).tracks); d{k,6}=round(csData.dwell(k),3);   % #trk, dwell
+            % By NAME, not by position: these sat at literal 5..8, which is only true while the
+            % header has exactly one channel column before them. Same trap as the 'mito' write.
+            col = @(nm) find(strcmp(csTable.ColumnName, nm), 1);
+            put = @(dd, nm, v) setCell(dd, k, col(nm), v);
+            d = put(d, '#trk',    numel(csData.CS(k).tracks));
+            d = put(d, 'dwell s', round(csData.dwell(k),3));
             if ~isempty(M) && k<=numel(M)
-                d{k,7}=tern(isfinite(M(k).prob_mass),  round(M(k).prob_mass,4), '');   % p
-                d{k,8}=tern(isfinite(M(k).enrichment), round(M(k).enrichment,2), '');  % enrich
+                d = put(d, 'p',      tern(isfinite(M(k).prob_mass),  round(M(k).prob_mass,4), ''));
+                d = put(d, 'enrich', tern(isfinite(M(k).enrichment), round(M(k).enrichment,2), ''));
             end
             csTable.Data=d;
         end
@@ -2522,7 +2527,12 @@ say('Ready — pick a project folder to begin.');
         if isempty(csData) || isempty(csSelK), return; end
         k=csSelK;
         csData.CS(k) = cs_site_set_near(csData.CS(k), 'mito', ~cs_site_near(csData.CS(k),'mito'));
-        d=csTable.Data; d{k,4}=tern(cs_site_near(csData.CS(k),'mito'),'mito','non'); csTable.Data=d;   % 'mito' is col 4 now
+        % Look the column up by NAME. The trailing comment this replaced read "'mito' is col 4 now",
+        % which is the record of a literal index having already broken once when the header changed.
+        d=csTable.Data; cMito=find(strcmp(csTable.ColumnName,'mito'),1);
+        if ~isempty(cMito) && size(d,2)>=cMito
+            d{k,cMito}=tern(cs_site_near(csData.CS(k),'mito'),'mito','non'); csTable.Data=d;
+        end
         drawCS(csPlayFrame); try, drawCSallPanel(k); catch, end   % whole-cell boundary colour depends on MitoFlag
         % Dwell + Compare both group/label by MitoFlag -> invalidate so they regroup on next open.
         dwellData=[]; cmpData=[];
@@ -3829,6 +3839,14 @@ say('Ready — pick a project folder to begin.');
         drawnow;
     end
     function y = tern(c,a,b), if c, y=a; else, y=b; end, end
+
+    function dd = setCell(dd, r, c, v)
+        % Write one table cell by resolved index, tolerating a column that is not there. `c` comes
+        % from a find() over ColumnName, so it is [] when the header does not carry that column —
+        % which is a legitimate state once headers are generated, not an error.
+        if isempty(c) || r < 1 || r > size(dd,1) || c > size(dd,2), return; end
+        dd{r,c} = v;
+    end
     function v = valOr(h,dflt), v = strtrim(h.Value); if isempty(v), v = dflt; end, end
     function s = argstr(args)
         parts = cell(1,numel(args));
