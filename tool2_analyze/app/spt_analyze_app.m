@@ -479,15 +479,13 @@ end
                 isfield(T.allSpots,'X') && ~isempty(T.allSpots.X);
             if ~useTracked && haveCloud
                 x = T.allSpots.X(:); y = T.allSpots.Y(:);
-                md = nan(size(x)); ed = nan(size(x));
-                if isfield(T.allSpots,'MITODIST') && numel(T.allSpots.MITODIST)==numel(x), md = double(T.allSpots.MITODIST(:)); end
-                if isfield(T.allSpots,'ERDIST')   && numel(T.allSpots.ERDIST)==numel(x),   ed = double(T.allSpots.ERDIST(:));   end
+                md = cs_channel_dist(T,'mito','cloud');
+                ed = cs_channel_dist(T,'er','cloud');
             else
                 M = T.matrix; if size(M,3) < 3, continue; end
                 x = reshape(M(:,:,2),[],1); y = reshape(M(:,:,3),[],1);
-                md = nan(size(x)); ed = nan(size(x));
-                if isfield(T,'mitoDist') && isequal(size(T.mitoDist), size(M(:,:,1))), md = reshape(T.mitoDist,[],1); end
-                if isfield(T,'erDist')   && isequal(size(T.erDist),   size(M(:,:,1))), ed = reshape(T.erDist,[],1);   end
+                md = cs_channel_dist(T,'mito','tracked');
+                ed = cs_channel_dist(T,'er','tracked');
             end
             keep = isfinite(x) & isfinite(y);
             X=[X; x(keep)]; Y=[Y; y(keep)]; MD=[MD; md(keep)]; ED=[ED; ed(keep)]; %#ok<AGROW>
@@ -808,7 +806,7 @@ end
         tag = '';
         if isfield(e,'edited')  && ~isempty(e.edited)  && e.edited,  tag = [tag ' ✎']; end
         if isfield(e,'deleted') && ~isempty(e.deleted) && e.deleted, tag = [tag ' ✗del']; end
-        s = sprintf('c%d · s%d · w%d · %s%s', e.cellIndex, e.csID, e.window, tern(e.mito,'mito','—'), tag);
+        s = sprintf('c%d · s%d · w%d · %s%s', e.cellIndex, e.csID, e.window, tern(cs_site_near(e,'mito'),'mito','—'), tag);
     end
 
     function s = srcLabel(sc)
@@ -1117,7 +1115,7 @@ end
         wl = unique([CSW.window]); ddWinFilt.Items = [{'All windows'}, arrayfun(@(w) sprintf('window %d',w), wl,'uni',0)];
         ddWinFilt.Value = 'All windows';
         fillSitesTable();
-        nMito = nnz([CSW.MitoFlag]);
+        nMito = nnz(cs_sites_near(CSW,'mito'));
         nRef = nnz(cellfun(@(m) startsWith(char(m),'refined'), {CSW.footprintMode}));
         refTxt = ''; if nRef>0, refTxt = sprintf(' · %d refined', nRef); end
         lblSites.Text = sprintf('%d site-windows over %d window(s) · %d mito%s — click a row to inspect / play.', ...
@@ -1136,7 +1134,7 @@ end
         for r = 1:numel(keep)
             e = CSW(keep(r));
             [dIn, dOut] = siteTrackD(e);
-            D(r,:) = {e.file, sprintf('%d',e.csID), sprintf('%d',e.window), tern(e.MitoFlag,'✓','–'), ...
+            D(r,:) = {e.file, sprintf('%d',e.csID), sprintf('%d',e.window), tern(cs_site_near(e,'mito'),'✓','–'), ...
                       sprintf('%.3f',e.areaUm2), sprintf('%d',e.nTracks), ...
                       fmtD_(dIn), fmtD_(dOut)};
         end
@@ -2053,7 +2051,7 @@ end
                 case 'enrichment', vals(i) = e.enrichment;
                 case 'area µm²',   vals(i) = e.areaUm2;
                 case 'n_loc',      vals(i) = e.nMemberLocs;
-                case 'mito fraction', vals(i) = double(e.MitoFlag);
+                case 'mito fraction', vals(i) = double(cs_site_near(e,'mito'));
                 case '# sites',    vals(i) = 1;
                 case {'dwell s','k_out /s'}
                     if havePS
@@ -2087,7 +2085,7 @@ end
             case 'window (time-resolved)', lab = sprintf('win %d', e.window);
             case 'condition'
                 if isfield(e,'condition') && ~isempty(e.condition), lab = char(e.condition); else, lab = e.file; end
-            otherwise,                     lab = tern(e.MitoFlag,'mito','non-mito');
+            otherwise,                     lab = tern(cs_site_near(e,'mito'),'mito','non-mito');
         end
     end
 
@@ -2106,7 +2104,7 @@ end
             case 'window (time-resolved)', lab = sprintf('win %d', ev.window);
             case 'condition'
                 if isfield(ev,'condition') && ~isempty(ev.condition), lab = char(ev.condition); else, lab = ev.file; end
-            otherwise, lab = tern(ev.mito,'mito','non-mito');
+            otherwise, lab = tern(cs_site_near(ev,'mito'),'mito','non-mito');
         end
     end
 
@@ -2301,8 +2299,8 @@ end
         buildTracks = Tracks;                                    % set FIRST: the calibration accessors read it
         for k = 1:n
             L = double(Tracks(k).lengths(:)); nt = numel(L); tot = tot + nt;
-            hm = isfield(Tracks,'mitoDist') && ~isempty(Tracks(k).mitoDist);
-            he = isfield(Tracks,'erDist')   && ~isempty(Tracks(k).erDist);
+            hm = cs_channel_has(Tracks(k),'mito');
+            he = cs_channel_has(Tracks(k),'er');
             anyM = anyM||hm; anyE = anyE||he;
             sc = calSrc(k); inh = @(f) tern(strcmp(gs(sc,f),'image')||strcmp(gs(sc,f),'xml'),'','°');
             D(k,:) = {char(Tracks(k).file), nt, round(median(L)), tern(hm,'✓','–'), tern(he,'✓','–'), ...
@@ -2380,7 +2378,8 @@ end
             for c = 1:size(M,2)
                 X = M(:,c,2); Y = M(:,c,3); F = M(:,c,1); ok = isfinite(X) & isfinite(Y);
                 if nnz(ok) < 2, continue; end
-                msdT = fieldOr(T,'MSD');   erT = fieldOr(T,'erDist');   miT = fieldOr(T,'mitoDist');   % may be absent (no-ER build / old struct)
+                msdT = fieldOr(T,'MSD');                                                    % may be absent (old struct)
+                [~, erT] = cs_channel_has(T,'er');   [~, miT] = cs_channel_has(T,'mito');   % [] when not imaged
                 rr = spt_fit_msd(colOr(msdT,c), dtk, fitSpec());        % per-track D at the current fit mode/window
                 s = struct('cellIdx',k,'col',c,'base',char(T.file),'X',X(ok),'Y',Y(ok),'F',F(ok),'len',nnz(ok), ...
                     'MSD', colOr(msdT,c), 'ER', finiteCol(erT,c), 'MI', finiteCol(miT,c), 'D', rr.D, 'sigLoc', rr.sigLocUm, 'fracUsed', rr.fracUsed, ...

@@ -270,14 +270,15 @@ onCell();
         if ~useTracked && haveCloud
             X=double(T.allSpots.X(:)); Y=double(T.allSpots.Y(:)); F=double(T.allSpots.FRAME(:));
             TID=(1:numel(X))';                                   % cloud: each detection its own "track"
-            if isfield(T.allSpots,'MITODIST') && numel(T.allSpots.MITODIST)==numel(X), MD=double(T.allSpots.MITODIST(:)); have=true; end
+            [MD, have] = cs_channel_dist(T, 'mito', 'cloud');
         else
             M=T.matrix; [nF,nT,~]=size(M); X=reshape(M(:,:,2),[],1); Y=reshape(M(:,:,3),[],1); F=reshape(M(:,:,1),[],1);
             TID=reshape(repmat(1:nT,nF,1),[],1);                 % track id = matrix column of each localization
-            if isfield(T,'mitoDist') && isequal(size(T.mitoDist),size(M(:,:,1))), MD=reshape(T.mitoDist,[],1); have=true; end
+            [MD, have] = cs_channel_dist(T, 'mito', 'tracked');
         end
-        ok=isfinite(X)&isfinite(Y); X=X(ok); Y=Y(ok); F=F(ok); TID=TID(ok); if have, MD=MD(ok); end
-        if ~have, MD=nan(size(X)); end
+        % MD comes back NaN-filled and full length whether or not the channel exists, so it filters
+        % with the same mask as X/Y and needs no have-guard here.
+        ok=isfinite(X)&isfinite(Y); X=X(ok); Y=Y(ok); F=F(ok); TID=TID(ok); MD=MD(ok);
     end
 
     function m = erMipMask(base)
@@ -293,12 +294,10 @@ onCell();
     end
 
     function m = segMaskAt(segPath, nfr, frame0)
-        % binary organelle mask (fg = min nonzero label) at a 0-based frame, resized to the density grid
-        m = [];
-        if isempty(segPath) || nfr<1, return; end
-        page = min(max(round(frame0)+1,1), nfr);
-        try, a=imread(segPath,page); v=unique(a(:)); nz=v(v>0); fg=1; if ~isempty(nz), fg=double(min(nz)); end
-            m = imresize(double(a==fg),[st.grid st.grid],'nearest') > 0.5; catch, m=[]; end
+        % binary organelle mask at a 0-based frame, resized to the density grid. Channel-agnostic —
+        % the SAME reader serves the ER support mask and the mito contour; the label/clamp/resize
+        % rules (and the per-page-label caveat) now live in cs_channel_mask.
+        m = cs_channel_mask(segPath, nfr, frame0, st.grid);
     end
 
     function m = werMask(w)

@@ -311,17 +311,14 @@ finishUI();
         as = []; if isfield(Tracks,'allSpots'), as = Tracks(i).allSpots; end
         if ~isempty(as) && isfield(as,'X') && ~isempty(as.X)
             aX = double(as.X(:)); aY = double(as.Y(:));
-            if isfield(as,'FRAME'),    aF  = double(as.FRAME(:));    else, aF  = nan(size(aX)); end
-            if isfield(as,'MITODIST'), aMD = double(as.MITODIST(:)); else, aMD = nan(size(aX)); end
+            if isfield(as,'FRAME'), aF = double(as.FRAME(:)); else, aF = nan(size(aX)); end
+            aMD = cs_channel_dist(Tracks(i), 'mito', 'cloud');       % NaN-filled when not imaged
         else
             ok0 = isfinite(MxL) & isfinite(MyL);
             aX = MxL(ok0); aY = MyL(ok0);
             F0 = Tracks(i).matrix(:,:,1); aF = F0(ok0);
-            if isfield(Tracks,'mitoDist') && ~isempty(Tracks(i).mitoDist)
-                MD0 = Tracks(i).mitoDist; aMD = MD0(ok0);
-            else
-                aMD = nan(size(aX));
-            end
+            MD0 = cs_channel_dist(Tracks(i), 'mito', 'tracked');     % column, matrix order
+            aMD = MD0(ok0(:));
         end
         keep = isfinite(aX) & isfinite(aY);
         aX = aX(keep); aY = aY(keep); aF = aF(keep); aMD = aMD(keep);

@@ -14,7 +14,7 @@ function rec = csDensMetricOne(cs, cc, file, blank, binArea)
 %   cc.Xc/cc.Yc    : localization coords (um) for prob_mass. cc.cellTot = normalizing loc count.
 %   binArea        : um^2 per bin.
 rec = blank;
-rec.csID = cs.csID; rec.cellIndex = cs.cellIndex; rec.mito = logical(cs.MitoFlag);
+rec.csID = cs.csID; rec.cellIndex = cs.cellIndex; rec.mito = cs_site_near(cs,'mito');
 rec.file = file;
 if isempty(cc) || isempty(cs.refboundary), return; end
 rc = cs.refCenter;
