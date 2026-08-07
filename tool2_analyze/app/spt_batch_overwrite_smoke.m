@@ -155,6 +155,19 @@ assert(~isempty(T(1).allSpots) && numel(T(1).allSpots.FRAME) == height(Sc), ...
 % the contact-site stages key off these two, so a mispaired CSV would quietly disarm Tool 3
 assert(~isempty(T(1).mitoDist) && any(isfinite(T(1).mitoDist(:))), 'MITO_DIST_UM did not come through');
 assert(~isempty(T(1).erDist)   && any(isfinite(T(1).erDist(:))),   'ER_DIST_UM did not come through');
+% ...and the keyed storage the readers actually prefer (step 2 of the reference-channel migration).
+% The flat pair above is still written, so a build made here opens in a tool from before the change.
+assert(isfield(T,'dist') && isstruct(T(1).dist), 'importer wrote no keyed distance container');
+assert(isequaln(T(1).dist.mito, T(1).mitoDist), 'dist.mito disagrees with mitoDist');
+assert(isequaln(T(1).dist.er,   T(1).erDist),   'dist.er disagrees with erDist');
+assert(isequaln(T(1).allSpots.DIST.mito, T(1).allSpots.MITODIST), 'allSpots.DIST.mito disagrees');
+assert(isequaln(T(1).allSpots.DIST.er,   T(1).allSpots.ERDIST),   'allSpots.DIST.er disagrees');
+% and both stores must agree through the accessor, tracked and cloud
+for kk = {'mito','er'}
+    assert(isequaln(cs_channel_dist(T(1),kk{1},'tracked'), reshape(T(1).(cs_channel_fields(kk{1}).mat),[],1)), ...
+        '%s: accessor and flat field disagree (tracked)', kk{1});
+    assert(cs_channel_has(T(1),kk{1}) && cs_channel_has(T(1),kk{1},'cloud'), '%s: not seen as present', kk{1});
+end
 fprintf('importer paired _tracks_curated.xml with _spots_curated.csv (%d tracks, %d detections)\n', ...
     numel(T(1).lengths), numel(T(1).allSpots.FRAME));
 
