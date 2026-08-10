@@ -3,8 +3,14 @@ function cs_window_mapper_smoke()
 % 2-window check that proves the temporal (per-window) mask actually restricts membership.
 here = fileparts(mfilename('fullpath'));
 addpath(here);                                   % drivers/
+addpath(fileparts(fileparts(here)));             % repo root, where spt_test_data lives
 
-anaDir = '/Users/safal-mac/Documents/IntegratedPipeline/Project/analysis';
+% PART B reuses PART A's TrackStruct, so both halves stand or fall on the same dataset.
+anaDir = spt_test_data(fullfile('Project','analysis'));
+if isempty(anaDir)
+    fprintf('SKIP %s — test dataset not installed (see spt_test_data.m)\n', mfilename);
+    return
+end
 
 fprintf('\n========== PART A: real data (whole-movie fallback) ==========\n');
 CSW = cs_window_mapper(anaDir, struct('save',true,'verbose',true,'src','all'));

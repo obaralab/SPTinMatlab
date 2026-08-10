@@ -3,7 +3,13 @@ function cs_source_lock_smoke()
 % source='tracked' makes cs_footprints_build + cs_window_mapper use the tracked matrix regardless of
 % opts.src ('all').
 here = fileparts(mfilename('fullpath')); addpath(here);
-src = '/Users/safal-mac/Documents/IntegratedPipeline/Project/analysis';
+addpath(fileparts(fileparts(here)));   % repo root, where spt_test_data lives
+% Needs a REAL built project: the fixture below is carved out of one cell of Project/analysis.
+src = spt_test_data(fullfile('Project','analysis'));
+if isempty(src)
+    fprintf('SKIP %s — test dataset not installed (see spt_test_data.m)\n', mfilename);
+    return
+end
 tmp = fullfile(tempdir,'cs_srclock'); if isfolder(tmp), rmdir(tmp,'s'); end
 mkdir(tmp); mkdir(fullfile(tmp,'csIDs')); mkdir(fullfile(tmp,'Densities'));
 S = load(fullfile(src,'TrackStruct.mat')); fn=fieldnames(S); Tr=S.(fn{1});

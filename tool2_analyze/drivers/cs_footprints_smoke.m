@@ -3,10 +3,15 @@ function cs_footprints_smoke()
 % and confirm cs_window_mapper (useRefined=true) applies the override (mode 'refined', changed area
 % + changed membership) while useRefined=false ignores it.
 here = fileparts(mfilename('fullpath')); addpath(here);
+addpath(fileparts(fileparts(here)));   % repo root, where spt_test_data lives
 
 
 % stage a private copy of Project/analysis (so we don't leave a CS_footprints.mat behind)
-src = '/Users/safal-mac/Documents/IntegratedPipeline/Project/analysis';
+src = spt_test_data(fullfile('Project','analysis'));
+if isempty(src)
+    fprintf('SKIP %s — test dataset not installed (see spt_test_data.m)\n', mfilename);
+    return
+end
 tmp = fullfile(tempdir,'cs_foot_smoke'); if isfolder(tmp), rmdir(tmp,'s'); end
 mkdir(tmp); mkdir(fullfile(tmp,'csIDs')); mkdir(fullfile(tmp,'Densities'));
 copyfile(fullfile(src,'TrackStruct.mat'), fullfile(tmp,'TrackStruct.mat'));

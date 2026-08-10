@@ -3,10 +3,18 @@ function spt_compare_smoke()
 % all three modes + finds link disagreements, and the app (spt_compare_app) renders the bar chart and
 % the three SIDE-BY-SIDE PLAYERS (one per method) with working playback and video export.
 % Runs on a SMALL frame window for speed. Writes only to tempdir — never into the project or WithER.
-here = fileparts(mfilename('fullpath')); addpath(here);
-W = '/Users/safal-mac/Documents/IntegratedPipeline/WithER';
-cel = struct('key','250408_WT_012', 'spt',fullfile(W,'spt','250408_WT_012_spt1.tif'), ...
-    'erSeg',fullfile(W,'er_seg','250408_VAPB_WT_012_2_TA_BC.tiff'), 'diamUm',0.5);
+here = fileparts(mfilename('fullpath')); addpath(fileparts(here)); addpath(here);   % repo root first: spt_test_data
+mov = spt_test_data(fullfile('WithER','spt','250408_WT_012_spt1.tif'));
+seg = spt_test_data(fullfile('WithER','er_seg','250408_VAPB_WT_012_2_TA_BC.tiff'));
+if isempty(mov) || isempty(seg)
+    miss = {};
+    if isempty(mov), miss{end+1} = 'WithER/spt/250408_WT_012_spt1.tif'; end
+    if isempty(seg), miss{end+1} = 'WithER/er_seg/250408_VAPB_WT_012_2_TA_BC.tiff'; end
+    fprintf('SKIP %s — test dataset not installed: %s (see spt_test_data.m)\n', mfilename, strjoin(miss,', '));
+    return
+end
+cel = struct('key','250408_WT_012', 'spt',mov, ...
+    'erSeg',seg, 'diamUm',0.5);
 prm = struct('linkUm',0.8,'gapUm',1.4,'maxGap',1,'lambda',3,'pxUm',0.10785);
 assert(isfile(cel.spt) && isfile(cel.erSeg), 'test data (WithER spt/er_seg) missing');
 

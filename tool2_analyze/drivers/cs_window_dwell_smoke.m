@@ -3,7 +3,14 @@ function cs_window_dwell_smoke()
 % and per-window k_out; (B) a hand-built CSW with a known inside/outside sequence to verify the
 % (span+1)*dt dwell accounting and window clipping against a closed-form expectation.
 here = fileparts(mfilename('fullpath')); addpath(here);
-anaDir = '/Users/safal-mac/Documents/IntegratedPipeline/Project/analysis';
+addpath(fileparts(fileparts(here)));                 % repo root, for spt_test_data
+% Part A needs a real built project. It is not in the repo, so on a fresh clone there is nothing to
+% check against and erroring would only be noise -- say so and leave.
+anaDir = spt_test_data(fullfile('Project','analysis'));
+if isempty(anaDir)
+    fprintf('SKIP %s — test dataset not installed (see spt_test_data.m)\n', mfilename);
+    return
+end
 
 fprintf('\n========== PART A: real mapped data ==========\n');
 assert(isfile(fullfile(anaDir,'CSW_final.mat')),'run cs_window_mapper first');

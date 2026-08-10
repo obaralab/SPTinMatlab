@@ -4,7 +4,6 @@ Single-particle tracking of **VAPB** (an ER membrane protein) and its **ER–mit
 in MATLAB, as three tools that hand off through files. This document is the reference of record for the
 **code, inputs/outputs, folder organization, and algorithms**. Kept up to date as the pipeline is built.
 
-- Repo: `/Users/safal-mac/Documents/IntegratedPipeline/SPTinMatlab/`
 - MATLAB R2024b. Launch: `spt_app` (Tool 1 · Track) · `spt_curate_app` (Tool 2 · Curate & Build) ·
   `spt_analyze_app` (Tool 3 · Analyze). Tools 2 + 3 are ONE implementation (`spt_analyze_app.m`) behind a
   `mode` argument — `spt_curate_app` just calls `spt_analyze_app('curate')`, `spt_analyze_app` defaults to

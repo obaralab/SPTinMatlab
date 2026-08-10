@@ -1,9 +1,10 @@
 function spt_app_expt_smoke()
 % Verify Tool 1 (spt_app) carries the shared Experiment tab FIRST: 4 tabs in order, the Experiment tab
 % embeds the panel (a uitable with the manifest columns), and it can ingest a project folder.
-here = fileparts(mfilename('fullpath')); addpath(here);
+here = fileparts(mfilename('fullpath')); addpath(fileparts(here)); addpath(here);   % repo root first: spt_test_data
 t2 = fullfile(fileparts(here),'tool2_analyze'); addpath(fullfile(t2,'app')); addpath(fullfile(t2,'drivers'));
-proj = '/Users/safal-mac/Documents/IntegratedPipeline/Project';
+proj = spt_test_data('Project');   % '' when the dataset is not installed — only the ingest check below
+                                   % needs it; the tab and panel assertions run on any machine
 
 f = spt_app();
 tg = findobj(f,'Type','uitabgroup'); assert(~isempty(tg),'no tabgroup');
@@ -29,6 +30,8 @@ if isfolder(proj)
     addBtn = addBtn(arrayfun(@(b) contains(lower(b.Text),'add'), addBtn));
     assert(~isempty(addBtn),'no Add-folder button on the panel');
     fprintf('panel Add-folder button present: "%s"\n', addBtn(1).Text);
+else
+    fprintf('SKIP the project-ingest check in %s — test dataset not installed (see spt_test_data.m)\n', mfilename);
 end
 
 delete(f);

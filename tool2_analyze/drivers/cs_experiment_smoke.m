@@ -3,7 +3,13 @@ function cs_experiment_smoke()
 % sites), map + dwell each, then scan + aggregate across both with per-cell CONDITIONS assigned, and
 % confirm the combined CSW/DD carry the right condition labels and group correctly.
 here = fileparts(mfilename('fullpath')); addpath(here);
-src = '/Users/safal-mac/Documents/IntegratedPipeline/Project/analysis';
+addpath(fileparts(fileparts(here)));   % repo root, where spt_test_data lives
+% Needs a REAL built project: the two day-folders are carved out of two of its cells.
+src = spt_test_data(fullfile('Project','analysis'));
+if isempty(src)
+    fprintf('SKIP %s — test dataset not installed (see spt_test_data.m)\n', mfilename);
+    return
+end
 S = load(fullfile(src,'TrackStruct.mat')); fn=fieldnames(S); Tr=S.(fn{1});
 assert(numel(Tr)>=2,'need >=2 cells to split into two day-folders');
 

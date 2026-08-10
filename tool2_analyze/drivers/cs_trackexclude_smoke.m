@@ -2,7 +2,13 @@ function cs_trackexclude_smoke()
 % Validate per-site track exclusion: a CS_trackedits.mat entry drops exactly that track column from
 % the site's membership (pickPx-guarded), leaving other sites/tracks intact.
 here = fileparts(mfilename('fullpath')); addpath(here);
-src = '/Users/safal-mac/Documents/IntegratedPipeline/Project/analysis';
+addpath(fileparts(fileparts(here)));   % repo root, where spt_test_data lives
+% Needs a REAL built project: exclusion is only meaningful on a site that really has >=2 tracks.
+src = spt_test_data(fullfile('Project','analysis'));
+if isempty(src)
+    fprintf('SKIP %s — test dataset not installed (see spt_test_data.m)\n', mfilename);
+    return
+end
 tmp = fullfile(tempdir,'cs_te_smoke'); if isfolder(tmp), rmdir(tmp,'s'); end
 mkdir(tmp); mkdir(fullfile(tmp,'csIDs')); mkdir(fullfile(tmp,'Densities'));
 copyfile(fullfile(src,'TrackStruct.mat'), fullfile(tmp,'TrackStruct.mat'));

@@ -11,10 +11,17 @@ function spt_run_feedback_smoke()
 % Runs Export (fast — it re-reads an existing _spots.csv) against a TEMP project. Only the spots CSV
 % is symlinked; _settings.txt is COPIED because the exporter appends to it, and save/fopen follow a
 % symlink straight back into WithER.
-here = fileparts(mfilename('fullpath')); addpath(here);
-W = '/Users/safal-mac/Documents/IntegratedPipeline/WithER';
+here = fileparts(mfilename('fullpath')); addpath(fileparts(here)); addpath(here);   % repo root first: spt_test_data
+W = spt_test_data('WithER');
 base = '250408_WT_012_spt1';
-srcCsv = fullfile(W,'tracks',[base '_spots.csv']);
+srcCsv = spt_test_data(fullfile('WithER','tracks',[base '_spots.csv']));
+if isempty(W) || isempty(srcCsv)
+    miss = {};
+    if isempty(W),      miss{end+1} = 'WithER'; end
+    if isempty(srcCsv), miss{end+1} = ['WithER/tracks/' base '_spots.csv']; end
+    fprintf('SKIP %s — test dataset not installed: %s (see spt_test_data.m)\n', mfilename, strjoin(miss,', '));
+    return
+end
 assert(isfile(srcCsv), 'test data missing: %s', srcCsv);
 
 wsnap = snapWithER(W);   % fingerprint the pristine data; asserted unchanged at the end

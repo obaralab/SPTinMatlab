@@ -2,6 +2,7 @@ function spt_shape_smoke()
 % Verify the per-spot motion-blur metric: spt_detect's 2nd output flags an elongated (streaked) spot,
 % and ELONGATION/ORIENT_DEG propagate through spt_process_cell -> _spots.csv -> _spots_filtered.csv.
 here = fileparts(mfilename('fullpath')); addpath(here);
+addpath(fileparts(here));                                                 % repo root: spt_test_data lives there
 
 %% synthetic: a round spot vs a Y-elongated (motion-blurred) spot -----------------
 [X,Y] = meshgrid(1:48,1:48);
@@ -20,7 +21,13 @@ assert(elE > 1.4 && elE > elR + 0.3, 'elongation did not flag the streaked spot'
 assert(elR < 1.4, 'round spot wrongly flagged as elongated');
 
 %% real data: columns propagate raw -> filtered ----------------------------------
-W = '/Users/safal-mac/Documents/IntegratedPipeline/WithER';
+% The synthetic half above needs nothing external; only this half needs the real movie, so the skip
+% sits here rather than at the top.
+W = spt_test_data('WithER');
+if isempty(W)
+    fprintf('SKIP %s — test dataset not installed (see spt_test_data.m)\n', mfilename);
+    return
+end
 cel = struct('key','250408_WT_012','spt',fullfile(W,'spt','250408_WT_012_spt1.tif'), ...
     'erSeg',fullfile(W,'er_seg','250408_VAPB_WT_012_2_TA_BC.tiff'),'mitoSeg','','diamUm',0.5);
 prm = struct('linkUm',0.8,'gapUm',1.4,'maxGap',1,'useEr',true,'lambda',3,'pxUm',0.10785,'dtS',0.020064,'maxFrames',15);

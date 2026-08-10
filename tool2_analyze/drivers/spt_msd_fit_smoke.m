@@ -3,6 +3,7 @@ function spt_msd_fit_smoke()
 % (largest window still linear). A confined MSD must fit FEWER lags than a fixed large %; on real data
 % the adaptive fit-% must VARY per track (the whole point) while back-compat scalar % still works.
 here = fileparts(mfilename('fullpath')); addpath(here);
+addpath(fileparts(fileparts(here)));                   % repo root, for spt_test_data
 dt = 0.02; D = 0.05; lags = (1:40)';
 
 %% linear MSD: D constant across windows, adaptive uses the whole (capped) window --------
@@ -26,8 +27,8 @@ rc = spt_fit_msd(msd, dt, 25);
 assert(rc.nPts == round(40*0.25), 'scalar %% back-compat broken');
 
 %% real data: adaptive fit-% varies per track -------------------------------------------
-f = '/Users/safal-mac/Documents/IntegratedPipeline/Project/analysis/TrackStruct.mat';
-if isfile(f)
+f = spt_test_data(fullfile('Project','analysis','TrackStruct.mat'));
+if ~isempty(f)                                         % a non-empty return is guaranteed to exist
     S = load(f); fn = fieldnames(S); Tr = S.(fn{1}); dtc = 0.020064;
     Dfix = []; Dad = []; fr = [];
     for k = 1:numel(Tr)
@@ -43,7 +44,7 @@ if isfile(f)
         min(fr), max(fr), median(fr), median(Dfix), median(Dad));
     assert(max(fr)-min(fr) > 5, 'adaptive fit-%% did not vary across tracks');
 else
-    fprintf('(no Project TrackStruct.mat — real-data check skipped)\n');
+    fprintf('(SKIP real-data check in %s — test dataset not installed, see spt_test_data.m)\n', mfilename);
 end
 
 fprintf('\nMSD-FIT SMOKE PASSED.\n');

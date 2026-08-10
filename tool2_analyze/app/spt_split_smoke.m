@@ -3,7 +3,14 @@ function spt_split_smoke()
 % the Tool 2 wrapper (spt_curate_app == 'curate') opens the curate tabs, and setting a project in
 % ANALYZE mode does not crash on the absent Import & Curate tab (the guarded embedImportCurate path).
 here = fileparts(mfilename('fullpath')); addpath(here);
-proj = '/Users/safal-mac/Documents/IntegratedPipeline/Project';
+addpath(fileparts(fileparts(here)));   % repo root, where spt_test_data lives
+% The reference project is OPTIONAL to this test: every tab-set assertion below is built from the
+% app alone and needs no data. A project only buys the extra setProject -> embedImportCurate leg, so
+% when the dataset is absent the test still runs in full — it just says which leg it lost.
+proj = spt_test_data('Project');
+if isempty(proj)
+    fprintf('NOTE %s — test dataset not installed, skipping the set-a-project step (see spt_test_data.m)\n', mfilename);
+end
 
 % Experiment is tab 1 in EVERY mode (and in Tool 1) — the manifest is the setup step and lives in
 % the same place whichever tool you opened.

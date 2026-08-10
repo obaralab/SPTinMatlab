@@ -2,7 +2,13 @@ function cs_delete_smoke()
 % Validate the delete-and-sync contract: a CSdeleted entry in CS_footprints.mat makes the mapper
 % SKIP that site (pickPx-guarded), while every other site is unaffected.
 here = fileparts(mfilename('fullpath')); addpath(here);
-src = '/Users/safal-mac/Documents/IntegratedPipeline/Project/analysis';
+addpath(fileparts(fileparts(here)));   % repo root, where spt_test_data lives
+% Needs a REAL built project: deleting site #2 and #3 only means something on a real picked list.
+src = spt_test_data(fullfile('Project','analysis'));
+if isempty(src)
+    fprintf('SKIP %s — test dataset not installed (see spt_test_data.m)\n', mfilename);
+    return
+end
 tmp = fullfile(tempdir,'cs_del_smoke'); if isfolder(tmp), rmdir(tmp,'s'); end
 mkdir(tmp); mkdir(fullfile(tmp,'csIDs')); mkdir(fullfile(tmp,'Densities'));
 copyfile(fullfile(src,'TrackStruct.mat'), fullfile(tmp,'TrackStruct.mat'));
