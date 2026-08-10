@@ -27,7 +27,8 @@ function [m, fg] = cs_channel_mask(segPath, nFrames, frame0, gridSize, varargin)
 % stack-wide sample that spt_load_seg takes; a page containing none of the organelle is entirely
 % label 2, so the per-page rule reads fg = 2 there and INVERTS that one frame. Pass 'FgLabel' (e.g.
 % from spt_seg_fg_label) to get the stack-wide behaviour. Kept as the default only because changing
-% it would move published masks; see docs/HANDOFF.md on flagging rather than silently fixing.
+% it would move published masks — a silent fix would change numbers already reported, so the
+% inversion is surfaced to the user rather than corrected behind their back.
 p = inputParser; p.addParameter('FgLabel', []);
 p.parse(varargin{:});
 fgOpt = p.Results.FgLabel;

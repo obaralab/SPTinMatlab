@@ -124,7 +124,7 @@ assert(contains(app,"ana = fullfile(projectDir,'analysis');"), ...
 % ---- 10. cs_config must say when it is guessing ---------------------------------------------------
 % Its defaults are the reference rig's. On any other microscope a run completes with every
 % coordinate, area, density and dwell time mis-scaled, and nothing said so.
-cfgsrc = fileread(fullfile(fileparts(here),'tool2_analyze','ContactSites_robust','cs_config.m'));
+cfgsrc = fileread(fullfile(fileparts(here),'tool2_analyze','drivers','cs_config.m'));
 assert(contains(cfgsrc,'cs_config:defaultCalibration'), ...
     'cs_config still falls back to the reference rig''s calibration silently');
 fprintf('per-cell stamp finds the movie · edits reach analysis/ · cs_config warns on defaults\n');

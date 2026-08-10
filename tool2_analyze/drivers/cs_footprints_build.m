@@ -26,8 +26,7 @@ doSave = getf(opts,'save',false);
 verb   = getf(opts,'verbose',true);
 fpOpts = struct('mode',fpMode,'frac',frac,'maxRadiusUm',maxRu,'boxHalfWidthUm',boxHu);
 
-here = fileparts(mfilename('fullpath'));
-rob  = fullfile(here,'..','ContactSites_robust'); if isfolder(rob), addpath(rob); end
+% cs_config lives alongside this file in drivers/, so nothing extra to put on the path.
 
 tsPath = cs_active_trackstruct(anaDir);        % the ACTIVE build, which may be named (Day1_WT.mat)
 assert(~isempty(tsPath) && isfile(tsPath),'cs_footprints_build:noTrackStruct', ...

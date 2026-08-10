@@ -2,7 +2,7 @@ function cs_source_lock_smoke()
 % Verify the density source is LOCKED to the picker's windows.source: a CSwindows.mat saved with
 % source='tracked' makes cs_footprints_build + cs_window_mapper use the tracked matrix regardless of
 % opts.src ('all').
-here = fileparts(mfilename('fullpath')); addpath(here); addpath(fullfile(here,'..','ContactSites_robust'));
+here = fileparts(mfilename('fullpath')); addpath(here);
 src = '/Users/safal-mac/Documents/IntegratedPipeline/Project/analysis';
 tmp = fullfile(tempdir,'cs_srclock'); if isfolder(tmp), rmdir(tmp,'s'); end
 mkdir(tmp); mkdir(fullfile(tmp,'csIDs')); mkdir(fullfile(tmp,'Densities'));

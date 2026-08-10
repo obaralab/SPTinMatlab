@@ -26,9 +26,8 @@ writes `tracks/<base>_tracks_filtered.xml` + `_spots_filtered.csv`. **Tool 2** (
 tracks (embeds `track_viewer`) and runs `build_trackstruct` (the slow MSD step) → a **named build**
 `analysis/<name>.mat` (`TrackStruct.mat` unless you name it), recorded as the one in force in
 `analysis/active_trackstruct.txt`. **Tool 3** (`spt_analyze_app`) starts from that build — which it resolves
-through `cs_active_trackstruct` (§7.2), never by a hardcoded filename: density → contact-site picker → refine →
-mapper → dwell → compare, reusing the advisor's ContactSites suite (`ContactSites_robust`, validated against the pristine
-Nature-2024 `ContactSites_original`). A shared **Experiment** tab (`spt_experiment_panel`) is **tab 1 in all three
+through `cs_active_trackstruct` (§7.2), never by a hardcoded filename: density → contact-site picker →
+mapper → dwell → compare. A shared **Experiment** tab (`spt_experiment_panel`) is **tab 1 in all three
 tools** — the multi-folder / per-condition manifest (day, condition, exclude, notes, derived tracked/curated/built/
 picked/mapped/dwelled status and the per-stage spot/track counts behind it) that ties the dataset together and
 drives Tool 3's cross-condition Compare. It lives with the project as `<project>/experiment_details.mat`.
@@ -66,11 +65,10 @@ SPTinMatlab/
     ├── app/spt_curate_app.m           Tool 2 launcher (thin wrapper: spt_analyze_app('curate'))
     ├── app/spt_experiment_panel.m     SHARED Experiment tab embedded by all three tools
     ├── app/track_viewer.m             embedded Import&Curate tool
-    ├── drivers/                       editable additive layer (TrackImporter_direct, build_trackstruct, cs_*,
+    ├── drivers/                       the analysis layer (TrackImporter_direct, build_trackstruct, cs_*,
+    │                                    cs_config + ChrisPrograms, and
     │                                    cs_experiment_scan/status/aggregate for the Experiment manifest)
-    ├── ContactSites_robust/           WORKING suite (the app runs this)
-    ├── ContactSites_original/         PRISTINE Nature-2024 paper suite (never run/edited)
-    └── docs/                          advisor's suite docs
+    └── docs/                          design notes
 ```
 
 ### 2.2 A dataset / project folder (Tool 1 input, Tool 2 input)
@@ -377,7 +375,7 @@ per track = the worst-case (densest) frame. High local density + high step-size 
 
 ## 7. Tools 2 + 3 — Curate & Build · Analyze
 
-New tab app `spt_analyze_app.m`; reuses the drivers + `ContactSites_robust` suite. Build order:
+New tab app `spt_analyze_app.m`; built on the `drivers/` layer. Build order:
 
 1. **Import & Curate** *(done)* — embeds `track_viewer`: reads Tool 1's `_filtered` pair, curates by
    **local density + displacement variance + jump gate** (params auto-filled from `_settings.txt`),
@@ -651,6 +649,7 @@ comparable to a new one, so rebuild rather than mix them:
 
 ## 8. Provenance
 
-`ContactSites_original/` is the **Nature-2024 VAPB paper** code — pristine, never run or edited. The app runs
-`ContactSites_robust` (a hardened refactor proven equal to it, config-driven scale factor). All new work is
-additive (`drivers/`, the new apps). Upstream originals remain in `../SPT_ContactSites_Pipeline/`.
+The method originates with the **Nature-2024 VAPB paper** from the advisor's lab. That lab's own suite is
+**not distributed here** — it is theirs to release. This repo is a clean reimplementation: everything lives
+in `drivers/` and the three apps, built around the windowed picker rather than the paper's whole-movie one,
+with the density scale factor read from `cs_config.m` instead of a hardcoded constant.

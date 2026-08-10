@@ -3,7 +3,7 @@ function cs_window_mapper_smoke()
 % 2-window check that proves the temporal (per-window) mask actually restricts membership.
 here = fileparts(mfilename('fullpath'));
 addpath(here);                                   % drivers/
-addpath(fullfile(here,'..','ContactSites_robust'));
+
 anaDir = '/Users/safal-mac/Documents/IntegratedPipeline/Project/analysis';
 
 fprintf('\n========== PART A: real data (whole-movie fallback) ==========\n');

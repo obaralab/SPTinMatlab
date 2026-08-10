@@ -2,7 +2,7 @@ function cs_experiment_smoke()
 % Validate the experiment engine: build two "day" folders (each with its own TrackStruct + picked
 % sites), map + dwell each, then scan + aggregate across both with per-cell CONDITIONS assigned, and
 % confirm the combined CSW/DD carry the right condition labels and group correctly.
-here = fileparts(mfilename('fullpath')); addpath(here); addpath(fullfile(here,'..','ContactSites_robust'));
+here = fileparts(mfilename('fullpath')); addpath(here);
 src = '/Users/safal-mac/Documents/IntegratedPipeline/Project/analysis';
 S = load(fullfile(src,'TrackStruct.mat')); fn=fieldnames(S); Tr=S.(fn{1});
 assert(numel(Tr)>=2,'need >=2 cells to split into two day-folders');

@@ -41,10 +41,7 @@ fpOpts = struct('mode',fpMode,'frac',getf(opts,'fracHalfMax',0.5), ...
                 'maxRadiusUm',getf(opts,'maxRadiusUm',0.6), ...
                 'boxHalfWidthUm',getf(opts,'boxHalfWidthUm',0.5));
 
-% Make the reused robust-suite helpers (cs_config, cellBase) resolvable.
-here = fileparts(mfilename('fullpath'));
-rob  = fullfile(here,'..','ContactSites_robust');
-if isfolder(rob), addpath(rob); end
+% cs_config lives alongside this file in drivers/, so nothing extra to put on the path.
 
 % ---- load TrackStruct ----
 tsPath = cs_active_trackstruct(anaDir);        % the ACTIVE build, which may be named (Day1_WT.mat)

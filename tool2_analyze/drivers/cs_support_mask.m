@@ -20,8 +20,9 @@ function [m, info] = cs_support_mask(locCounts, varargin)
 % INPUT
 %   locCounts : [H x W] localization-count image for the WHOLE CELL — every localization, not one
 %               window. Pass the cell-level counts even when detecting per window: deriving the
-%               support from the same window being tested makes the statistic even less pivotal
-%               than docs/HANDOFF.md open item 7.4 already describes.
+%               support from the same window being tested is circular — the window contributes to
+%               the background it is then scored against, which shrinks the apparent enrichment of
+%               exactly the dense windows you are trying to detect.
 %
 % OPTIONS
 %   'DilateR'  (6)     dilation radius in density pixels. Roughly "how far apart two localizations

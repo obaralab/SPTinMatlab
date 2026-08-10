@@ -85,16 +85,10 @@ SPTinMatlab/
 │   │   ├── build_trackstruct.m      ← folder-picker wrapper over the importer (the slow MSD step)
 │   │   ├── cs_active_trackstruct.m  ← the SINGLE resolver for "which build is in force"
 │   │   ├── cs_window_picker.m cs_window_mapper.m cs_window_density.m cs_window_dwell.m  ← windowed picker → sites → dwell
-│   │   ├── cs_footprints_build.m cs_refine.m cs_mc_threshold.m cs_radial_plot.m         ← footprints · refine · MC null · radial
-│   │   ├── cs_identify.m cs_detect.m cs_mito_from_dist.m                                ← whole-movie picker · peak detection · mito from distance
-│   │   ├── cs_experiment_scan.m cs_experiment_aggregate.m cs_experiment_status.m        ← the experiment manifest
-│   │   └── run_pipeline.m run_contactsite_analysis.m setup_run_folder.m … ← staged drivers (legacy path)
-│   ├── ContactSites_robust/    ← WORKING suite — the app + drivers actually run against THIS.
-│   │                              Hardened refactor of the paper code (config-driven scale factor,
-│   │                              robust name handling); proven equal to the original. Editable if needed.
-│   ├── ContactSites_original/  ← ★ PRISTINE — the Nature 2024 VAPB paper suite. DO NOT EDIT / RUN.
-│   │                              Kept as the reference of record; robust was validated against it.
-│   └── docs/                   ← DOCUMENTATION.md, tracks_struct_contract.md, SPT_pipeline_map.md, …
+│   │   ├── cs_footprints_build.m cs_mc_threshold.m cs_radial_plot.m                     ← footprints · MC null · radial
+│   │   ├── cs_detect.m cs_mito_from_dist.m                                              ← peak detection · mito from distance
+│   │   ├── cs_config.m ChrisPrograms.m                                                  ← pipeline constants · TIFF I/O helper
+│   │   └── cs_experiment_scan.m cs_experiment_aggregate.m cs_experiment_status.m        ← the experiment manifest
 │
 └── docs/
     ├── help.html               ← the reference manual — every tab, every control, the maths, the
@@ -102,8 +96,7 @@ SPTinMatlab/
     │                             Opens in your browser from the ❓ Help button in all three tools.
     ├── PIPELINE.md             ← the narrative walk-through, stage by stage
     ├── DATA_STRUCTURE.md       ← what each stage holds in memory, and what it costs at scale
-    ├── IDEA_unravelling.md     ← a future extension (ER-trajectory unravelling) and its blocker
-    └── SESSION_HANDOFF.md
+    └── GETTING_STARTED.md      ← start here if you have never opened MATLAB
 ```
 
 ## The tool-to-tool contract
@@ -169,20 +162,17 @@ read `../WithER/`, which is **pristine reference data: never write into it** —
 `spt_named_build_smoke` fingerprints every WithER file before and after and fails if any of them moved.
 A test that needs a built TrackStruct and finds none skips loudly rather than passing quietly.
 
-## Provenance & which suite runs
+## Provenance
 
-There are two copies of the ContactSites suite, with distinct roles:
+The method originates with the advisor's **Nature 2024 VAPB** contact-site pipeline. This repo is a
+clean reimplementation: the analysis lives entirely in `tool2_analyze/drivers/`, built around the
+windowed contact-site picker rather than the paper's whole-movie one, with the density-map scale
+factor read from `cs_config.m` instead of a hardcoded constant.
 
-- **`ContactSites_original/`** — the code the advisor used for the **Nature 2024 VAPB paper**. Kept
-  **pristine**: never edited, never run by the app. It is the reference of record.
-- **`ContactSites_robust/`** — a hardened refactor, *proven equal to the original*, that the app +
-  drivers **actually run against**. The additive drivers were built on it and depend on its behaviour
-  (e.g. the density-map scale factor comes from `cs_config.m` instead of the paper's hardcoded value,
-  and name handling is robust). The app auto-selects `ContactSites_robust` when both are present.
-
-All new / reworked analysis (including the windowed contact-site picker) is *additive* and lives in
-`tool2_analyze/drivers/` — it calls the suite in the intended order and never edits a suite `.m` file.
-The upstream originals also remain untouched in `../SPT_ContactSites_Pipeline/`.
+The advisor's original suite is **not distributed here** — it is that lab's code to release. Two
+small helpers that this pipeline genuinely depends on live in `drivers/`: `cs_config.m` (the pipeline
+constants) and `ChrisPrograms.m` (a self-contained TIFF-I/O stand-in written for this repo, not the
+advisor's original).
 
 Per run, Tool 1 writes `<base>_settings.txt` next to the outputs: detection diameter, threshold mode
 and gate, and the **effective** linking mode (`tracking.link_mode` = `euclid` | `penalty` | `geodesic`)

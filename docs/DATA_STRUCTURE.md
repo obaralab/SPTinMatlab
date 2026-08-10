@@ -88,17 +88,11 @@ number that matters is cells-per-folder, not cells in the study.
 
 **`nF` is the column stride of persisted `find` / `sub2ind` linear indices.** In the live flow
 `cs_window_mapper` stores `find(mnID)` as each site-window's `LocIDs` (`cs_window_mapper.m:208, 242`)
-into `CSW_final.mat`. The legacy `run_contactsite_analysis` path does the same into
-`analysis/TrackData/*.mat` and `analysis/CSdata/*.mat`
-(`ContactSites_robust/ContactSiteMapper.m:70-71`, `cs_refine.m:830`). Change `nF` — by trimming
-padding, going ragged, or merely re-curating to a different longest track — and every stored index
-silently points at a **different localization**. No error, wrong answers.
+into `CSW_final.mat`. Change `nF` — by trimming padding, going ragged, or merely re-curating to a
+different longest track — and every stored index silently points at a **different localization**.
+No error, wrong answers.
 
-Two secondary hazards:
-
-- `ContactSites_robust/CellAccumulator.m:11` does `Tracks(i) = CellTracks`, which throws
-  `Subscripted assignment between dissimilar structures` on any field add or removal. This is the
-  exact failure a previous session hit.
+One secondary hazard:
 - The shape guards in `spt_analyze_app.m:341-342` and `cs_window_picker.m:237-239` test
   `isequal(size(field), [nF nT])` (or `size(M(:,:,1))`) and **fall back to NaN/false silently** when
   it stops matching.

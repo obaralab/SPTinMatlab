@@ -578,7 +578,6 @@ troubleshooting list is in <a href="#trouble">Troubleshooting</a>.</div>
   <tr><td><b>2 · Curate &amp; Build</b></td><td><code>run_curate</code> (<code>spt_curate_app</code>)</td><td>Import curated tracks → build a <b>named</b> <code>TrackStruct</code> (MSD, diffusion, precision) → QC each track.</td></tr>
   <tr><td><b>3 · Analyze</b></td><td><code>run_analyze</code> (<code>spt_analyze_app</code>)</td><td>Contact-site picking → boundary refine → membership mapping → residence times → cross-condition compare.</td></tr>
 </table>
-<div class="warn"><b>Never edit or run</b> <code>ContactSites_original/</code> — it is the pristine reference implementation from the Nature-2024 paper, kept only for comparison.</div>
 
 <h2 id="quickstart">Quick start</h2>
 <ol>
@@ -3135,7 +3134,7 @@ filter.exported        = 2026-07-29 11:02:13</code></pre>
 <p>A defensive check: on a platform where <code>dir('*_tracks.xml')</code> is loose enough to also match <code>*_tracks_filtered.xml</code>, importing "raw" could pick up filtered files. The importer still keys on <code>_tracks.xml</code>, so the result is intended — but if you see this, confirm which files actually came in from the importer's per-file log lines.</p>
 </div>
 
-<div class="warn"><b>Two folders to leave alone.</b> <code>tool2_analyze/ContactSites_original/</code> is the pristine Nature-2024 reference implementation — read it, never run or edit it. And do not write into the <code>WithER</code> reference dataset: a stray write there once followed a directory symlink and rewrote <code>WithER/tracks/cs_calib.mat</code> three times. Nothing was lost that time; work in a copy.</div>
+<div class="warn"><b>Never write into a reference dataset.</b> Treat any shared or original imaging folder as read-only and work in a copy. MATLAB's <code>save()</code> and <code>fopen()</code> follow symlinks, so a link pointing into a reference folder is enough to overwrite the original — that is how a stray write once rewrote a reference <code>cs_calib.mat</code> three times.</div>
 </div>
 </main>
 </div>

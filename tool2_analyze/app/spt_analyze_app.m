@@ -14,8 +14,8 @@ function fig = spt_analyze_app(mode)
 % condition manifest that ties the tools together. Curate & Build is usually launched via the thin
 % wrapper spt_curate_app.m.
 %
-% Reuses the drivers + ContactSites_robust suite as the engine (build_trackstruct, cs_identify,
-% mappers, refiners). The Import & Curate tab EMBEDS track_viewer.m (local-density + displacement-
+% Uses the drivers/ layer as the engine (build_trackstruct, the windowed picker, mappers, dwell).
+% The Import & Curate tab EMBEDS track_viewer.m (local-density + displacement-
 % variance metrics, jump-gate mis-link filter, live percentile histograms, per-frame mito + ER
 % overlay). Input is a Tool 1 project folder: <project>/tracks/ (curated _tracks_filtered.xml +
 % _spots_filtered.csv) plus <project>/er_seg/ and <project>/mito_seg/. Calibration (pixel size, FOV,
@@ -44,9 +44,6 @@ PXUM = 0.10785; FOVUM = 27.61; DTS = 0.020064; PRECNM = 30;   % per-dataset cali
 % Tool 1's tool1_track (its file matcher handles the _VAPB / _TA_BC channel tokens for the overlay).
 here_ = fileparts(mfilename('fullpath'));            % .../tool2_analyze/app
 addpath(fullfile(fileparts(here_),'drivers'));
-for c_ = {fullfile(fileparts(here_),'ContactSites_robust'), fullfile(fileparts(here_),'ContactSites_original')}
-    if isfolder(c_{1}), addpath(genpath(c_{1})); break; end
-end
 t1_ = fullfile(fileparts(fileparts(here_)),'tool1_track');
 if isfolder(t1_), addpath(t1_); end
 eProj=[]; eCalPx=[]; eCalFov=[]; eCalDt=[]; eCalPrec=[]; lblProj=[];   % top-bar handles

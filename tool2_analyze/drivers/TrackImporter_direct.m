@@ -29,9 +29,8 @@ function Tracks = TrackImporter_direct(inputDir, varargin)
 %                  MEAN/MAX/TOTAL). false — skip CSV.
 %   'FileSuffix' : chars appended to the base name in Tracks(i).file so the
 %                  downstream CS suite's filename(1:end-K) stripping lands on
-%                  <base>. Default '' (store bare base). The CS scripts strip
-%                  7/10/11 chars depending on script; set this to match your
-%                  convention if needed (see tracks_struct_contract.md).
+%                  <base>. Default '' (store bare base). Set this to match your
+%                  own naming convention if needed.
 %   'Save'       : true (default) — save 'TrackStruct.mat' (-v7.3) in inputDir.
 %   'Verbose'    : true (default).
 %
@@ -39,9 +38,8 @@ function Tracks = TrackImporter_direct(inputDir, varargin)
 %   file lengths matrix center rawSteps steps MSDdata MSD MSDstdev MSDerror
 %   CSD CSDnorm rawVector vector   (+ intens if AttachCSV).
 %
-% All kinematic formulas are transcribed verbatim from
-% TrackImporterCJO_2024v1.m so the struct is numerically identical when fed
-% equivalent tracks. See importer_validation.md.
+% All kinematic formulas follow the reference implementation, so the struct is numerically
+% identical when fed equivalent tracks.
 
 % -------- options --------
 p = inputParser;
@@ -158,7 +156,7 @@ for i = 1:nFiles
         % position). Drop the same pairs so this stays a pure speed-up.
         % Bin by INTEGER FRAME lag regardless of TimeUnit: in 'seconds' mode the time gap is
         % frameGap*frameInt, so recover the integer frame gap — else df is non-integer and every
-        % pair is dropped, silently producing an all-NaN MSD (see docs/CODE_REVIEW.md M10).
+        % pair is dropped, silently producing an all-NaN MSD.
         lagF = df; if ~useFrame && frameInt>0, lagF = df./frameInt; end
         valid = isfinite(lagF) & isfinite(dsq) & lagF>=1 & lagF<=(m-1) & abs(lagF-round(lagF))<1e-6 & dsq>0;
         if ~any(valid(:)), continue; end
@@ -248,8 +246,8 @@ for i = 1:nFiles
     Tracks(k).allSpots = allSpots;   % struct(FRAME,X,Y[,DIST.<key>]) of EVERY detection (tracked + untracked)
     % Per-spot distances, KEYED ONLY (step 4 of the reference-channel migration — see
     % cs_channel_fields). The flat mitoDist/erDist pair this used to write alongside is gone: no
-    % file in the repo reads it any more, including everything under ContactSites_robust, so it was
-    % pure duplication of the largest arrays in the struct.
+    % file in the repo reads it any more, so it was pure duplication of the largest arrays in
+    % the struct.
     %
     % Only a channel this cell actually HAS gets a key — an absent key is how a project carries
     % cells with different channel sets, which is the whole point of the move. The field itself is

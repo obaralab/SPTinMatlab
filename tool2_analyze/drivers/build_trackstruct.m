@@ -31,7 +31,7 @@ function Tracks = build_trackstruct(inputDir, varargin)
 %   'Save'      : true (default) — write TrackStruct.mat into <dir>.
 %   'Verbose'   : true (default).
 %
-% OUTPUT  Tracks : 1 x nFiles struct (see tracks_struct_contract.md).
+% OUTPUT  Tracks : 1 x nFiles struct (layout and per-stage cost: docs/DATA_STRUCTURE.md).
 %
 % Requires TrackImporter_direct.m on the path.
 

@@ -1,7 +1,7 @@
 function cs_delete_smoke()
 % Validate the delete-and-sync contract: a CSdeleted entry in CS_footprints.mat makes the mapper
 % SKIP that site (pickPx-guarded), while every other site is unaffected.
-here = fileparts(mfilename('fullpath')); addpath(here); addpath(fullfile(here,'..','ContactSites_robust'));
+here = fileparts(mfilename('fullpath')); addpath(here);
 src = '/Users/safal-mac/Documents/IntegratedPipeline/Project/analysis';
 tmp = fullfile(tempdir,'cs_del_smoke'); if isfolder(tmp), rmdir(tmp,'s'); end
 mkdir(tmp); mkdir(fullfile(tmp,'csIDs')); mkdir(fullfile(tmp,'Densities'));

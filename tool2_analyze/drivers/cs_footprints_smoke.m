@@ -3,7 +3,7 @@ function cs_footprints_smoke()
 % and confirm cs_window_mapper (useRefined=true) applies the override (mode 'refined', changed area
 % + changed membership) while useRefined=false ignores it.
 here = fileparts(mfilename('fullpath')); addpath(here);
-addpath(fullfile(here,'..','ContactSites_robust'));
+
 
 % stage a private copy of Project/analysis (so we don't leave a CS_footprints.mat behind)
 src = '/Users/safal-mac/Documents/IntegratedPipeline/Project/analysis';
