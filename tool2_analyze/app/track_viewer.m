@@ -28,6 +28,8 @@ function track_viewer(parent, exportDir, overlayFcn, includeFiles, opts)
 try
     t1 = fullfile(fileparts(fileparts(fileparts(mfilename('fullpath')))), 'tool1_track');
     if isfolder(t1) && ~contains([path pathsep], [t1 pathsep]), addpath(t1); end
+    dv = fullfile(fileparts(fileparts(mfilename('fullpath'))), 'drivers');   % spt_pbsa_steps
+    if isfolder(dv) && ~contains([path pathsep], [dv pathsep]), addpath(dv); end
 catch
 end
 
@@ -2249,13 +2251,47 @@ end
         cla(ax_in); hold(ax_in,'on');
         sel=sortrows(S.spots_t(S.spots_t.TRACK_ID==S.selected_id,:),'FRAME');
         t_s=sel.FRAME*S.frame_interval;
-        plot(ax_in,t_s,sel.(icol),'-o',...
+        yv = sel.(icol);
+        plot(ax_in,t_s,yv,'-o',...
             'Color',[0.61 0.35 0.71],'MarkerFaceColor',[0.61 0.35 0.71],...
             'MarkerSize',3,'LineWidth',0.8);
         ax_in.YLabel.String=ylab;
-        title(ax_in,'Integrated intensity — stepwise bleaching','FontSize',9);
+
+        % ---- photobleaching step fit (Kalafut-Visscher + SIC; see spt_pbsa_steps) ----------------
+        % Counting the discrete drops gives the number of emitters, and hence the stoichiometry of
+        % whatever they label. Drawn OVER the raw trace on purpose: a step count is only worth
+        % believing if the fit visibly follows the data, and the eye catches a bad fit far faster
+        % than any summary number would. The title reports the count together with the threshold it
+        % used, because that threshold is what decides monomer from dimer.
+        ttl = 'Integrated intensity — stepwise bleaching';
+        if exist('spt_pbsa_steps','file')==2 && numel(yv) >= 4
+            try
+                Rb = spt_pbsa_steps(yv);
+                if Rb.k > 0
+                    stairs(ax_in, t_s, Rb.fit, '-', 'Color',[0.85 0.33 0.10], 'LineWidth',1.4);
+                    drops = sum(Rb.heights < 0);
+                    % A bleach is monotone down. Any upward step means blinking, a mis-link, or two
+                    % particles crossing — say so rather than quietly counting it as a fluorophore.
+                    if drops == Rb.k
+                        ttl = sprintf('Bleaching: %d step%s → %d emitter%s   (min step %.0f, noise %.0f)', ...
+                            Rb.k, plural(Rb.k), Rb.k, plural(Rb.k), Rb.minStepUsed, Rb.noiseSd);
+                    else
+                        ttl = sprintf('Bleaching: %d step%s, %d UPWARD — not a clean bleach   (min step %.0f)', ...
+                            Rb.k, plural(Rb.k), Rb.k - drops, Rb.minStepUsed);
+                    end
+                else
+                    ttl = sprintf('No bleaching step resolved   (min step %.0f, noise %.0f)', ...
+                        Rb.minStepUsed, Rb.noiseSd);
+                end
+            catch
+                % never let the fit take the viewer down — the raw trace is the point
+            end
+        end
+        title(ax_in, ttl, 'FontSize',9);
         drawnow limitrate;
     end
+
+    function s_ = plural(n), if n==1, s_=''; else, s_='s'; end, end
 
     % ---- Toggle / play / export -----------------------------
     function do_toggle()
