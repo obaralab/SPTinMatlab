@@ -530,11 +530,12 @@ per-cell.
 |---|---|---|
 | `dt` | scalar | s per frame |
 | `events` | **946 × 1** struct | one dwell event: `file, cellIndex, csID, window, siteUID, mito, trackCol, entryFrame, exitFrame, dwell` (s) |
-| `perTrack` | **300 × 1** | per (site, member track): `label` ∈ `RESIDENT`/`ENTERS`/`EXITS`/`ENTERS+EXITS`, `numDwell`, `longest_s`, `total_s` |
+| `perTrack` | **300 × 1** | per (site, member track): `label` ∈ `RESIDENT`/`ENTERS`/`EXITS`/`ENTERS+EXITS`, `numDwell`, `longest_s`, `total_s`, `pctInside` (% of the track's window localizations inside the footprint — what `minPctInside` gates on) |
 | `perSite` | **16 × 1** | per site-window: `numDwell, longest_s, total_s, meanDwell, medianDwell, kout` (s⁻¹) |
 | `perWindow` | **1 × 1** (one window in this folder) | `window, nEvents, kout_w, medianDwell, meanDwell, dwell` — `dwell` is the pooled 946-vector |
 | `perTrackWin` | **299 × 1** | per (cell, window, track) with overlapping footprints merged: `numEpisodes, total_s, longest_s` |
 | `allDwell` | **946 × 1** double | pooled event durations (s) |
+| `minPctInside` | scalar | the **≥% in** threshold this result was computed at; 0 = every member track. Travels with the result so a filtered dwell is never read as an unfiltered one. From `cs_experiment_aggregate` it is the *unique set* over the pooled folders — non-scalar means they disagree and their dwell numbers are not comparable. |
 
 `perTrack` is exactly `Σ nTracks_site = 300` — the same term that sizes `CSmatrix`. `events` is the
 only row count set by the biology rather than by the geometry.

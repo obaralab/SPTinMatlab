@@ -1,4 +1,4 @@
-function [dog, hp] = spt_dog(frame, diamUm, pxUm)
+function [dog, hp, scale] = spt_dog(frame, diamUm, pxUm)
 %SPT_DOG  Difference-of-Gaussians spot filter, scaled by spot diameter. Port of ERAware _dog().
 %
 %   [dog, hp] = spt_dog(frame, diamUm, pxUm)
@@ -8,8 +8,12 @@ function [dog, hp] = spt_dog(frame, diamUm, pxUm)
 % radius ≈ 2.32 px) they equal ERAware's exact values (background σ=6, DoG σ=1.0 and 2.2 px), so
 % detection matches ERAware at the default and scales sensibly for other diameters/cameras.
 %
-%   dog : the detection image (local maxima above threshold are spots)
-%   hp  : the high-pass (background-subtracted) image, used for the sub-pixel centroid
+%   dog   : the detection image (local maxima above threshold are spots)
+%   hp    : the high-pass (background-subtracted) image, used for the sub-pixel centroid
+%   scale : this spot's size relative to the reference (1.0 at 0.5 µm / 0.10785 µm/px). Every
+%           structure in `dog` is this many times bigger than at the reference, so anything that
+%           MEASURES the DoG surface — spt_ridge's curvature step — has to scale by it too. Handed
+%           out rather than recomputed by the caller: REF_RPX belongs in one place.
 % Gaussian blur matches scipy (symmetric padding, kernel radius ceil(4σ)) for detection parity.
 if nargin<2 || isempty(diamUm), diamUm = 0.5; end
 if nargin<3 || isempty(pxUm),   pxUm   = 0.10785; end

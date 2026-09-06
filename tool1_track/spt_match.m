@@ -73,6 +73,27 @@ for i = 1:numel(sptFiles)
         'erSeg',getf_(seg,'er'),'mitoSeg',getf_(seg,'mito'),'ok',true);
     cells(end+1) = e; %#ok<AGROW>
 end
+
+% Two SPT stacks reducing to ONE key are two files claiming to be the same cell, and the suffix
+% pattern '_spt\d*' makes that easy to do by accident: '_spt1' and '_spt12' both strip to the same
+% key. The pair that matters is a de-interleaved single-channel stack sitting beside the raw
+% interleaved one it came from — the same cell twice, one of them with every second page belonging
+% to another channel. Both are returned (dropping one would be a guess about which), but silence
+% here is how a run ends up analysing the wrong file.
+if numel(cells) > 1
+    ks = {cells.key}; [u, ~, gi] = unique(ks);
+    for q = 1:numel(u)
+        d = find(gi == q);
+        if numel(d) < 2, continue; end
+        nm = cell(1,numel(d));
+        for z = 1:numel(d), [~, nm{z}] = fileparts(cells(d(z)).spt); end
+        warning('spt_match:duplicateKey', ...
+            ['%d SPT stacks share the cell key "%s": %s. They will appear as separate cells with ' ...
+             'the same identity. If one is a RAW INTERLEAVED stack and the other its ' ...
+             'de-interleaved export, untick the interleaved one before running.'], ...
+            numel(d), u{q}, strjoin(nm, ', '));
+    end
+end
 end
 
 % -------------------------------------------------------------------------

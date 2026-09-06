@@ -135,6 +135,33 @@ force. `Tracks.mat` is **legacy**: it is written only by `run_contactsite_analys
 legacy `spt_pipeline_app` / `pipeline_gui` invoke, so it never appears in the `run_curate` /
 `run_analyze` flow.
 
+## Organelle frames at a lower rate than the movie
+
+If the ER/mito channel was imaged at a lower rate than the particle channel, its stack is shorter
+than the movie. Tool 1's **detection** can map around that (`1 organelle frame covers N SPT frames`
+on the Detect tab), but every **viewer** — Tool 1's track player, Tool 2's Import & Curate overlay,
+Tool 3's picker and its Sites/Dwell overlays — reads the organelle stack page-for-page and expects
+matching lengths. Handed a short stack they either clamp to the last page or stop drawing part-way
+through the movie.
+
+The robust fix is to materialise the repeats before you start, so every tool sees one organelle page
+per movie frame and none of them needs special handling:
+
+```
+Fiji > Plugins > Scripting > Script Editor > (language: Python) > open
+tools/duplicate_organelle_frames.py > Run
+```
+
+It pairs each segmentation with its SPT movie by the same name rules Tool 1 uses (including the
+`_VAPB`-style strip regex), derives N per cell from the page counts, and repeats each organelle page
+N times. It **refuses** a pair whose lengths are not a whole ratio rather than guessing, and it does
+not interpolate — page k is repeated verbatim, which is exactly what the index map did, made
+explicit on disk. It defaults to a **dry run**: it reports the pairing and the page counts it would
+write, and writes nothing until you untick that. Output is N x the input size.
+
+Point Tool 1 at the output folder and leave `1 organelle frame covers` on `auto`; it resolves to 1
+once the lengths match.
+
 ## Tests
 
 Every `*_smoke.m` is a self-contained assertion script: no test framework, no arguments. Add the tool
@@ -153,6 +180,16 @@ spt_batch_overwrite_smoke   % Tool 2's batch cannot overwrite Tool 1's output
 spt_curate_review_smoke     % the curate review workflow; manual keep/reject is durable
 spt_named_build_smoke       % named builds + the single-load hand-off to Tool 3
 spt_msd_fit_smoke           % the adaptive MSD fit window — a confined track must fit fewer lags
+spt_bleedthrough_smoke      % ridge/size/alignment rejection, parity gating, interleaved frame map
+spt_gap_diffusion_smoke     % gap-closed steps must not inflate D, in either estimator
+cs_mito_engage_smoke        % diffusion contrast at the organelle: sees tethering, and only tethering
+spt_engage_tab_smoke        % the Engagement tab carries that answer to the screen intact
+spt_calib_edit_smoke        % a calibration you TYPE outranks the files, and only a typed one does
+spt_calib_ui_smoke          % ...and it reaches the top bar, cs_calib.mat and the build, not just the table
+spt_calib_bulk_smoke        % one calibration across a plate: scoped by the filter, and by nothing else
+spt_overlay_fov_smoke       % the raw frame is drawn across the width the TRACKS were measured in
+spt_tool3_scale_smoke       % ...and the build stamps that same width, so Tool 3 draws it too
+spt_compare_group_smoke     % Compare: crossing, the site/dw%/cell filters, and the per-point export
 spt_precision_smoke         % sigma_loc = sqrt(b)/2 recovers a known injected precision
 ```
 

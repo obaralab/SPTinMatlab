@@ -12,10 +12,20 @@ function DD = cs_window_dwell(anaDir, opts)
 %
 % Reuses cs_dwell_primitives (csInsideMask/runsToEvents/mergeIntervals/classifyInside) verbatim.
 %
-% opts: .save (true) writes analysis/cs_window_dwell.csv + cs_window_track_labels.csv; .verbose (true).
+% opts: .save (true) writes analysis/cs_window_dwell.csv + cs_window_track_labels.csv; .verbose (true);
+%       .minPctInside (0) keeps only member tracks with at least this % of their window
+%       localizations INSIDE the footprint — the mapper's own trackPctInside criterion, the same one
+%       the Sites tab's "≥% in" filter uses. 0 keeps every member.
+%
+% WHAT THE THRESHOLD DOES TO THE ANSWER. It separates tracks that DWELL from tracks that merely
+% cross the site, and it is a selection on the very quantity being measured: raising it can only
+% raise mean dwell and lower k_out, because the short visits are what it removes. That is the point
+% when the question is "how long do the dwelling molecules stay", and it is a bias when the question
+% is "how long does a molecule that arrives stay". Report the threshold with the number.
 %
 % OUTPUT struct DD:
 %   .dt            representative frame interval (s)
+%   .minPctInside  the threshold this result was computed at (0 = every member track)
 %   .events        table-like struct array (one per dwell event)
 %   .perSite       per (site x window): numDwell,longest_s,total_s,meanDwell,medianDwell,kout
 %   .perWindow     per window index: nEvents, kout_w, medianDwell, dwell (pooled values)
@@ -26,6 +36,9 @@ function DD = cs_window_dwell(anaDir, opts)
 if nargin<2 || ~isstruct(opts), opts = struct(); end
 doSave = getf(opts,'save',true);
 verb   = getf(opts,'verbose',true);
+minPct = getf(opts,'minPctInside',0);
+assert(isscalar(minPct) && isfinite(minPct) && minPct>=0 && minPct<=100, ...
+    'cs_window_dwell:minPct','minPctInside must be a percentage in [0 100], got %s', mat2str(minPct));
 
 here = fileparts(mfilename('fullpath')); addpath(here);
 P = cs_dwell_primitives();
@@ -40,7 +53,8 @@ dtv = [CSW.dt]; dt = median(dtv(dtv>0)); if ~(dt>0), dt = 0.02; end
 ev = struct('file',{},'cellIndex',{},'csID',{},'window',{},'siteUID',{}, ...
             'mito',{},'trackCol',{},'entryFrame',{},'exitFrame',{},'dwell',{});
 perTrack = struct('file',{},'cellIndex',{},'csID',{},'window',{},'siteUID',{},'trackCol',{}, ...
-                  'label',{},'numDwell',{},'longest_s',{},'total_s',{});
+                  'label',{},'numDwell',{},'longest_s',{},'total_s',{},'pctInside',{});
+nSeen = 0; nKept = 0;    % member tracks considered vs kept, for the threshold report
 
 for k = 1:numel(CSW)
     e = CSW(k);
@@ -53,6 +67,14 @@ for k = 1:numel(CSW)
         else, wm = fr>=f0 & fr<=f1 & isfinite(fr); end
         if ~any(wm), continue; end
         inside = P.inside(xr,yr,bx,by) & wm;
+        % The mapper's trackPctInside, recomputed from THIS run's footprint rather than read off the
+        % record: locs inside and in-window over the track's finite positions in the window. Reading
+        % the stored field would go stale the moment a footprint is refined after the mapper ran.
+        nWin = nnz(wm & isfinite(xr) & isfinite(yr));
+        pctIn = 100 * nnz(inside) / max(nWin,1);
+        nSeen = nSeen + 1;
+        if pctIn < minPct, continue; end                     % passing-through, not dwelling
+        nKept = nKept + 1;
         rev = P.runs(inside, fr, dt);                        % [entryF exitF dwell]
         if isempty(rev), continue; end
         tcol = e.tracks(jj);
@@ -66,13 +88,14 @@ for k = 1:numel(CSW)
         dv = rev(:,3);
         perTrack(end+1) = struct('file',e.file,'cellIndex',e.cellIndex,'csID',e.csID,'window',e.window, ...
             'siteUID',e.siteUID,'trackCol',tcol,'label',cls,'numDwell',size(rev,1), ...
-            'longest_s',max(dv),'total_s',sum(dv)); %#ok<AGROW>
+            'longest_s',max(dv),'total_s',sum(dv),'pctInside',pctIn); %#ok<AGROW>
     end
 end
 
 allDwell = [ev.dwell]';
 DD = struct();
 DD.dt = dt; DD.events = ev; DD.perTrack = perTrack; DD.allDwell = allDwell;
+DD.minPctInside = minPct;      % travels with the result: a consumer must be able to say what it is looking at
 
 % ---- per (site x window) aggregation ----
 uids = unique([CSW.siteUID]);
@@ -86,7 +109,7 @@ for u = uids
         'csID',base.csID,'window',base.window,'mito',cs_site_near(base,'mito'), ...
         'numDwell',numel(d),'longest_s',safemax(d),'total_s',sum(d), ...
         'meanDwell',safemean(d),'medianDwell',safemed(d), ...
-        'kout',numel(d)/max(sum(d),eps)); %#ok<AGROW>
+        'kout',safekout(d)); %#ok<AGROW>
 end
 DD.perSite = perSite;
 
@@ -96,7 +119,7 @@ perWindow = struct('window',{},'nEvents',{},'kout_w',{},'medianDwell',{},'meanDw
 for w = wins
     E = ev([ev.window]==w); d = [E.dwell]';
     perWindow(end+1) = struct('window',w,'nEvents',numel(d), ...
-        'kout_w',numel(d)/max(sum(d),eps),'medianDwell',safemed(d), ...
+        'kout_w',safekout(d),'medianDwell',safemed(d), ...
         'meanDwell',safemean(d),'dwell',d); %#ok<AGROW>
 end
 DD.perWindow = perWindow;
@@ -120,6 +143,9 @@ end
 DD.perTrackWin = perTrackWin;
 
 if verb
+    if minPct > 0
+        fprintf('cs_window_dwell: >=%g%% inside kept %d of %d member tracks\n', minPct, nKept, nSeen);
+    end
     fprintf('cs_window_dwell: %d events across %d site-windows, %d member-tracks; k_out/window:', ...
         numel(ev), numel(uids), numel(perTrack));
     for w = wins, fprintf(' w%d=%.2f', w, perWindow([perWindow.window]==w).kout_w); end
@@ -146,12 +172,19 @@ fclose(fid);
 end
 function writeLabelsCSV(path, pt)
 fid=fopen(path,'w'); if fid<0, return; end
-fprintf(fid,'file,cellIndex,csID,window,siteUID,trackCol,label,numDwell,longest_s,total_s\n');
+fprintf(fid,'file,cellIndex,csID,window,siteUID,trackCol,label,numDwell,longest_s,total_s,pct_inside\n');
 for k=1:numel(pt), e=pt(k);
-    fprintf(fid,'%s,%d,%d,%d,%d,%d,%s,%d,%.6g,%.6g\n', e.file,e.cellIndex,e.csID,e.window,e.siteUID, ...
-        e.trackCol,e.label,e.numDwell,e.longest_s,e.total_s);
+    fprintf(fid,'%s,%d,%d,%d,%d,%d,%s,%d,%.6g,%.6g,%.4g\n', e.file,e.cellIndex,e.csID,e.window,e.siteUID, ...
+        e.trackCol,e.label,e.numDwell,e.longest_s,e.total_s,e.pctInside);
 end
 fclose(fid);
+end
+function v=safekout(d)
+% No events is NO escape rate, not an escape rate of ZERO. 0/s reads as "this molecule never
+% leaves" — the exact opposite of "nothing was measured here" — and the old 0/eps produced it for
+% any site with no events. A >=% inside filter routinely leaves a site with no qualifying track at
+% all, so those sites would otherwise pull a condition's mean k_out towards zero.
+if isempty(d), v = NaN; else, v = numel(d)/max(sum(d),eps); end
 end
 function v=safemax(d), if isempty(d), v=NaN; else, v=max(d); end, end
 function v=safemean(d), if isempty(d), v=NaN; else, v=mean(d); end, end

@@ -62,5 +62,47 @@ k2 = DD2.perWindow([DD2.perWindow.window]==2).kout_w;
 assert(abs(k1-1/2.0)<1e-9 && abs(k2-1/1.5)<1e-9,'k_out(w) mismatch (%.4f %.4f)',k1,k2);
 fprintf('k_out(w1)=%.4f (=1/2.0)  k_out(w2)=%.4f (=1/1.5)  -- window clipping + span+1 accounting correct\n', k1, k2);
 
+fprintf('\n========== PART C: the >=%% inside filter (dwelling vs passing through) ==========\n');
+% Same box, one window, TWO member tracks over 20 frames:
+%   track 1 DWELLS  — inside for 16 of its 20 window frames (80%)
+%   track 2 PASSES  — inside for 4 of its 20 window frames (20%), in one short visit
+% At minPctInside = 50 only track 1 survives, so the events, the per-track rows and k_out must all
+% be the dwelling track's alone. This is a selection on the measured quantity: mean dwell can only
+% go up and k_out can only go down, which is exactly why the threshold travels with the result.
+frC = (1:nF)';
+x1 = 10*ones(nF,1); y1 = 10*ones(nF,1); x1(3:18) = 0; y1(3:18) = 0;   % 16/20 inside
+x2 = 10*ones(nF,1); y2 = 10*ones(nF,1); x2(5:8)  = 0; y2(5:8)  = 0;   %  4/20 inside
+wC = CStemplate;
+wC.window = 1; wC.winFrames = [1 20]; wC.siteUID = 1;
+wC.tracks = [1 2]; wC.nTracks = 2;
+wC.CSmatrix = cat(3, [frC frC], [x1 x2], [y1 y2]);
+CSW = wC;
+save(fullfile(tmp,'CSW_final.mat'),'CSW');
+
+D0  = cs_window_dwell(tmp, struct('save',false,'verbose',false));                       % every member
+D50 = cs_window_dwell(tmp, struct('save',false,'verbose',false,'minPctInside',50));     % dwelling only
+assert(numel(D0.perTrack)==2, 'unfiltered run kept %d member tracks, wanted 2', numel(D0.perTrack));
+assert(isscalar(D50.perTrack), '>=50%% kept %d member tracks, wanted 1', numel(D50.perTrack));
+assert(D50.perTrack(1).trackCol==1, '>=50%% kept the passing-through track, not the dwelling one');
+pcts = sort([D0.perTrack.pctInside]);
+assert(abs(pcts(1)-20)<1e-9 && abs(pcts(2)-80)<1e-9, 'pctInside is %s, wanted 20 and 80', mat2str(pcts));
+assert(D50.minPctInside==50 && D0.minPctInside==0, 'the threshold did not travel with the result');
+% the surviving numbers are the dwelling track's: one 16-frame episode = 16*dt = 8 s
+assert(isscalar(D50.events) && abs(D50.events.dwell-16*dt)<1e-9, ...
+    'filtered dwell = %s, wanted %g s', mat2str([D50.events.dwell]), 16*dt);
+assert(numel(D0.events)==2, 'unfiltered run found %d events, wanted 2', numel(D0.events));
+fprintf('pctInside = %s ; >=50%% keeps 1 of 2 tracks; dwell %g s -> %g s, k_out %.4f -> %.4f /s\n', ...
+    mat2str(pcts), sum([D0.events.dwell]), sum([D50.events.dwell]), ...
+    D0.perSite(1).kout, D50.perSite(1).kout);
+
+% A site with no qualifying track at all must report NO escape rate, not one of zero: 0/s means
+% "never leaves", and averaging that into a condition would drag its k_out towards zero.
+D99 = cs_window_dwell(tmp, struct('save',false,'verbose',false,'minPctInside',99));
+assert(isempty(D99.events), '>=99%% should have kept no track here');
+assert(isnan(D99.perSite(1).kout) && isnan(D99.perSite(1).meanDwell), ...
+    'a site with no qualifying track reported k_out=%g — no events is no rate, not a rate of zero', ...
+    D99.perSite(1).kout);
+fprintf('no qualifying track -> k_out is NaN (dropped downstream), not 0\n');
+
 fprintf('\nALL DWELL SMOKE ASSERTIONS PASSED.\n');
 end

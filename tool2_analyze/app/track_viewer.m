@@ -42,6 +42,8 @@ S.current_file   = 0;
 S.frame_interval = 1;
 S.loaded         = false;
 S.kept_ids       = [];
+S.pixUmFcn       = [];   % @() project pixel size (host-supplied); [] = only the movie can say
+S.fovSrc         = 'default';   % where the overlay FOV came from: movie | project | default
 S.manual_keep    = [];   % tracks the user forced KEEP (survive a filter re-apply)
 S.manual_reject  = [];   % tracks the user forced REJECT (survive a filter re-apply)
 % ---- link cuts (mislinkage repair) ----------------------------------------------------------
@@ -126,6 +128,9 @@ if nargin >= 5 && ~isempty(opts) && isstruct(opts)
     if isfield(opts,'readPrefer')    && ~isempty(opts.readPrefer),    S.readPrefer    = char(opts.readPrefer);   end
     if isfield(opts,'exportSuffix')  && ~isempty(opts.exportSuffix),  S.exportSuffix  = char(opts.exportSuffix); end
     if isfield(opts,'preserveCloud') && ~isempty(opts.preserveCloud), S.preserveCloud = logical(opts.preserveCloud); end
+    % The PROJECT's pixel size, as a function handle so it follows a top-bar edit while this tab is
+    % open. Used only when the movie itself cannot say — see set_overlay's FOV block.
+    if isfield(opts,'pixUmFcn') && ~isempty(opts.pixUmFcn), S.pixUmFcn = opts.pixUmFcn; end
 end
 
 % ---- Host: own window (standalone) or an embedded parent container --------
@@ -311,9 +316,20 @@ c.max_dv = uislider(lg,'Limits',[0 1],'Value',1,...
 c.max_dv.Layout.Row=row; c.max_dv.Layout.Column=[1 2];
 
 row=row+1; c.lbl_dn = lbl2(lg,row,'Max density: —');
+% A TYPEABLE box beside the slider. The slider stays the single source of truth — the percentile
+% writes into it and so does this — but a slider alone cannot be given an exact value, and its
+% range is rescaled per cell, so "density <= 12" was not something you could actually ask for. That
+% matters most for the batch, which applies ONE absolute threshold to every file: a number you can
+% state and record beats a pixel position you dragged.
+c.max_dn_v = uispinner(lg,'Limits',[0 Inf],'Value',50,'Step',1,'FontSize',9, ...
+    'Tooltip',['Type the density threshold directly. Tracks with mean local density ABOVE this ' ...
+    'are removed. This and the percentile below both write the same slider — set either. The ' ...
+    'batch uses whatever number is in force when you run it, for every file.'], ...
+    'ValueChangedFcn',@(~,~) on_max_dn_typed());
+c.max_dn_v.Layout.Row=row; c.max_dn_v.Layout.Column=2;
 row=row+1;
 c.max_dn = uislider(lg,'Limits',[0 50],'Value',50,...
-    'ValueChangedFcn',@(~,~) preview_filter(),'FontSize',8);
+    'ValueChangedFcn',@(~,~) on_max_dn_slid(),'FontSize',8);
 c.max_dn.Layout.Row=row; c.max_dn.Layout.Column=[1 2];
 
 row=row+1;
@@ -1245,6 +1261,13 @@ end
         if ~isfield(c,'lbl_dv'), return, end
         c.lbl_dv.Text  = sprintf('Max disp var: %.4f', c.max_dv.Value);
         c.lbl_dn.Text  = sprintf('Max density: %.0f',  c.max_dn.Value);
+        % Mirror the slider into the typeable box wherever the slider moved without it — the
+        % percentile spinner, or a cell load rescaling the range. A box showing a stale number
+        % beside the slider that is actually filtering would be worse than having no box.
+        if isfield(c,'max_dn_v') && isgraphics(c.max_dn_v)
+            if c.max_dn.Value > c.max_dn_v.Limits(2), c.max_dn_v.Limits = [c.max_dn_v.Limits(1) c.max_dn.Value]; end
+            c.max_dn_v.Value = c.max_dn.Value;
+        end
     end
 
     function refreshTraj()
@@ -1294,6 +1317,22 @@ end
             c.toggle_btn.Text = sprintf('✔  KEEP track %d', S.selected_id);
             c.toggle_btn.BackgroundColor = [0.16 0.55 0.28];
         end
+    end
+
+    function on_max_dn_typed()
+        % A typed value BEYOND the slider's current range must widen the range, not be silently
+        % clamped to it. The range is only ever this cell's observed maximum; asking for a higher
+        % cut is asking to keep everything, which is a legitimate thing to want.
+        v = c.max_dn_v.Value;
+        if v > c.max_dn.Limits(2), c.max_dn.Limits = [c.max_dn.Limits(1) v]; end
+        if v < c.max_dn.Limits(1), c.max_dn.Limits = [v c.max_dn.Limits(2)]; end
+        c.max_dn.Value = v;
+        preview_filter(); refresh_thresh_labels();
+    end
+
+    function on_max_dn_slid()
+        if isfield(c,'max_dn_v') && isgraphics(c.max_dn_v), c.max_dn_v.Value = c.max_dn.Value; end
+        preview_filter();
     end
 
     function apply_percentile_filter()
@@ -1622,17 +1661,42 @@ end
                 % complaint. Read the pixel size off the movie and size the image to it.
                 %   XData spans CENTRES of the first and last column, and the coordinate convention
                 %   here is X_um = (0-based col) * pxUm, so the far edge is (W-1)*pxUm, not W*pxUm.
-                if exist('spt_tiff_calib','file')==2 && isgraphics(c.ov_fov)
-                    try
-                        cal = spt_tiff_calib(ov.spt);
-                        if isfinite(cal.pixUm) && cal.pixUm > 0 && ~isempty(S.spt_img)
-                            W = size(S.spt_img,2);
-                            fovUm = (W-1) * cal.pixUm;
-                            if fovUm >= c.ov_fov.Limits(1) && fovUm <= c.ov_fov.Limits(2)
-                                c.ov_fov.Value = fovUm;
-                            end
+                %
+                % AND WHEN THE MOVIE CANNOT SAY, ASK THE PROJECT. Reading only the TIFF's own tags
+                % fixed the hardcoded-27.61 case for files that carry metadata and left it exactly
+                % as broken for files that do not: cal.pixUm comes back NaN, the assignment below is
+                % skipped, and the spinner silently keeps 27.61 — the old rig's number. The tracks
+                % are still in µm at the project's real scale, so the raw frame is drawn at the
+                % wrong width and the overlay slides further off the tracks the further you get from
+                % the origin. Measured on a 256 px movie at 0.097 µm/px: tracks span 24.735 µm, the
+                % image was drawn across 27.61 — 12 % too wide.
+                %
+                % The project's pixel size is the right fallback because it is the SAME number the
+                % coordinates were produced with, and since the calibration resolver honours a
+                % hand-edited value, correcting a plate on the Experiment tab now also fixes this
+                % overlay. Order: the movie's own tags, then the project, then leave it alone.
+                if isgraphics(c.ov_fov) && ~isempty(S.spt_img)
+                    W = size(S.spt_img,2);
+                    pxUm = NaN; src = '';
+                    if exist('spt_tiff_calib','file')==2
+                        try
+                            cal = spt_tiff_calib(ov.spt);
+                            if isfinite(cal.pixUm) && cal.pixUm > 0, pxUm = cal.pixUm; src = 'movie'; end
+                        catch
                         end
-                    catch
+                    end
+                    if ~isfinite(pxUm) && ~isempty(S.pixUmFcn)
+                        try
+                            v = S.pixUmFcn();
+                            if isscalar(v) && isnumeric(v) && isfinite(v) && v > 0, pxUm = double(v); src = 'project'; end
+                        catch
+                        end
+                    end
+                    if isfinite(pxUm) && W > 1
+                        fovUm = (W-1) * pxUm;
+                        if fovUm >= c.ov_fov.Limits(1) && fovUm <= c.ov_fov.Limits(2)
+                            c.ov_fov.Value = fovUm; S.fovSrc = src;
+                        end
                     end
                 end
             end
@@ -1647,10 +1711,31 @@ end
         end
         if ~isempty(parts)
             pf=''; if anyPerFrame, pf='  (per-frame)'; end
-            c.ov_lbl.Text=['Auto overlay: ' strjoin(parts,' + ') pf '  (Experiment tab folders)'];
+            c.ov_lbl.Text=['Auto overlay: ' strjoin(parts,' + ') pf '  (Experiment tab folders)  ·  ' fovNote()];
         else
             c.ov_lbl.Text=['No reference-channel segmentation found for this cell ' ...
-                           '(set folders on the Experiment tab, or Pick manually).'];
+                           '(set folders on the Experiment tab, or Pick manually).  ·  ' fovNote()];
+        end
+        % A FOV nobody could supply is TINTED, for the same reason the top bar tints an unsupported
+        % calibration: 27.61 is a confident-looking number that no longer describes anything, and a
+        % plain spinner is exactly what let it sit there misaligning every overlay in silence.
+        if isgraphics(c.ov_fov)
+            if strcmp(S.fovSrc,'default'), c.ov_fov.BackgroundColor = [1 0.96 0.86];
+            else,                          c.ov_fov.BackgroundColor = [1 1 1];
+            end
+        end
+    end
+
+    function t = fovNote()
+        % Say where the width the images are drawn across came from. Without this the only symptom
+        % of a wrong one is an overlay that looks slightly off, which reads as a segmentation or a
+        % drift problem rather than as a scale problem.
+        switch S.fovSrc
+            case 'movie',   t = sprintf('FOV %.4g µm from the movie''s own pixel size', c.ov_fov.Value);
+            case 'project', t = sprintf('FOV %.4g µm from the PROJECT pixel size (the movie carries none)', c.ov_fov.Value);
+            otherwise,      t = sprintf(['FOV %.4g µm — NOT from this data. The movie carries no pixel ' ...
+                                         'size and no project one was supplied, so the overlay may not ' ...
+                                         'line up with the tracks. Set µm/px on the Experiment tab.'], c.ov_fov.Value);
         end
     end
 

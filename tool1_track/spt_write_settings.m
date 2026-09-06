@@ -12,13 +12,58 @@ keepPct = gf(cel,'keepPct',6);
 isQual  = isfield(cel,'thrMode') && strcmpi(cel.thrMode,'qual');
 if isQual, modeTxt = 'quality-abs'; else, modeTxt = 'top-percentile'; end
 qMin = gf(cel,'qualThr',[]); if isempty(qMin) || ~(qMin>0), qMinTxt = '(n/a)'; else, qMinTxt = sprintf('%.6g', qMin); end
-if isfield(cel,'thrAbs') && ~isempty(cel.thrAbs), thrTxt = sprintf('%.6g', cel.thrAbs); else, thrTxt = '(pooled top-percentile)'; end
+% The cut this cell ACTUALLY detected with, and where it came from. This used to read the literal
+% '(pooled top-percentile)' for any cell that was not previewed, because the resolved number never
+% came back from the engine — so across a batch there was no way to tell whether each cell got its
+% own threshold or one value had been applied to all of them.
+tu = gf(R,'thrUsed',[]); tsrc = gs(R,'thrSrc','');
+if ~isempty(tu) && isscalar(tu) && isfinite(tu)
+    if strcmp(tsrc,'pooled')
+        thrTxt = sprintf('%.6g   (pooled from THIS cell, top %.4g%%)', tu, keepPct);
+    else
+        thrTxt = sprintf('%.6g   (fixed on the cell, not pooled)', tu);
+    end
+elseif isfield(cel,'thrAbs') && ~isempty(cel.thrAbs)
+    thrTxt = sprintf('%.6g   (fixed on the cell, not pooled)', cel.thrAbs);
+else
+    thrTxt = '(unresolved — no candidates pooled)';
+end
 fprintf(fid, '# SPT Track run settings — %s\n', base);
 fprintf(fid, 'detection.diameter_um   = %.4g\n', diamUm);
 fprintf(fid, 'detection.threshold_mode= %s\n', modeTxt);
 fprintf(fid, 'detection.top_percent   = %.4g\n', keepPct);
 fprintf(fid, 'detection.quality_min   = %s\n', qMinTxt);
 fprintf(fid, 'detection.thr_abs       = %s\n', thrTxt);
+% The ridge gate and the interleaved frame map both change WHICH detections exist, so a run is not
+% reproducible from the other settings alone.
+rg = gf(R,'ridgeMax',[]);
+fprintf(fid, 'detection.ridge_max     = %s\n', tern_(isempty(rg)||rg<=0, 'off (no filament rejection)', sprintf('%.4g', rg)));
+sz = gf(R,'sizeMax',[]);
+fprintf(fid, 'detection.size_max      = %s\n', tern_(isempty(sz)||sz<=0, 'off (no width rejection)', sprintf('%.4g x expected peak width', sz)));
+al = gf(R,'alignDeg',[]);
+fprintf(fid, 'detection.align_deg     = %s\n', tern_(isempty(al)||al<=0, 'off (no alignment rejection)', ...
+    sprintf('%.4g deg of the organelle skeleton', al)));
+fprintf(fid, 'detection.bleed_frames  = %s\n', gs(R,'bleedFrames','all'));
+fprintf(fid, 'detection.thr_from_frames= %s   (which frames the Top-%% threshold was pooled from)\n', ...
+    gs(R,'thrFrames','all'));
+% Mean IMAGE intensity inside the organelle mask over outside, on the frames actually detected.
+% ~1 means no meaningful leak-through from the other channel. Deliberately an intensity ratio and
+% not a detection ratio: a detection ratio IS the biological readout and cannot judge itself.
+ce = gf(R,'mitoIntensityEnrich',NaN);
+if isfinite(ce)
+    fprintf(fid, 'detection.mito_intensity_enrich = %.3g   (~1 = no crosstalk into this channel)\n', ce);
+end
+fprintf(fid, 'frames.spt_per_organelle= %d\n', gf(R,'segEvery',1));
+fs = gf(R,'frameStride',1);
+if fs > 1
+    fprintf(fid, 'frames.de_interleave    = every %d pages from page %d (of %d) -> %d frames\n', ...
+        fs, gf(R,'frameOffset',0)+1, gf(R,'nPages',0), R.nFrames);
+    fprintf(fid, 'frames.page_interval_s  = %.6g   (calibration.frame_s below is this x %d)\n', gf(R,'dtPage',NaN), fs);
+end
+nns = gf(R,'nFramesNoSegPage',0);
+if nns > 0
+    fprintf(fid, 'frames.no_organelle_page= %d   (NO mito/ER distance and no link support on these frames)\n', nns);
+end
 % Report the EFFECTIVE linking mode (what ran), not the requested one — an ER mode is downgraded
 % to Euclidean for a cell with no ER segmentation, and the record must not claim otherwise.
 modeEff = gf(R, 'linkMode', gf(prm,'linkMode','penalty'));
@@ -39,8 +84,24 @@ fprintf(fid, 'tracking.max_gap_frames = %d\n', prm.maxGap);
 % fully derivable from tracking.link_mode (anything but 'euclid' uses the ER) — it named a mode the
 % app no longer has, right next to the two lines that say the real one.
 fprintf(fid, 'tracking.lambda         = %.4g\n', prm.lambda);
-fprintf(fid, 'calibration.pixel_um    = %.6g\n', prm.pxUm);
-fprintf(fid, 'calibration.frame_s     = %.6g\n', prm.dtS);
+% Calibration is per cell, so this file has to say WHERE this cell's two numbers came from — the
+% same reason link_mode_req exists above. A value the app could not resolve from the cell falls back
+% to the panel, and a fallback that is not recorded is indistinguishable from a measurement: a later
+% reader (spt_project_calib reads calibration.pixel_um straight out of this file) would take the
+% panel's guess for what the instrument said. The _src line is what tells them apart. The value
+% itself is still written, because it IS what produced the µm coordinates sitting next to it.
+pxSrc = gs(prm,'pxUmSrc','(unknown)');
+dtSrc = gs(prm,'dtSSrc','(unknown)');
+fprintf(fid, 'calibration.pixel_um    = %.6g%s\n', prm.pxUm, fallbackNote(pxSrc));
+fprintf(fid, 'calibration.pixel_um_src= %s\n', pxSrc);
+% The EFFECTIVE frame interval, from R — not prm.dtS, which is the interval between PAGES. With
+% de-interleaving on they differ by the stride, and spt_project_calib treats this line as its most
+% trustworthy source, ahead of the tracks XML. Writing the page interval here handed Tools 2 and 3
+% a dt half the real one while the XML said otherwise: every diffusion coefficient, dwell second
+% and k_out downstream would have been wrong by the stride, with the two files disagreeing.
+dtEff = gf(R,'dtS',prm.dtS);
+fprintf(fid, 'calibration.frame_s     = %.6g%s\n', dtEff, fallbackNote(dtSrc));
+fprintf(fid, 'calibration.frame_s_src = %s\n', dtSrc);
 % HOW this cell's movie was paired with its segmentations. Tools 2 and 3 have to redo that pairing
 % to resolve overlays, and until this was recorded they could only RE-DERIVE the token by comparing
 % names — which works when a segmentation name is a prefix of the SPT name and not otherwise. A
@@ -63,6 +124,16 @@ switch lower(mode)
 end
 end
 
+function s = fallbackNote(src)
+% Spell the downgrade out on the value line itself, the way link_mode_req does — a reader scanning
+% the numbers should not have to notice a separate _src line to see that one of them is a guess.
+if strcmpi(src,'panel')
+    s = '   (FALLBACK — nothing in this cell supplied one; value from the panel)';
+else
+    s = '';
+end
+end
+
 function v = gf(s, f, d), if isfield(s,f) && ~isempty(s.(f)), v = s.(f); else, v = d; end, end
 
 function v = gs(s, f, d)
@@ -71,3 +142,5 @@ function v = gs(s, f, d)
 v = d;
 if isfield(s,f) && ~isempty(s.(f)) && (ischar(s.(f)) || isstring(s.(f))), v = char(s.(f)); end
 end
+
+function y = tern_(c, a, b), if c, y = a; else, y = b; end, end

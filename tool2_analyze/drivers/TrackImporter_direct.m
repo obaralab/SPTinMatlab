@@ -424,9 +424,24 @@ function c = cell_calib(xmlPath, proj, frameInt)
 %CELL_CALIB  This cell's own calibration, with the project panel as the fallback.
 %
 % Resolution order, most specific first:
-%   1. the cell's own image metadata (TIFF resolution tags next to its XML)
-%   2. the project-level Calibration panel ('Calib' option)
-%   3. the historical defaults, so an old project imports exactly as it always did
+%   0. an EDITED project value — one the user typed on the Experiment tab, flagged by Calib.edited.
+%      This is the only project-level value that outranks the cell's own file, and it has to: on a
+%      dataset whose metadata is missing or wrong, the correction is the whole point, and a build
+%      that silently preferred the file would analyse at a scale the user had already rejected while
+%      every toolbar showed the corrected one. Nothing sets this flag except a hand edit.
+%   1. tracks/<base>_settings.txt — WHAT TOOL 1 ACTUALLY TRACKED WITH, and therefore what the X_um
+%      and Y_um in this very XML were computed from. This outranks the cell's own image because the
+%      two can legitimately disagree: a user who overrode the pixel size in Tool 1 has coordinates
+%      at the OVERRIDE, while the TIFF still carries the tag they rejected. Stamping the tag then
+%      makes Tool 3 draw every raw frame and organelle mask at a scale the tracks are not in, and
+%      the overlay slides off the molecules. Same rule, and the same reason, as spt_project_calib's.
+%   2. the cell's own image metadata (TIFF resolution tags next to its XML)
+%   3. the project-level Calibration panel ('Calib' option)
+%   4. the historical defaults, so an old project imports exactly as it always did
+%
+% The FOV is not resolved independently of any of this — it is DERIVED as (width-1) x pixel size
+% from the image when there is one, so the two always multiply out. Reading a FOV from one source
+% and a pixel size from another is how they came to disagree in the first place.
 %
 % .src records which one won per field, so the app can SAY whether a cell was measured or inherited
 % rather than presenting an inherited value as if it had been read off the file.
@@ -434,7 +449,12 @@ function c = cell_calib(xmlPath, proj, frameInt)
 DEF = struct('pixSizeUm',0.10785,'fovUm',27.61,'precNm',30);
 c = struct('pixSizeUm',NaN,'fovUm',NaN,'dt_s',frameInt,'precNm',NaN,'binNm',NaN, ...
            'src',struct('pixSizeUm','default','fovUm','default','dt_s','xml','precNm','default','binNm','default'));
-if ~(isscalar(frameInt) && isfinite(frameInt) && frameInt > 0)
+% dt: an edited value first, then the XML's own frameInterval, then the panel. The XML is normally
+% authoritative — it is what the tracking was done against — but when Tool 1 itself had to fall back
+% the XML merely carries that fallback forward, and correcting it is exactly what the edit is for.
+if isEdited(proj,'dt_s')
+    c.dt_s = proj.dt_s; c.src.dt_s = 'edited';
+elseif ~(isscalar(frameInt) && isfinite(frameInt) && frameInt > 0)
     c.dt_s = pick(proj,'dt_s',0.020064); c.src.dt_s = 'project';
 end
 
@@ -446,8 +466,23 @@ try
 catch
 end
 
-[c.pixSizeUm, c.src.pixSizeUm] = resolve(getfd(meta,'pixSizeUm'), pick(proj,'pixSizeUm',NaN), DEF.pixSizeUm);
-[c.fovUm,     c.src.fovUm]     = resolve(getfd(meta,'fovUm'),     pick(proj,'fovUm',NaN),     DEF.fovUm);
+% What Tool 1 recorded for this cell — the scale its µm coordinates are in.
+setPx = settings_pixel_um(xmlPath);
+if isfinite(setPx)
+    [c.pixSizeUm, c.src.pixSizeUm] = resolveE(proj,'pixSizeUm', setPx, DEF.pixSizeUm);
+    if strcmp(c.src.pixSizeUm,'image'), c.src.pixSizeUm = 'settings'; end
+else
+    [c.pixSizeUm, c.src.pixSizeUm] = resolveE(proj,'pixSizeUm', getfd(meta,'pixSizeUm'), DEF.pixSizeUm);
+end
+[c.fovUm,     c.src.fovUm]     = resolveE(proj,'fovUm',     getfd(meta,'fovUm'),     DEF.fovUm);
+% DERIVE the FOV from the width and the pixel size that won, whenever the image can supply a width.
+% Every other surface in the pipeline computes it that way; leaving it independent is what let a
+% cell carry a 27.61 µm FOV beside a 0.097 µm/px pixel size, and Tool 3 draws organelle masks
+% across the FOV.
+W = image_width(xmlPath);
+if isfinite(W) && W > 1 && isfinite(c.pixSizeUm) && c.pixSizeUm > 0
+    c.fovUm = (W-1)*c.pixSizeUm; c.src.fovUm = 'derived';
+end
 % Localization precision is never in file metadata — it is a property of the fit, not the camera
 % geometry — so it can only come from the panel (or the default).
 [c.precNm,    c.src.precNm]    = resolve(NaN,                     pick(proj,'binNm',NaN),     DEF.precNm);
@@ -463,6 +498,34 @@ end
 % never be set at import — it always silently fell back to the precision, which is the right DEFAULT
 % but left no way to state a different one.
 [c.binNm, c.src.binNm] = resolve(NaN, pick(proj,'densBinNm',NaN), c.precNm);
+end
+
+function v = settings_pixel_um(xmlPath)
+% calibration.pixel_um out of tracks/<base>_settings.txt — Tool 1's record of the scale it used.
+v = NaN;
+try
+    [d, b] = fileparts(xmlPath);
+    base = regexprep(b, '_tracks(_filtered|_curated)?$', '');
+    f = fullfile(d, [base '_settings.txt']);
+    if ~isfile(f), return; end
+    t = regexp(fileread(f), '(?m)^\s*calibration\.pixel_um\s*=\s*(-?[\d.]+(?:[eE][-+]?\d+)?)', 'tokens','once');
+    if isempty(t), return; end
+    x = str2double(t{1});
+    if isfinite(x) && x >= 0.005 && x <= 5, v = x; end   % spt_project_calib's own gate
+catch
+end
+end
+
+function W = image_width(xmlPath)
+% Pixel width of this cell's movie, for the derived FOV. NaN when there is no movie to measure.
+W = NaN;
+try
+    t = sibling_image(xmlPath);
+    if isempty(t), return; end
+    info = imfinfo(t);
+    if ~isempty(info) && isfield(info(1),'Width'), W = double(info(1).Width); end
+catch
+end
 end
 
 function t = sibling_image(xmlPath)
@@ -482,6 +545,26 @@ for i = 1:numel(roots)
         if isfile(f), t = f; return; end
     end
 end
+end
+
+function [v, src] = resolveE(proj, f, fromImage, fallback)
+% resolve(), with rank 0 for a hand-edited project value.
+if isEdited(proj, f)
+    v = proj.(f); src = 'edited'; return
+end
+[v, src] = resolve(fromImage, pick(proj,f,NaN), fallback);
+end
+
+function tf = isEdited(proj, f)
+% True only when the caller listed this field in Calib.edited AND supplied a usable number. Absent
+% or malformed 'edited' means "nothing was edited", so every existing caller behaves as before.
+tf = false;
+if ~isstruct(proj) || ~isfield(proj,'edited') || ~isfield(proj,f), return; end
+e = proj.edited;
+if ischar(e) || isstring(e), e = cellstr(e); end
+if ~iscellstr(e) || ~any(strcmp(e, f)), return; end
+v = proj.(f);
+tf = isscalar(v) && isnumeric(v) && isfinite(v) && v > 0;
 end
 
 function [v, src] = resolve(fromImage, fromProject, fallback)

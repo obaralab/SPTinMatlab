@@ -129,6 +129,51 @@ assert(contains(cfgsrc,'cs_config:defaultCalibration'), ...
     'cs_config still falls back to the reference rig''s calibration silently');
 fprintf('per-cell stamp finds the movie · edits reach analysis/ · cs_config warns on defaults\n');
 
+% ---- 11. two cells in ONE project resolve their OWN calibrations ----------------------------------
+% The whole motivation: cells in one comparison are routinely acquired on different rigs at different
+% frame rates. Asking the resolver for a specific base must give THAT base's numbers — if it collapsed
+% to the project's first cell, per-cell calibration would be per-cell in name only.
+pm = fullfile(tmp,'mixed'); mkdir(fullfile(pm,'tracks'));
+write_settings(fullfile(pm,'tracks','cellA_settings.txt'), 0.10785, 0.020064);
+write_settings(fullfile(pm,'tracks','cellB_settings.txt'), 0.16,    0.010519);
+cA = spt_project_calib(pm,'cellA'); cB = spt_project_calib(pm,'cellB');
+fprintf('mixed project: cellA %.5g µm/px %.6g s · cellB %.5g µm/px %.6g s\n', cA.pixUm,cA.dt_s, cB.pixUm,cB.dt_s);
+assert(abs(cA.pixUm-0.10785) < 1e-9 && abs(cB.pixUm-0.16) < 1e-9, ...
+    'a per-cell request returned the wrong cell''s pixel size (%g / %g)', cA.pixUm, cB.pixUm);
+assert(cA.pixUm ~= cB.pixUm, 'two cells acquired differently collapsed to one pixel size');
+assert(abs(cA.dt_s-0.020064)/0.020064 < 1e-6 && abs(cB.dt_s-0.010519)/0.010519 < 1e-6, ...
+    'dt did not follow the cell (%g / %g)', cA.dt_s, cB.dt_s);
+
+% ---- 12. Tool 1's batch must resolve INSIDE the loop, not once for the run ------------------------
+% This was the defect: one prm, built before the loop, carrying one calibration into every cell.
+app = fileread(fullfile(here,'spt_app.m'));
+assert(contains(app,'prm_k.pxUm = cal.pixUm'), ...
+    'Tool 1''s batch no longer builds a per-cell prm — every cell would run on one calibration again');
+assert(contains(app,'cal = cellCalib(kBase, cel.spt, pdir)'), ...
+    'the batch does not resolve each cell''s own calibration');
+
+% ---- 13. a PANEL fallback is written, still readable, and still labelled a fallback ---------------
+% The value HAS to be written: it is what produced the µm coordinates sitting beside it, which is
+% exactly why spt_project_calib ranks _settings.txt first. So the resolver keeps reading it and keeps
+% calling it 'settings' — unchanged, deliberately. The _src line is the only thing that says the
+% number was a panel guess rather than a measurement, and the manifest is where that reaches a person.
+pf = fullfile(tmp,'fallback'); mkdir(fullfile(pf,'tracks'));
+prmFb = struct('linkUm',0.8,'gapUm',1.4,'maxGap',1,'lambda',3,'linkMode','euclid', ...
+               'pxUm',0.10785,'dtS',DT,'pxUmSrc','panel','dtSSrc','xml');
+Rfb = struct('spotId',(1:5)','nTracks',2,'haveEr',0,'haveMito',0,'linkMode','euclid','linkModeReq','euclid');
+spt_write_settings(fullfile(pf,'tracks'),'cellF',struct('diamUm',0.5,'keepPct',6),prmFb,Rfb);
+txt = fileread(fullfile(pf,'tracks','cellF_settings.txt'));
+assert(contains(txt,'calibration.pixel_um_src= panel'), ...
+    'a panel fallback was recorded with no marker — a later read would take it for a measurement');
+assert(contains(txt,'FALLBACK'), 'the fallback is not spelled out on the value line itself');
+assert(contains(txt,'calibration.frame_s_src = xml'), 'the frame interval''s source was not recorded');
+cf = spt_project_calib(pf,'cellF');
+assert(abs(cf.pixUm-0.10785) < 1e-9, ...
+    'the resolver stopped reading calibration.pixel_um — it IS what produced the coordinates on disk');
+assert(strcmp(cf.src.pixUm,'settings'), ...
+    'the resolver''s own labelling changed; the honest label belongs in the _src line and the manifest');
+fprintf('per-cell resolution differs by cell · the batch resolves in-loop · a fallback is recorded\n');
+
 fprintf('\nALL CALIBRATION-HANDOFF ASSERTIONS PASSED.\n');
 end
 

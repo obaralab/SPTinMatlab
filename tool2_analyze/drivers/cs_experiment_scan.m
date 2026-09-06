@@ -18,6 +18,15 @@ function cells = cs_experiment_scan(folders)
 %           track COUNTS: nSpotsRaw, nTracksRaw, nTracksFiltered, nTracksCurated, nTracksMetrics,
 %           nTracksKept, nSpotsInTracks, nSpotsKept, nTracksBuilt, nSpotsBuilt, nCellsBuilt)
 %   folder(=analysis), hasCSW, hasDwell                           (back-compat with the aggregator/UI)
+%   pixUm, pixSrc, pixLock / dtS, dtSrc, dtLock                   this cell's OWN calibration
+%           Cameras and frame rates differ BETWEEN CELLS in a real comparison, so calibration belongs
+%           on the cell record, not on a panel. NaN means nothing could supply one — an honest
+%           absence the caller falls back from, never 0 and never the reference rig's number.
+%           *Src is spt_project_calib's label ('settings'|'movie'|'xml'|'derived'|'missing'), plus
+%           'panel' for a value that only the panel could supply and 'edited' for a typed one.
+%           *Lock marks a HAND-EDITED value. This function never sets it and never reads it: it
+%           always reports what the filesystem currently says, and the panel — the one place that
+%           knows what the user typed — is what carries a locked value across a rescan.
 cells = emptyCells();
 if isempty(folders), return; end
 if ischar(folders) || isstring(folders), folders = cellstr(folders); end
@@ -42,8 +51,11 @@ for i = 1:numel(folders)
             'project',P.project,'analysis',P.analysis,'tracks',P.tracks,'spt',sp, ...
             'seg',sg,'erSeg',er,'mitoSeg',mi, ...
             'trackstruct',tsOrDefault_(P.analysis),'nTracks',0, ...
-            'status',struct(),'folder',P.analysis,'hasCSW',false,'hasDwell',false);
+            'status',struct(),'folder',P.analysis,'hasCSW',false,'hasDwell',false, ...
+            'pixUm',NaN,'pixSrc','missing','pixLock',false, ...
+            'dtS',NaN,  'dtSrc','missing', 'dtLock',false);
         rec.status  = cs_experiment_status(rec);
+        rec = readCalib_(rec, P, base);
         rec.hasCSW  = rec.status.mapped;
         rec.hasDwell= rec.status.dwelled;
         rec.nTracks = rec.status.nTracksBuilt;                 % already resolved (and cached) there
@@ -133,7 +145,46 @@ if isempty(p), p = fullfile(anaDir,'TrackStruct.mat'); end
 end
 
 function c = emptyCells()
+% MUST list exactly the fields of the struct(...) literal above, in exactly that order — `cells(end+1)
+% = rec` compares the two field-for-field and throws "dissimilar structures" on any disagreement.
 c = struct('file',{},'day',{},'condition',{},'exclude',{},'reason',{},'notes',{}, ...
     'project',{},'analysis',{},'tracks',{},'spt',{},'seg',{},'erSeg',{},'mitoSeg',{},'trackstruct',{}, ...
-    'nTracks',{},'status',{},'folder',{},'hasCSW',{},'hasDwell',{});
+    'nTracks',{},'status',{},'folder',{},'hasCSW',{},'hasDwell',{}, ...
+    'pixUm',{},'pixSrc',{},'pixLock',{},'dtS',{},'dtSrc',{},'dtLock',{});
+end
+
+function rec = readCalib_(rec, P, base)
+% This cell's own calibration, straight from spt_project_calib — its resolution order (Tool 1's
+% _settings.txt, then the movie's metadata, then the tracks XML) and its refusal to guess are the
+% contract, so nothing is re-derived here.
+if exist('spt_project_calib','file') ~= 2, return; end       % defensive, like enumerateCells above
+try
+    % useManifest=false: this function FILLS the manifest, so reading it back would make an edit
+    % its own evidence and no rescan could ever show what the files actually contain. The panel
+    % re-applies the user's edit on top of the rescan (doScan's pixLock merge).
+    cc = spt_project_calib(P.project, base, false);
+    rec.pixUm = cc.pixUm; rec.pixSrc = cc.src.pixUm;
+    rec.dtS   = cc.dt_s;  rec.dtSrc  = cc.src.dt_s;
+catch
+    return
+end
+% A value Tool 1 fell back to the PANEL for is still written into _settings.txt — it has to be, it is
+% what produced the µm coordinates on disk — so the resolver legitimately reads it back and calls it
+% 'settings'. The _src marker beside it is the only thing that distinguishes a measurement from a
+% panel guess, and reading it belongs here rather than in the resolver: the manifest is where a
+% person looks to see which cells are on their own scale and which are on the panel's.
+try
+    f = fullfile(rec.tracks, [base '_settings.txt']);
+    if isfile(f)
+        txt = fileread(f);
+        if strcmp(rec.pixSrc,'settings') && srcIsPanel_(txt,'calibration.pixel_um_src'), rec.pixSrc = 'panel'; end
+        if strcmp(rec.dtSrc,'settings')  && srcIsPanel_(txt,'calibration.frame_s_src'),  rec.dtSrc  = 'panel'; end
+    end
+catch
+end
+end
+
+function tf = srcIsPanel_(txt, k)
+t = regexp(txt, ['(?m)^\s*' regexptranslate('escape',k) '\s*=\s*(\S+)'], 'tokens','once');
+tf = ~isempty(t) && strcmpi(strtrim(t{1}),'panel');
 end

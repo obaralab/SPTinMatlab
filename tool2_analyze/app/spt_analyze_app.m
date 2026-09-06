@@ -46,9 +46,15 @@ here_ = fileparts(mfilename('fullpath'));            % .../tool2_analyze/app
 addpath(fullfile(fileparts(here_),'drivers'));
 t1_ = fullfile(fileparts(fileparts(here_)),'tool1_track');
 if isfolder(t1_), addpath(t1_); end
-eProj=[]; eCalPx=[]; eCalFov=[]; eCalDt=[]; eCalPrec=[]; lblProj=[];   % top-bar handles
+eProj=[]; eCalPx=[]; eCalFov=[]; eCalDt=[]; eCalPrec=[]; lblProj=[]; lblDims=[];  % top-bar handles
+IMW = NaN; IMH = NaN;   % image dimensions in px, from the movie — what the FOV is computed from
+CALEDIT = {};           % which top-bar numbers are HAND EDITS ('pixSizeUm','fovUm','dt_s'), so the
+                        % build can rank them above the file — see TrackImporter_direct/cell_calib
 tg=[]; tImport=[]; tBuild=[]; tCS=[];                                 % tabs
-tRefine=[]; tSites=[]; tDwell=[]; tExpt=[]; tCompare=[];              % downstream tabs (Refine/Sites/Dwell/Experiment/Compare)
+tRefine=[]; tSites=[]; tDwell=[]; tExpt=[]; tEngage=[]; tCompare=[];   % downstream tabs
+% Engagement tab handles
+engDd=[]; engKey=[]; engD0=[]; engD1=[]; engN=[]; engSig=[]; engMin=[]; engTbl=[]; engLbl=[];
+engAxCell=[]; engAxScan=[]; engLast=[];
 ddTimeUnit=[]; lblBuild=[]; tblBuild=[]; txtBuild=[];                 % Build handles
 buildChanKeys = {};   % the channel columns tblBuild was BUILT with — onCalEdit derives its column
                       % index map from this, so adding a channel cannot silently shift calibration
@@ -87,7 +93,12 @@ btnDwPlay=[]; sldDwFrame=[]; chkDwChan=gobjects(1,0); eDwFps=[]; lblDwAnim=[]; d
 % Experiment tab — the shared experiment/condition panel (spt_experiment_panel)
 exptCtl=[];
 % Compare tab handles (+ data source: current project vs experiment)
-ddCmpGroup=[]; ddCmpMetric=[]; ddCmpData=[]; tblCmp=[]; axCmpScatter=[]; axCmpCdf=[]; lblCmp=[]; cmpCSW=[]; cmpDD=[];
+ddCmpGroup=[]; ddCmpMetric=[]; ddCmpData=[]; ddCmpSites=[]; eCmpMinDw=[]; eMinDwPct=[]; tblCmp=[];
+axCmpScatter=[]; axCmpCdf=[]; lblCmp=[]; cmpCSW=[]; cmpDD=[];
+% Identity keys of the sites that survived Compare's filters. The dwell CDF pools EVENTS, and an
+% event has to leave with the site it belongs to.
+cmpKeptSites=[]; cmpLast=[];   % ...and the last computed comparison, for the per-point export
+cmpCells=[];   % (folder|file) keys of the cells to include; [] means every cell in the dataset
 
 % Clean up any orphaned Dwell-animation timer from a previous session (a timer left running after an
 % improper close fires its nested TimerFcn into a dead workspace -> "Unable to find function dwellTick").
@@ -99,11 +110,16 @@ fig.CloseRequestFcn = @(s,e) onAppClose();   % deletes tabs -> track_viewer's pa
 % headless test hooks (spt_named_build_smoke); the UI itself never reads these. These must be
 % NESTED functions — an anonymous @() tsName would capture the value at construction time and
 % always report the empty initial state.
-fig.UserData = struct('activeTs',@activeTsNow, 'tracks',@tracksNow, 'loadTracks',@onLoadTracks);
+fig.UserData = struct('activeTs',@activeTsNow, 'tracks',@tracksNow, 'loadTracks',@onLoadTracks, ...
+    'cmpSetCells',@setCompareCells, 'cmpCellList',@compareCellList, 'cmpLoad',@ensureCompareData, ...
+    'exptCtl',@exptCtlNow, 'calibForBuild',@calibForBuild);
 gl = uigridlayout(fig,[2 1],'RowHeight',{34,'1x'},'Padding',[8 8 8 8],'RowSpacing',6);
 
+% 16 columns, 16 widths, 16 children — keep the three in step. uigridlayout WRAPS a child it has no
+% column for onto a new row and then crushes the row height, which reads as a broken toolbar rather
+% than as a layout error.
 top = uigridlayout(gl,[1 16],'ColumnWidth', ...
-    {150,'1x',60, 40,132, 74,60, 60,54, 54,54, 84,54, 52, 60}, ...
+    {150,'1x',60, 40,132, 74,60, 60,54,66, 54,54, 84,54, 52, 60}, ...
     'Padding',[0 0 0 0],'ColumnSpacing',6);
 uilabel(top,'Text',tern(showCurate&&~showAnalyze,'Curate & Build — Tool 2',tern(showAnalyze&&~showCurate,'Analyze — Tool 3','Curate + Analyze')),'FontWeight','bold','FontColor',[0.25 0.25 0.3]);
 eProj = uieditfield(top,'text','Placeholder','Tool 1 project folder (tracks/, er_seg/, mito_seg/)', ...
@@ -123,6 +139,11 @@ eCalPx = uieditfield(top,'numeric','Value',PXUM,'ValueDisplayFormat','%.5g','Lim
 uilabel(top,'Text','FOV µm','HorizontalAlignment','right');
 eCalFov = uieditfield(top,'numeric','Value',FOVUM,'ValueDisplayFormat','%.5g','Limits',[0.1 1e4], ...
     'Tooltip','Field of view (µm) — drives the density-map scale factor.','ValueChangedFcn',@(s,e) onCal());
+% The dimensions the FOV is computed FROM. A bare FOV is unfalsifiable — 27.61 looks as reasonable as
+% 55.2 — but "256x256 px" next to it makes the arithmetic checkable at a glance: width-1 times the
+% pixel size. It is a label, not a field: the movie decides its size, not the user.
+lblDims = uilabel(top,'Text','— px','Tag','calibDims','HorizontalAlignment','center','FontColor',[0.45 0.45 0.5], ...
+    'Tooltip','Image dimensions in pixels, from the movie. FOV = (width − 1) × pixel size.');
 uilabel(top,'Text','dt s','HorizontalAlignment','right');
 eCalDt = uieditfield(top,'numeric','Value',DTS,'ValueDisplayFormat','%.5g','Limits',[1e-6 100], ...
     'ValueChangedFcn',@(s,e) onCal());
@@ -152,6 +173,7 @@ if showAnalyze
     nTab=nTab+1; tRefine = uitab(tg,'Title',sprintf('%d · Refine',nTab));
     nTab=nTab+1; tSites  = uitab(tg,'Title',sprintf('%d · Sites',nTab));
     nTab=nTab+1; tDwell  = uitab(tg,'Title',sprintf('%d · Dwell',nTab));
+    nTab=nTab+1; tEngage = uitab(tg,'Title',sprintf('%d · Engagement',nTab));
     nTab=nTab+1; tCompare = uitab(tg,'Title',sprintf('%d · Compare',nTab));
 end
 
@@ -164,6 +186,7 @@ if showAnalyze
     buildRefineTab(tRefine);
     buildSitesTab(tSites);
     buildDwellTab(tDwell);
+    buildEngageTab(tEngage);
 end
 buildExperimentTab(tExpt);   % shared
 if showAnalyze
@@ -1559,10 +1582,18 @@ end
     % ================= Tab 6 · Dwell (residence times + per-window escape rate k_out(w)) =================
     function buildDwellTab(parent)
         g = uigridlayout(parent,[2 1],'RowHeight',{34,'1x'},'Padding',[10 10 10 10],'RowSpacing',6);
-        r = uigridlayout(g,[1 3],'ColumnWidth',{170,'1x',0},'Padding',[0 0 0 0],'ColumnSpacing',8);
+        r = uigridlayout(g,[1 5],'ColumnWidth',{170, 44, 72, '1x', 0},'Padding',[0 0 0 0],'ColumnSpacing',8);
         uibutton(r,'Text','▶ Compute dwell','FontWeight','bold','BackgroundColor',[0.18 0.45 0.70],'FontColor','w', ...
             'Tooltip','Residence of each member track in its site''s own window (span+1 accounting) -> analysis/cs_window_dwell.csv.', ...
             'ButtonPushedFcn',@(s,e) onComputeDwell());
+        % The same criterion the Sites tab filters its member list on, applied at the point where it
+        % changes a NUMBER rather than a display: dwell is computed over the kept tracks only.
+        uilabel(r,'Text','≥% in','HorizontalAlignment','right');
+        eMinDwPct = uispinner(r,'Limits',[0 100],'Value',0,'Step',5,'RoundFractionalValues',true, ...
+            'Tooltip',['Compute dwell over member tracks with at least this % of their window ' ...
+            'localizations INSIDE the site — dwelling molecules rather than ones passing through. ' ...
+            '0 = every member. Raising it can only raise mean dwell and lower k_out (it removes the ' ...
+            'short visits), so report the threshold alongside the number. Recompute after changing it.']);
         lblDwell = uilabel(r,'Text','Run the mapper (Sites tab) first, then Compute dwell.','FontColor',[0.2 0.4 0.5]);
         uilabel(r,'Text','');
         mn = uigridlayout(g,[1 2],'ColumnWidth',{'1x','1x'},'Padding',[0 0 0 0],'ColumnSpacing',8);
@@ -1612,9 +1643,15 @@ end
         anaDir = ensureAnaDir(); if isempty(anaDir), lblDwell.Text='Pick a project first.'; return; end
         if ~ensureCSWloaded(), lblDwell.Text='Run the mapper (Sites tab) first — no CSW_final.mat.'; return; end
         lblDwell.Text='Computing dwell…'; drawnow;
-        try, DD = cs_window_dwell(anaDir, struct('save',true,'verbose',false));
+        mp = 0; if ~isempty(eMinDwPct) && isgraphics(eMinDwPct), mp = eMinDwPct.Value; end
+        try, DD = cs_window_dwell(anaDir, struct('save',true,'verbose',false,'minPctInside',mp));
         catch ME, lblDwell.Text=['Dwell error: ' ME.message]; return; end
         drawDwell();
+        % Say what was computed — the label used to be left reading "Computing dwell…" forever, and
+        % with a threshold in play the reader has to be told which tracks are behind the numbers.
+        nEv = numel(DD.events); nSite = numel(DD.perSite); nTr = numel(DD.perTrack);
+        lblDwell.Text = sprintf('%d events · %d site-windows · %d member tracks%s', nEv, nSite, nTr, ...
+            tern(mp>0, sprintf(' with ≥%g%% of their localizations inside', mp), ''));
     end
 
     function drawDwell()
@@ -1857,12 +1894,20 @@ end
             im = imread(p, segIdx); if size(im,3)==3, im = rgb2gray(im); end
             v = unique(im(:)); nz = v(v>0); fg = 1; if ~isempty(nz), fg = double(min(nz)); end
             mask = (im == fg);
+            % The mask spans the same field as the tracks, in the SAME coordinate convention:
+            % X_um = (0-based column) * pixUm, so the step is fov/(W-1) and column c (1-based) sits
+            % at (c-1)*ux. It used to divide by W and place column c at c*ux, which shifts the whole
+            % overlay by one camera pixel — 0.1 µm here, against contact sites 0.1-0.5 µm across.
+            % Display only: the ER/mito DISTANCES come from Tool 1's CSV and are untouched by this,
+            % which is exactly why the drawn mask could disagree with the numbers beside it.
             fovc = trackFov(da.cellIndex);
-            segH = size(mask,1); segW = size(mask,2); ux = fovc/segW; uy = fovc/segH;
-            c0 = max(1,floor(da.xlim(1)/ux)); c1 = min(segW,ceil(da.xlim(2)/ux));
-            r0 = max(1,floor(da.ylim(1)/uy)); r1 = min(segH,ceil(da.ylim(2)/uy));
+            segH = size(mask,1); segW = size(mask,2);
+            ux = fovc/max(segW-1,1); uy = fovc/max(segH-1,1);
+            c0 = max(1,floor(da.xlim(1)/ux)+1); c1 = min(segW,ceil(da.xlim(2)/ux)+1);
+            r0 = max(1,floor(da.ylim(1)/uy)+1); r1 = min(segH,ceil(da.ylim(2)/uy)+1);
             if c1>c0 && r1>r0
-                m = struct('mask', mask(r0:r1, c0:c1), 'xd',[c0*ux c1*ux], 'yd',[r0*uy r1*uy]);
+                m = struct('mask', mask(r0:r1, c0:c1), ...
+                           'xd',[(c0-1)*ux (c1-1)*ux], 'yd',[(r0-1)*uy (r1-1)*uy]);
             end
         catch, m = []; end
         da.orgCache(keyv) = m;    % orgCache is a handle Map → persists to dwellAnim
@@ -1945,37 +1990,238 @@ end
         % project's analysis folder if one is open; the user adds more day/batch folders here.
         seed = {}; if ~isempty(projectDir) && isfolder(fullfile(projectDir,'analysis')), seed = {fullfile(projectDir,'analysis')}; end
         opts = struct('tool',mode); opts.seedFolders = seed;   % assign after (struct('f',{}) would make an empty struct)
+        % Editing a calibration here must reach the TOP BAR and the files, not just this table.
+        % Without this the manifest held the corrected value, spt_project_calib now honoured it, and
+        % nothing asked it again until the project was reopened — so the tool went on analysing at
+        % the fallback while the Experiment tab displayed the correction. onCalAuto re-resolves and,
+        % because an edited pixel size counts as supported, persists it to cs_calib.mat, which is
+        % what every downstream stage reads.
+        opts.onChange = @(m) onManifestChanged();
         exptCtl = spt_experiment_panel(parent, opts);
+    end
+
+    % ================= Tab 8 · Engagement (diffusion contrast at the organelle) =================
+    % Per CELL, not per site: this asks whether molecules are slowed where they meet the organelle,
+    % which needs no contact-site mapping at all — only the per-localization distance the build
+    % already carries. That makes it usable on a plate of cells that were never picked or mapped.
+    function buildEngageTab(parent)
+        g = uigridlayout(parent,[3 1],'RowHeight',{34,26,'1x'},'Padding',[10 10 10 10],'RowSpacing',6);
+        r = uigridlayout(g,[1 16],'ColumnWidth',{40,150, 44,86, 66,58,58,44, 78,64, 62,58, 88, 92, '1x', 0}, ...
+            'Padding',[0 0 0 0],'ColumnSpacing',7);
+        uilabel(r,'Text','data','HorizontalAlignment','right');
+        engDd = uidropdown(r,'Items',{'current project','experiment (all folders)'},'Value','current project', ...
+            'Tooltip','This project''s active build, or every folder in the Experiment tab (each folder''s own build).');
+        uilabel(r,'Text','near','HorizontalAlignment','right');
+        engKey = uidropdown(r,'Items',{'mito','er'},'Value','mito', ...
+            'Tooltip','Which reference channel counts as the interface.');
+        uilabel(r,'Text','distance µm','HorizontalAlignment','right', ...
+            'Tooltip',['The engagement zone: a step counts as BOUND when it STARTS within this ' ...
+            'distance of the organelle. Scan a range rather than fixing one value — the distance ' ...
+            'at which the contrast disappears is itself a result (it is roughly the depth of the ' ...
+            'engaged layer), and a single number chosen up front hides that.']);
+        engD0 = uispinner(r,'Limits',[0.01 5],'Value',0.05,'Step',0.05,'ValueDisplayFormat','%.3g');
+        engD1 = uispinner(r,'Limits',[0.01 5],'Value',0.30,'Step',0.05,'ValueDisplayFormat','%.3g');
+        engN  = uispinner(r,'Limits',[1 20],'Value',6,'Step',1,'Tooltip','How many distances to scan between those two.');
+        uilabel(r,'Text','precision nm','HorizontalAlignment','right', ...
+            'Tooltip','Localization precision, for the noise floor subtracted from every step.');
+        engSig = uispinner(r,'Limits',[0 500],'Value',30,'Step',5);
+        uilabel(r,'Text','min steps','HorizontalAlignment','right', ...
+            'Tooltip','A cell needs this many steps in BOTH classes before a ratio is reported. Below it the cell says why instead.');
+        engMin = uispinner(r,'Limits',[5 5000],'Value',100,'Step',25);
+        uibutton(r,'Text','▶ Compute','FontWeight','bold','BackgroundColor',[0.18 0.45 0.70],'FontColor','w', ...
+            'ButtonPushedFcn',@(s,e) onEngageCompute());
+        uibutton(r,'Text','Export CSV','ButtonPushedFcn',@(s,e) onEngageExport(), ...
+            'Tooltip','One row per cell per distance, with the step counts — the file you would score compounds from.');
+        uilabel(r,'Text','');
+        engLbl = uilabel(g,'Text','Needs a built TrackStruct with a mito/ER distance. Set the project, then Compute.', ...
+            'FontColor',[0.2 0.4 0.5],'WordWrap','on');
+        mn = uigridlayout(g,[1 2],'ColumnWidth',{'1.15x','0.85x'},'Padding',[0 0 0 0],'ColumnSpacing',8);
+        engTbl = uitable(mn,'ColumnName',{'cell','condition','d µm','D bound','D free','ratio','n bound','n free','note'}, ...
+            'ColumnWidth',{'1x',90,48,64,64,54,58,58,150});
+        rc = uigridlayout(mn,[2 1],'RowHeight',{'1x','1x'},'Padding',[0 0 0 0],'RowSpacing',6);
+        engAxCell = uiaxes(rc); title(engAxCell,'D ratio per cell (at the chosen distance)');
+        engAxScan = uiaxes(rc); title(engAxScan,'D ratio vs engagement distance');
+        spt_axes_policy([engAxCell engAxScan]);
+    end
+
+    function onEngageCompute()
+        if ~ensureTracksLoaded()
+            engLbl.Text = 'No built TrackStruct for this project — build it in Tool 2 first.'; return;
+        end
+        T = buildTracks;
+        dl = linspace(engD0.Value, engD1.Value, round(engN.Value));
+        o = struct('dUm',dl, 'key',engKey.Value, 'sigmaUm',engSig.Value/1000, 'minSteps',engMin.Value);
+        try
+            E = cs_mito_engage(T, o);
+        catch ME
+            engLbl.Text = ['Engagement failed: ' ME.message]; return;
+        end
+        engLast = E;
+        cond = engageConditions({E(:,1).file});
+
+        % Table: every cell at every distance, so a cell that only engages at one radius is visible
+        % rather than hidden behind a single chosen number.
+        D = cell(numel(E), 9); rr = 0;
+        for k = 1:size(E,1)
+            for q = 1:size(E,2)
+                rr = rr + 1; e = E(k,q);
+                D(rr,:) = {e.file, cond{k}, sprintf('%.3g',e.dUm), ...
+                    numOrDash(e.Dbound), numOrDash(e.Dfree), numOrDash(e.Dratio), ...
+                    sprintf('%d',e.nBound), sprintf('%d',e.nFree), tern(e.ok,'',e.why)};
+            end
+        end
+        engTbl.Data = D;
+
+        % per-cell ratio at the LAST distance in the scan that the cell could answer at
+        cla(engAxCell); hold(engAxCell,'on');
+        qMid = max(1, round(size(E,2)/2));
+        vals = arrayfun(@(e) e.Dratio, E(:,qMid));
+        okc  = arrayfun(@(e) e.ok, E(:,qMid));
+        [ug,~,gi] = unique(cond(:),'stable');
+        for j = 1:numel(ug)
+            v = vals(gi==j & okc); if isempty(v), continue; end
+            xj = j + 0.12*(rand(numel(v),1)-0.5)*2;
+            plot(engAxCell, xj, v, 'o','MarkerFaceColor',[0.45 0.55 0.75],'MarkerEdgeColor','none','MarkerSize',5);
+            plot(engAxCell, j, median(v), '_','Color',[0.85 0.25 0.2],'MarkerSize',26,'LineWidth',2);
+        end
+        yline(engAxCell, 1, ':', 'no contrast');   % the null: bound and free diffuse alike
+        hold(engAxCell,'off');
+        xlim(engAxCell,[0.5 numel(ug)+0.5]); xticks(engAxCell,1:numel(ug)); xticklabels(engAxCell,ug);
+        xtickangle(engAxCell, tern(numel(ug)>4,30,0));
+        ylabel(engAxCell,'D bound / D free');
+        title(engAxCell, sprintf('D ratio per cell at d = %.3g µm', E(1,qMid).dUm));
+
+        % the scan: one line per condition, median over its cells
+        cla(engAxScan); hold(engAxScan,'on'); leg = {};
+        for j = 1:numel(ug)
+            m = nan(1,size(E,2));
+            for q = 1:size(E,2)
+                v = arrayfun(@(e) e.Dratio, E(gi==j,q));
+                v = v(isfinite(v)); if ~isempty(v), m(q) = median(v); end
+            end
+            if all(isnan(m)), continue; end
+            plot(engAxScan, dl, m, '-o','LineWidth',1.4,'MarkerSize',4); leg{end+1} = ug{j}; %#ok<AGROW>
+        end
+        yline(engAxScan, 1, ':');
+        hold(engAxScan,'off'); xlabel(engAxScan,'engagement distance (µm)'); ylabel(engAxScan,'median D ratio');
+        if ~isempty(leg), legend(engAxScan, leg, 'Location','best'); end
+        title(engAxScan,'D ratio vs engagement distance');
+
+        nOK = sum(arrayfun(@(e) e.ok, E(:)));
+        engLbl.Text = sprintf(['%d cell(s) x %d distance(s) · %d answered · %s within %.3g–%.3g µm · ' ...
+            'precision %g nm · min %d steps per class. A ratio below 1 means slowed at the interface; ' ...
+            '1 means no contrast.'], size(E,1), size(E,2), nOK, engKey.Value, dl(1), dl(end), ...
+            engSig.Value, round(engMin.Value));
+    end
+
+    function c = engageConditions(files)
+        % Condition per cell from the experiment manifest, matched on the cell FILE name. Falls back
+        % to the file itself, exactly as the Compare tab does in project mode — a label that is
+        % honest about being one cell rather than a group.
+        c = files(:)';
+        for i = 1:numel(c), if isempty(c{i}), c{i} = sprintf('cell %d', i); end, end
+        if isempty(exptCtl) || ~isstruct(exptCtl), return; end
+        try, cells = exptCtl.getCells(); catch, return; end
+        if isempty(cells), return; end
+        for i = 1:numel(c)
+            for k = 1:numel(cells)
+                if strcmp(char(cells(k).file), files{i}) && ~isempty(cells(k).condition)
+                    c{i} = char(cells(k).condition); break;
+                end
+            end
+        end
+    end
+
+    function onEngageExport()
+        if isempty(engLast), engLbl.Text = 'Nothing to export — Compute first.'; return; end
+        anaDir = ensureAnaDir(); if isempty(anaDir), return; end
+        fn = fullfile(anaDir, sprintf('cs_engagement_%s.csv', regexprep(engKey.Value,'\W','_')));
+        try
+            fid = fopen(fn,'w');
+            c = onCleanup(@() fclose(fid)); %#ok<NASGU>
+            fprintf(fid,'cell,condition,d_um,D_bound,D_free,D_ratio,n_bound,n_free,n_crossing,occupancy,ok,note\n');
+            cond = engageConditions({engLast(:,1).file});
+            for k = 1:size(engLast,1)
+                for q = 1:size(engLast,2)
+                    e = engLast(k,q);
+                    fprintf(fid,'%s,%s,%.4g,%.6g,%.6g,%.6g,%d,%d,%d,%.4g,%d,%s\n', ...
+                        csvq(e.file), csvq(cond{k}), e.dUm, e.Dbound, e.Dfree, e.Dratio, ...
+                        e.nBound, e.nFree, e.nStraddle, e.occupancy, e.ok, csvq(e.why));
+                end
+            end
+            engLbl.Text = ['Exported ' fn];
+        catch ME
+            engLbl.Text = ['Export failed: ' ME.message];
+        end
     end
 
     % ================= Tab 8 · Compare (grouped stats: mito / window / condition) =================
     function buildCompareTab(parent)
-        g = uigridlayout(parent,[2 1],'RowHeight',{34,'1x'},'Padding',[10 10 10 10],'RowSpacing',6);
-        r = uigridlayout(g,[1 10],'ColumnWidth',{40,160, 54,150, 50,150, 88, 84, '1x', 0},'Padding',[0 0 0 0],'ColumnSpacing',8);
+        % The status line gets its OWN full-width row. It was sharing the control row, and every
+        % filter added since has taken width off it — it was down to ~150 px for a string that runs
+        % past 700 when a crossed grouping lists a test per condition. Wrapping in its own row it
+        % has the whole tab, and the controls stop competing with it for space.
+        g = uigridlayout(parent,[3 1],'RowHeight',{34,30,'1x'},'Padding',[10 10 10 10],'RowSpacing',6);
+        r = uigridlayout(g,[1 15],'ColumnWidth',{40,150, 62, 54,146, 40,100, 44,60, 46,140, 84, 80, 92, '1x'},'Padding',[0 0 0 0],'ColumnSpacing',7);
         uilabel(r,'Text','data','HorizontalAlignment','right');
         ddCmpData = uidropdown(r,'Items',{'current project','experiment (all folders)'},'Value','current project', ...
             'Tooltip','Compare THIS project''s sites, or the whole EXPERIMENT (every folder in the Experiment tab, grouped by the conditions you assigned).');
+        uibutton(r,'Text','cells…','ButtonPushedFcn',@(s,e) onCompareCellPick(), ...
+            'Tooltip',['Choose which CELLS enter the comparison. Every cell is in by default; ' ...
+            'unticking one leaves it out of every group, of both plots and of the exports. Use it ' ...
+            'to drop a cell you do not trust without editing the experiment manifest — the ' ...
+            'Experiment tab''s exclude flag is the durable QC judgement, this is a per-comparison one.']);
         uilabel(r,'Text','group by','HorizontalAlignment','right');
-        ddCmpGroup = uidropdown(r,'Items',{'mito vs non-mito','window (time-resolved)','condition'},'Value','condition');
+        ddCmpGroup = uidropdown(r,'Items',{'mito vs non-mito','window (time-resolved)','condition', ...
+            'condition x mito','window x mito'},'Value','condition', ...
+            'Tooltip','The "x mito" groupings split each condition (or window) into its mito and non-mito sites, so you compare the two INSIDE a condition instead of pooling them.');
+        % WHICH sites enter the comparison, applied BEFORE grouping. Grouping by condition with this
+        % on 'mito only' is the cross-condition mito comparison — WT vs FFAT vs … over mito sites —
+        % which the crossed grouping cannot give you: that one pairs mito against non-mito INSIDE a
+        % condition and interleaves the conditions.
+        uilabel(r,'Text','sites','HorizontalAlignment','right');
+        ddCmpSites = uidropdown(r,'Items',{'all sites','mito only','non-mito only'},'Value','all sites', ...
+            'Tooltip','Restrict the comparison to mito or non-mito sites before grouping. The table, the scatter, the dwell-time distribution and the tests all honour it.');
+        % Spurious-hit gate, on EVERY metric. dw% is the picker's own site statistic — the median,
+        % over the site's member tracks, of each track's % of window localizations inside the
+        % footprint. A site whose tracks merely cross it scores low; a real one scores high. This
+        % drops the site outright, so enrichment, area and n_loc are filtered by it as much as dwell.
+        uilabel(r,'Text','dw% ≥','HorizontalAlignment','right');
+        eCmpMinDw = uispinner(r,'Limits',[0 100],'Value',0,'Step',5,'RoundFractionalValues',true, ...
+            'Tooltip',['Drop sites whose dw% is below this — dw% is the MEDIAN over the site''s member ' ...
+            'tracks of the % of each track''s window localizations inside the footprint, the same ' ...
+            'number the picker''s site table shows. Low dw% = traffic passing through, which is what a ' ...
+            'spurious hit looks like. 0 = keep every site. Applies to every metric, and a dropped ' ...
+            'site takes its dwell events out of the distribution with it.']);
         uilabel(r,'Text','metric','HorizontalAlignment','right');
         ddCmpMetric = uidropdown(r,'Items',{'dwell s','k_out /s','enrichment','area µm²','n_loc','mito fraction','# sites'},'Value','enrichment');
         uibutton(r,'Text','▶ Compute','FontWeight','bold','BackgroundColor',[0.18 0.45 0.70],'FontColor','w','ButtonPushedFcn',@(s,e) onCompareCompute());
-        uibutton(r,'Text','Export CSV','ButtonPushedFcn',@(s,e) onCompareExport());
-        % WordWrap: this label carries status and error text that runs well past its column — at
-        % 1280 px it had 402 px for a string needing ~496, so the end was cut off.
-        lblCmp = uilabel(r,'Text','Run the mapper (Sites tab); dwell metrics also need the Dwell tab. Then Compute.', ...
-            'FontColor',[0.2 0.4 0.5],'WordWrap','on');
+        uibutton(r,'Text','Export CSV','ButtonPushedFcn',@(s,e) onCompareExport(), ...
+            'Tooltip','The SUMMARY table as shown: one row per group with n, mean, sem, median and mode.');
+        uibutton(r,'Text','Export points','ButtonPushedFcn',@(s,e) onComparePointsExport(), ...
+            'Tooltip',['Every per-site value behind the table, for Prism: one COLUMN per group, ' ...
+            'rows padded — paste straight into a Prism Column data table. Also writes a long-format ' ...
+            'file with each point''s cell/site/window/condition for traceability, and the pooled ' ...
+            'dwell EVENT durations per group when dwell is loaded (that is what the CDF is drawn from).']);
         uilabel(r,'Text','');
+        % WordWrap stays: even at full width a crossed grouping over many conditions can run past
+        % one line, and the end of a status line is where the p-values are.
+        lblCmp = uilabel(g,'Text','Run the mapper (Sites tab); dwell metrics also need the Dwell tab. Then Compute.', ...
+            'FontColor',[0.2 0.4 0.5],'WordWrap','on');
         mn = uigridlayout(g,[1 2],'ColumnWidth',{'0.9x','1.1x'},'Padding',[0 0 0 0],'ColumnSpacing',8);
-        tblCmp = uitable(mn,'ColumnName',{'group','n','mean','sem'},'ColumnWidth',{'1x',44,80,80});
+        tblCmp = uitable(mn,'ColumnName',{'group','n','mean','sem','median','mode'}, ...
+            'ColumnWidth',{'1x',40,64,58,64,64});
         rc = uigridlayout(mn,[2 1],'RowHeight',{'1x','1x'},'Padding',[0 0 0 0],'RowSpacing',6);
         axCmpScatter = uiaxes(rc); title(axCmpScatter,'per-site values by group');
         axCmpCdf     = uiaxes(rc); title(axCmpCdf,'pooled dwell-time CDF');
         spt_axes_policy([axCmpScatter axCmpCdf]);
     end
 
-    function onCompareCompute()
-        metric = ddCmpMetric.Value; mode = ddCmpGroup.Value;
+    function ok = ensureCompareData(metric)
+        % Load what Compute would compare — this project, or the whole experiment — into
+        % cmpCSW/cmpDD, reporting any reason it cannot into the status line. Shared with the cell
+        % picker, so the picker can only ever offer cells the comparison would actually read.
+        ok = false;
         useExpt = ~isempty(ddCmpData) && isgraphics(ddCmpData) && startsWith(ddCmpData.Value,'experiment');
         if useExpt
             cellsE = []; if ~isempty(exptCtl) && isstruct(exptCtl), cellsE = exptCtl.getCells(); end
@@ -1991,27 +2237,66 @@ end
         if any(strcmp(metric,{'dwell s','k_out /s'})) && (isempty(cmpDD) || ~isfield(cmpDD,'perSite') || isempty(cmpDD.perSite))
             lblCmp.Text = ['This metric needs dwell — compute dwell (Dwell tab)' tern(useExpt,' in each experiment folder.','.')]; return;
         end
-        [vals, grp] = compareValues(metric, mode);                 % per-site value + group label
-        if isempty(vals), lblCmp.Text='No values for this metric/grouping.'; return; end
-        [gnames,~,gi] = unique(grp,'stable');
-        D = cell(numel(gnames),4); mus = nan(1,numel(gnames));
+        ok = true;
+    end
+
+    function onCompareCompute()
+        metric = ddCmpMetric.Value; mode = ddCmpGroup.Value;
+        if ~ensureCompareData(metric), return; end
+        [vals, grp, base, ismito, keptIdx] = compareValues(metric, mode);   % per-site value + label (+ its two parts)
+        if isempty(vals)
+            % Distinguish "this metric has no values" from "your filters removed every site" — the
+            % second is a knob to turn, and the generic message sent you looking for a broken stage.
+            fp = filterParts();
+            if isempty(fp)
+                lblCmp.Text = 'No values for this metric/grouping.';
+            else
+                lblCmp.Text = sprintf(['No sites left after filtering (%s) — %d before. Loosen it. ' ...
+                    '(A site with no tracked member track has no dw%% at all, so any dw%% ≥ above 0 drops it.)'], ...
+                    strjoin(fp,', '), numel(cmpCSW));
+            end
+            return;
+        end
+        [gnames,~,gi] = unique(grp,'stable'); gi = reshape(gi,size(vals));
+        % A group counts as mito when EVERY site in it is — true of a crossed group's mito half, of
+        % the 'mito' group of a plain mito/non-mito split, and of every group once the sites filter
+        % is on 'mito only'. All three then get the mito colour, from one rule.
+        gmito = false(1,numel(gnames));
+        for j = 1:numel(gnames), gmito(j) = all(ismito(gi==j)); end
+        if crossedMito(mode)
+            % Base groups keep their first-seen order, but each one's mito row is placed next to its
+            % own non-mito row: the pair you are actually comparing has to be adjacent in the table
+            % and on the axes, otherwise a 4-condition split reads as 8 unrelated bars.
+            [~,~,bi] = unique(base,'stable');
+            key = zeros(numel(gnames),2);
+            for j = 1:numel(gnames), k1 = find(gi==j,1); key(j,:) = [bi(k1), double(~gmito(j))]; end
+            [~,ord] = sortrows(key);
+            gnames = gnames(ord); gmito = gmito(ord);
+            remap = zeros(1,numel(ord)); remap(ord) = 1:numel(ord); gi = reshape(remap(gi),size(gi));
+        end
+        D = cell(numel(gnames),6);
         for j = 1:numel(gnames)
             v = vals(gi==j); v = v(isfinite(v));
-            mus(j) = mean0(v);
-            D(j,:) = {gnames{j}, sprintf('%d',numel(v)), sprintf('%.4g',mean0(v)), sprintf('%.4g',semv(v))};
+            D(j,:) = {gnames{j}, sprintf('%d',numel(v)), sprintf('%.4g',mean0(v)), sprintf('%.4g',semv(v)), ...
+                      sprintf('%.4g',med0(v)), sprintf('%.4g',modev(v))};
         end
         tblCmp.Data = D;
-        % scatter of per-site values by group (+ mean marker)
+        % scatter of per-site values by group (+ mean marker). An all-mito group's dots take the
+        % app's pinned mito magenta (darkened to read on a white axes) so the two halves of a
+        % condition are told apart by colour, not just by the tick label.
+        cMito = [0.85 0.25 0.80]; cNon = [0.45 0.55 0.75];
         cla(axCmpScatter); hold(axCmpScatter,'on');
         for j = 1:numel(gnames)
             v = vals(gi==j); v = v(isfinite(v));
             xj = j + 0.12*(rand(numel(v),1)-0.5)*2;
-            plot(axCmpScatter, xj, v, 'o','MarkerFaceColor',[0.45 0.55 0.75],'MarkerEdgeColor','none','MarkerSize',4);
+            cj = cNon; if gmito(j), cj = cMito; end
+            plot(axCmpScatter, xj, v, 'o','MarkerFaceColor',cj,'MarkerEdgeColor','none','MarkerSize',4);
             plot(axCmpScatter, j, mean0(v), '_','Color',[0.85 0.25 0.2],'MarkerSize',26,'LineWidth',2);
         end
         hold(axCmpScatter,'off'); xlim(axCmpScatter,[0.5 numel(gnames)+0.5]);
         xticks(axCmpScatter,1:numel(gnames)); xticklabels(axCmpScatter,gnames);
-        ylabel(axCmpScatter, metric); title(axCmpScatter, sprintf('%s by %s', metric, mode));
+        xtickangle(axCmpScatter, tern(numel(gnames)>4, 30, 0));
+        ylabel(axCmpScatter, metric); title(axCmpScatter, sprintf('%s by %s%s', metric, mode, filterTag()));
         % pooled dwell CDF per group (from the selected dataset's dwell events)
         cla(axCmpCdf);
         if ~isempty(cmpDD) && isfield(cmpDD,'events') && ~isempty(cmpDD.events)
@@ -2020,31 +2305,67 @@ end
                 dv = groupDwell(gnames{j}, mode); dv = dv(isfinite(dv)&dv>0);
                 if isempty(dv), continue; end
                 sv = sort(dv(:)); yy = (1:numel(sv))'/numel(sv);
-                stairs(axCmpCdf, sv, yy, 'LineWidth',1.3); leg{end+1}=gnames{j}; %#ok<AGROW>
+                stairs(axCmpCdf, sv, yy, 'LineWidth',1.3);
+                % n and median in the legend: the curves are the comparison, and a distribution
+                % read off a figure is worth little without the count behind it.
+                leg{end+1} = sprintf('%s (n=%d, med %.3g s)', gnames{j}, numel(sv), median(sv)); %#ok<AGROW>
             end
             hold(axCmpCdf,'off'); xlabel(axCmpCdf,'dwell (s)'); ylabel(axCmpCdf,'CDF');
             if ~isempty(leg), legend(axCmpCdf, leg, 'Location','southeast'); end
-            title(axCmpCdf,'pooled dwell-time CDF');
+            title(axCmpCdf, ['pooled dwell-time CDF' filterTag()]);
         else
             title(axCmpCdf,'pooled dwell-time CDF (compute dwell in the Dwell tab)');
         end
-        % two-group rank-sum p (Stats toolbox)
+        % rank-sum p (Stats toolbox): two groups get the one test; a crossed grouping gets mito vs
+        % non-mito WITHIN each condition/window, which is the comparison that grouping is asking for.
         pmsg = '';
-        if numel(gnames)==2 && exist('ranksum','file')==2
+        if crossedMito(mode) && exist('ranksum','file')==2
+            ub = unique(base,'stable'); parts = {};
+            for b = 1:numel(ub)
+                sel = strcmp(base, ub{b});
+                v1 = vals(sel &  ismito); v1 = v1(isfinite(v1));
+                v2 = vals(sel & ~ismito); v2 = v2(isfinite(v2));
+                if isempty(v1) || isempty(v2), continue; end
+                try, parts{end+1} = sprintf('%s p=%.3g', ub{b}, ranksum(v1,v2)); catch, end %#ok<AGROW>
+            end
+            if ~isempty(parts), pmsg = [' · mito vs non-mito ' strjoin(parts,', ')]; end
+        end
+        % Falls through to here for a plain grouping — and for a crossed one the sites filter has
+        % collapsed to a single side, where there is no pair left to test.
+        if isempty(pmsg) && numel(gnames)==2 && exist('ranksum','file')==2
             v1 = vals(gi==1); v2 = vals(gi==2); v1=v1(isfinite(v1)); v2=v2(isfinite(v2));
             if ~isempty(v1)&&~isempty(v2), try, pmsg = sprintf(' · rank-sum p=%.3g', ranksum(v1,v2)); catch, end, end
+        elseif isempty(pmsg) && numel(gnames)>2 && exist('kruskalwallis','file')==2
+            % More than two groups is the cross-condition case. A rank-sum needs a pair, so the
+            % omnibus goes first: does ANY group differ? Chase it with pairwise tests yourself —
+            % this deliberately does not print six uncorrected p-values as if they were one result.
+            ok = isfinite(vals);
+            if numel(unique(gi(ok)))>2
+                try, pmsg = sprintf(' · Kruskal-Wallis p=%.3g (omnibus)', kruskalwallis(vals(ok), gi(ok), 'off')); catch, end
+            end
         end
-        lblCmp.Text = sprintf('%s by %s · %d groups%s', metric, mode, numel(gnames), pmsg);
+        % The per-point export writes THIS result, not a recomputation: an export that re-derives its
+        % own values can silently disagree with the table the user is looking at.
+        cmpLast = struct('metric',metric, 'mode',mode, 'vals',vals, 'gi',gi, 'idx',keptIdx, ...
+                         'gnames',{gnames}, 'ismito',ismito);
+        lblCmp.Text = sprintf('%s by %s%s · %d groups%s%s', metric, mode, filterTag(), numel(gnames), pmsg, dwellTag(metric));
     end
 
-    function [vals, grp] = compareValues(metric, mode)
-        % One value per site (cmpCSW element) + its group label. Dwell/k_out from cmpDD.perSite, matched
-        % by siteUID and then by source folder. That NARROWS cross-folder mixing, it does not prevent it —
-        % see findPerSite for the two cases that fall through to cand(1).
-        n = numel(cmpCSW); vals = nan(1,n); grp = cell(1,n);
+    function [vals, grp, base, ismito, keptIdx] = compareValues(metric, mode)
+        % One value per site (cmpCSW element) + its group label. Dwell/k_out from cmpDD.perSite,
+        % matched on site IDENTITY (see findPerSite), so colliding siteUIDs across an experiment's
+        % folders cannot pull another condition's dwell number onto this site.
+        % base/ismito are the label's two parts, kept so a crossed grouping can pair and test them.
+        n = numel(cmpCSW); vals = nan(1,n); grp = cell(1,n); base = cell(1,n); ismito = false(1,n);
+        keptIdx = 1:n;                                    % trimmed with the rest by keep, below
         havePS = ~isempty(cmpDD) && isfield(cmpDD,'perSite') && ~isempty(cmpDD.perSite);
+        cmpKeptSites = containers.Map('KeyType','char','ValueType','logical');
         for i = 1:n
             e = cmpCSW(i);
+            [lab, bs, im] = groupLabel(e, mode);
+            if ~cellKeep(e) || ~siteKeep(im) || ~dwKeep(e), continue; end   % grp{i} stays '' -> dropped below
+            cmpKeptSites(siteKey(e)) = true;
+            grp{i} = lab; base{i} = bs; ismito(i) = im;
             switch metric
                 case 'enrichment', vals(i) = e.enrichment;
                 case 'area µm²',   vals(i) = e.areaUm2;
@@ -2060,70 +2381,311 @@ end
                         end
                     end
             end
-            grp{i} = groupLabel(e, mode);
         end
         keep = ~cellfun(@isempty,grp);
-        vals = vals(keep); grp = grp(keep);
+        vals = vals(keep); grp = grp(keep); base = base(keep); ismito = ismito(keep);
+        keptIdx = keptIdx(keep);
     end
 
     function j = findPerSite(ps, e)
-        % Match a site to its per-site dwell record by siteUID, then by source folder. siteUID restarts
-        % at 1 in every folder's mapper run, so collisions across folders are normal. TWO fall-throughs
-        % return a record from a DIFFERENT folder: a single candidate is taken without checking the
-        % folder at all, and if no candidate's folder matches, the first is used anyway.
-        j = 0; ids = [ps.siteUID]; cand = find(ids==e.siteUID);
-        if isempty(cand), return; end
-        if numel(cand)==1 || ~isfield(e,'srcFolder') || ~isfield(ps,'srcFolder'), j = cand(1); return; end
-        for c = cand(:)', if strcmp(ps(c).srcFolder, e.srcFolder), j = c; return; end, end
-        j = cand(1);
+        % Match a site to its per-site dwell record on IDENTITY — source folder, file, cell, site and
+        % window — not on siteUID alone. siteUID restarts at 1 in every folder's mapper run, so across
+        % an experiment the ids collide; the old fall-throughs handed back a record from a DIFFERENT
+        % folder, which under a by-condition grouping silently scores one condition with another's
+        % dwell. No identity match now means NO value (NaN, dropped from the group) — the honest
+        % answer when a folder was never dwelled.
+        j = 0;
+        for c = find([ps.siteUID] == e.siteUID)
+            if sameSiteRec(ps(c), e), j = c; return; end
+        end
     end
 
-    function lab = groupLabel(e, mode)
+    function tf = sameSiteRec(a, b)
+        % Same physical site-window in both records. srcFolder exists only on the experiment
+        % aggregate; within one project file/cell/site/window is already unique.
+        tf = strcmp(char(fieldOr(a,'file')), char(fieldOr(b,'file'))) ...
+            && isequal(fieldOr(a,'cellIndex'), fieldOr(b,'cellIndex')) ...
+            && isequal(fieldOr(a,'csID'),      fieldOr(b,'csID')) ...
+            && isequal(fieldOr(a,'window'),    fieldOr(b,'window'));
+        if tf && isfield(a,'srcFolder') && isfield(b,'srcFolder')
+            tf = strcmp(char(a.srcFolder), char(b.srcFolder));
+        end
+    end
+
+    function [lab, base, ismito] = groupLabel(e, mode)
+        % Label for ONE record — a CSW site OR a dwell event. Both spell the mito flag in a form
+        % cs_site_near reads (MitoFlag on sites, mito on events), so one function serves both and the
+        % table, the CDF and the tests cannot drift apart in how they name a group.
+        ismito = cs_site_near(e,'mito');
         switch mode
-            case 'window (time-resolved)', lab = sprintf('win %d', e.window);
-            case 'condition'
-                if isfield(e,'condition') && ~isempty(e.condition), lab = char(e.condition); else, lab = e.file; end
-            otherwise,                     lab = tern(cs_site_near(e,'mito'),'mito','non-mito');
+            case {'window (time-resolved)','window x mito'}, base = sprintf('win %d', e.window);
+            case {'condition','condition x mito'}
+                if isfield(e,'condition') && ~isempty(e.condition), base = char(e.condition); else, base = e.file; end
+            otherwise,                     base = tern(ismito,'mito','non-mito');
+        end
+        lab = base;
+        if crossedMito(mode), lab = [base ' · ' tern(ismito,'mito','non-mito')]; end
+    end
+
+    function tf = crossedMito(mode)
+        tf = any(strcmp(mode, {'condition x mito','window x mito'}));
+    end
+
+    function pct = siteDwPct(e)
+        % dw%: the MEDIAN over the site's member tracks of each track's % of window localizations
+        % inside the footprint — the picker's own site statistic. NaN when the site has no tracked
+        % member at all, which no positive threshold should pass: a site with nothing tracked in it
+        % has produced no evidence of dwelling, and that is what the gate is asking for.
+        pct = NaN;
+        if ~isstruct(e) || ~isfield(e,'tracks') || isempty(e.tracks), return; end
+        v = siteTrackStats(e); v = v(isfinite(v));
+        if ~isempty(v), pct = median(v); end
+    end
+
+    function tf = dwKeep(e)
+        m = 0; if ~isempty(eCmpMinDw) && isgraphics(eCmpMinDw), m = eCmpMinDw.Value; end
+        if m <= 0, tf = true; return; end                 % 0 keeps every site, NaN dw% included
+        p = siteDwPct(e); tf = isfinite(p) && p >= m;
+    end
+
+    function k = siteKey(rec)
+        % One identity for a site-window, spelled the same on a CSW record and on a dwell event, so
+        % a filter decided over sites can be applied to events. srcFolder is '' outside an
+        % experiment aggregate, where file/cell/site/window is already unique.
+        fo = ''; if isfield(rec,'srcFolder') && ~isempty(rec.srcFolder), fo = char(rec.srcFolder); end
+        k = sprintf('%s|%s|%d|%d|%d', fo, char(fieldOr(rec,'file')), ...
+            num0(fieldOr(rec,'cellIndex')), num0(fieldOr(rec,'csID')), num0(fieldOr(rec,'window')));
+    end
+
+    function k = cellKey(rec)
+        % A CELL is (source folder, cell file). The folder matters: two days can hold a cell of the
+        % same name, and they are different cells.
+        fo = ''; if isfield(rec,'srcFolder') && ~isempty(rec.srcFolder), fo = char(rec.srcFolder); end
+        k = sprintf('%s|%s', fo, char(fieldOr(rec,'file')));
+    end
+
+    function tf = cellKeep(e)
+        tf = isempty(cmpCells) || any(strcmp(cmpCells, cellKey(e)));
+    end
+
+    function [keys, labs] = compareCellList()
+        % Every cell present in the loaded dataset, with the condition it was assigned, in a stable
+        % order. Built from the SITES, so a cell in the manifest that the mapper never reached does
+        % not appear — there is nothing of it to include or leave out.
+        keys = {}; labs = {};
+        for i = 1:numel(cmpCSW)
+            k = cellKey(cmpCSW(i));
+            if any(strcmp(keys,k)), continue; end
+            e = cmpCSW(i);
+            cond = ''; if isfield(e,'condition') && ~isempty(e.condition), cond = [' · ' char(e.condition)]; end
+            nS = sum(arrayfun(@(x) strcmp(cellKey(x),k), cmpCSW));
+            keys{end+1} = k; %#ok<AGROW>
+            labs{end+1} = sprintf('%s%s  (%d sites)', char(fieldOr(e,'file')), cond, nS); %#ok<AGROW>
+        end
+        [keys, ord] = sort(keys); labs = labs(ord);
+    end
+
+    function setCompareCells(sel)
+        % Headless hook (spt_compare_group_smoke) and the picker's commit path. [] or every key
+        % means "all cells", which is the state that leaves file names and titles unfiltered.
+        if isempty(sel), cmpCells = []; return; end
+        cmpCells = cellstr(sel(:)');
+    end
+
+    function onCompareCellPick()
+        if ~ensureCompareData('enrichment'), return; end     % a metric that never demands dwell
+        [keys, labs] = compareCellList();
+        if isempty(keys), lblCmp.Text = 'No cells in the loaded data yet — run the mapper first.'; return; end
+        sel = true(numel(keys),1);
+        if ~isempty(cmpCells), sel = ismember(keys(:), cmpCells(:)); end
+
+        d = uifigure('Name','Cells in the comparison','Position',[120 120 470 470],'WindowStyle','modal');
+        d.UserData = false;                                   % set by OK; closing the window cancels
+        d.CloseRequestFcn = @(s,e) uiresume(d);
+        gg = uigridlayout(d,[3 1],'RowHeight',{34,'1x',32},'Padding',[10 10 10 10],'RowSpacing',6);
+        uilabel(gg,'Text','Untick a cell to leave it out of every group, both plots and the exports.', ...
+            'WordWrap','on','FontColor',[0.2 0.4 0.5]);
+        tb = uitable(gg,'Data',table(sel, labs(:), 'VariableNames',{'use','cell'}), ...
+            'ColumnEditable',[true false],'ColumnWidth',{44,'1x'});
+        br = uigridlayout(gg,[1 5],'ColumnWidth',{64,64,'1x',80,80},'Padding',[0 0 0 0],'ColumnSpacing',6);
+        uibutton(br,'Text','All','ButtonPushedFcn',@(s,e) setAll(tb,true));
+        uibutton(br,'Text','None','ButtonPushedFcn',@(s,e) setAll(tb,false));
+        uilabel(br,'Text','');
+        uibutton(br,'Text','Cancel','ButtonPushedFcn',@(s,e) uiresume(d));
+        uibutton(br,'Text','OK','FontWeight','bold','ButtonPushedFcn',@(s,e) pickOk(d));
+        uiwait(d);
+        if ~isgraphics(d), return; end
+        if d.UserData
+            v = logical(tb.Data.use);
+            if all(v), setCompareCells([]); else, setCompareCells(keys(v)); end
+            lblCmp.Text = sprintf('%d of %d cells selected — press Compute.', nnz(v), numel(keys));
+        end
+        delete(d);
+    end
+
+    function tf = siteKeep(ismito)
+        % The 'sites' filter, applied to a site OR to a dwell event — both know their mito flag, so
+        % the table and the dwell-time distribution below it cannot end up filtered differently.
+        switch siteFilter()
+            case 'mito only',     tf = ismito;
+            case 'non-mito only', tf = ~ismito;
+            otherwise,            tf = true;
+        end
+    end
+
+    function v = siteFilter()
+        v = 'all sites';
+        if ~isempty(ddCmpSites) && isgraphics(ddCmpSites), v = ddCmpSites.Value; end
+    end
+
+    function p = filterParts()
+        % The active site filters, in words. One list, so the axes title, the status line and the
+        % "nothing survived" message cannot describe the same filtering differently.
+        p = {};
+        if ~strcmp(siteFilter(),'all sites'), p{end+1} = siteFilter(); end
+        m = 0; if ~isempty(eCmpMinDw) && isgraphics(eCmpMinDw), m = eCmpMinDw.Value; end
+        if m > 0, p{end+1} = sprintf('dw%% ≥ %g%%', m); end
+        if ~isempty(cmpCells), p{end+1} = sprintf('%d cells', numel(cmpCells)); end
+    end
+
+    function t = filterTag()
+        % '' when nothing is filtered, so titles and file names of an unfiltered run are unchanged.
+        t = ''; p = filterParts(); if ~isempty(p), t = [' — ' strjoin(p,', ')]; end
+    end
+
+    function t = filterTok()
+        % The same two filters as a file-name token, so no two different comparisons can land on
+        % one file. Empty when nothing is filtered, leaving old names untouched.
+        t = '';
+        if ~strcmp(siteFilter(),'all sites'), t = ['_' regexprep(siteFilter(),'\W','_')]; end
+        m = 0; if ~isempty(eCmpMinDw) && isgraphics(eCmpMinDw), m = eCmpMinDw.Value; end
+        if m > 0, t = sprintf('%s_dw%g', t, m); end
+        % The cell selection needs a token that DISTINGUISHES selections, not just marks that one
+        % exists: two different sets of the same size would otherwise overwrite each other's export.
+        if ~isempty(cmpCells)
+            h = 0; for c = double(strjoin(sort(cmpCells),'|')), h = mod(h*31 + c, 1679616); end
+            t = sprintf('%s_cells%d_%s', t, numel(cmpCells), lower(dec2base(h,36,4)));
+        end
+    end
+
+    function t = dwellTag(metric)
+        % A dwell number computed over only the dwelling tracks is a different measurement from one
+        % over every member, and nothing on this tab would otherwise say which you are looking at.
+        t = '';
+        if ~any(strcmp(metric,{'dwell s','k_out /s'})), return; end
+        if isempty(cmpDD) || ~isfield(cmpDD,'minPctInside'), return; end
+        mp = cmpDD.minPctInside;
+        if isscalar(mp)
+            if mp > 0, t = sprintf(' · dwell from tracks ≥%g%% inside', mp); end
+        elseif numel(mp) > 1
+            t = sprintf(' · ⚠ folders used different ≥%% inside thresholds (%s) — recompute dwell consistently', ...
+                strjoin(arrayfun(@(v) sprintf('%g',v), mp(:)', 'uni',0), ', '));
         end
     end
 
     function dv = groupDwell(gname, mode)
-        % pooled event dwell durations for the events whose group label == gname (works on either the
-        % project or the experiment dataset — events carry window/mito/condition directly).
+        % Pooled event dwell durations for the events whose group label == gname (works on either the
+        % project or the experiment dataset — events carry window/mito/condition directly). The
+        % sites filter is applied HERE too: a 'mito only' table above a distribution pooling every
+        % event would be two different comparisons drawn as one figure.
         dv = [];
         if isempty(cmpDD) || ~isfield(cmpDD,'events') || isempty(cmpDD.events), return; end
         ev = cmpDD.events;
-        labs = arrayfun(@(x) groupLabelEv(x,mode), ev, 'uni',0);
-        dv = [ev(strcmp(labs,gname)).dwell];
-    end
-
-    function lab = groupLabelEv(ev, mode)
-        switch mode
-            case 'window (time-resolved)', lab = sprintf('win %d', ev.window);
-            case 'condition'
-                if isfield(ev,'condition') && ~isempty(ev.condition), lab = char(ev.condition); else, lab = ev.file; end
-            otherwise, lab = tern(cs_site_near(ev,'mito'),'mito','non-mito');
+        % Keep an event only if ITS SITE survived the filters. Re-testing the event against each
+        % filter would work for mito but not for dw%, which is a property of the site, not of the
+        % event — and two gates evaluated separately are two gates that can disagree.
+        if ~isempty(cmpKeptSites)
+            ev = ev(arrayfun(@(x) isKey(cmpKeptSites, siteKey(x)), ev));
         end
+        if isempty(ev), return; end
+        labs = arrayfun(@(x) groupLabel(x,mode), ev, 'uni',0);
+        dv = [ev(strcmp(labs,gname)).dwell];
     end
 
     function onCompareExport()
         if isempty(tblCmp) || isempty(tblCmp.Data), lblCmp.Text='Nothing to export — Compute first.'; return; end
         anaDir = ensureAnaDir(); if isempty(anaDir), return; end
-        fn = fullfile(anaDir, sprintf('cs_compare_%s_by_%s.csv', regexprep(ddCmpMetric.Value,'\W','_'), regexprep(ddCmpGroup.Value,'\W','_')));
+        % The filter is part of the file name: a mito-only comparison and an all-sites one of the
+        % same metric and grouping are different results, and must not overwrite each other.
+        grpTok = [regexprep(ddCmpGroup.Value,'\W','_') filterTok()];
+        fn = fullfile(anaDir, sprintf('cs_compare_%s_by_%s.csv', regexprep(ddCmpMetric.Value,'\W','_'), grpTok));
         try
-            fid = fopen(fn,'w'); fprintf(fid,'group,n,mean,sem\n');
+            fid = fopen(fn,'w'); fprintf(fid,'group,n,mean,sem,median,mode\n');
             D = tblCmp.Data;
-            for r = 1:size(D,1), fprintf(fid,'%s,%s,%s,%s\n', D{r,1}, D{r,2}, D{r,3}, D{r,4}); end
+            for r = 1:size(D,1)
+                fprintf(fid,'%s,%s,%s,%s,%s,%s\n', csvq(D{r,1}), D{r,2}, D{r,3}, D{r,4}, D{r,5}, D{r,6});
+            end
             fclose(fid); lblCmp.Text = ['Exported ' fn];
         catch ME, lblCmp.Text = ['Export failed: ' ME.message]; end
     end
+
+    function onComparePointsExport()
+        % Every per-site value behind the table, in the shape Prism wants: one COLUMN per group,
+        % rows padded to the longest. Plus a long-format companion carrying each point's identity
+        % (cell, site, window, condition, mito, dw%), because a bare column of numbers cannot be
+        % traced back to the site it came from — and, when dwell events are loaded, the pooled event
+        % durations per group, which is what the CDF is drawn from and what a distribution figure in
+        % Prism needs (the per-site column holds one mean per site, not the events).
+        if isempty(cmpLast) || isempty(cmpLast.vals), lblCmp.Text='Nothing to export — Compute first.'; return; end
+        anaDir = ensureAnaDir(); if isempty(anaDir), return; end
+        L = cmpLast;
+        stem = sprintf('%s_by_%s%s', regexprep(L.metric,'\W','_'), regexprep(L.mode,'\W','_'), filterTok());
+        written = {};
+        try
+            % (1) wide — one column per group, for a Prism Column data table
+            cols = cell(1,numel(L.gnames));
+            for j = 1:numel(L.gnames)
+                v = L.vals(L.gi==j); cols{j} = v(isfinite(v));
+            end
+            fw = fullfile(anaDir, ['cs_points_' stem '.csv']);
+            writeWideCSV(fw, L.gnames, cols); written{end+1} = fw;
+
+            % (2) long — one row per point, with where it came from
+            fl = fullfile(anaDir, ['cs_points_' stem '_long.csv']);
+            fid = fopen(fl,'w');
+            fprintf(fid,'group,condition,file,cellIndex,csID,window,siteUID,mito,dw_pct,%s\n', ...
+                regexprep(L.metric,'\W','_'));
+            for k = 1:numel(L.vals)
+                if ~isfinite(L.vals(k)), continue; end
+                e = cmpCSW(L.idx(k));
+                cond = ''; if isfield(e,'condition') && ~isempty(e.condition), cond = char(e.condition); end
+                fprintf(fid,'%s,%s,%s,%d,%d,%d,%d,%d,%.4g,%.6g\n', ...
+                    csvq(L.gnames{L.gi(k)}), csvq(cond), csvq(char(fieldOr(e,'file'))), ...
+                    num0(fieldOr(e,'cellIndex')), num0(fieldOr(e,'csID')), num0(fieldOr(e,'window')), ...
+                    num0(fieldOr(e,'siteUID')), double(L.ismito(k)), siteDwPct(e), L.vals(k));
+            end
+            fclose(fid); written{end+1} = fl;
+
+            % (3) the events behind the CDF, same wide shape — only when there are any
+            if ~isempty(cmpDD) && isfield(cmpDD,'events') && ~isempty(cmpDD.events)
+                ecols = cell(1,numel(L.gnames)); any_ = false;
+                for j = 1:numel(L.gnames)
+                    dv = groupDwell(L.gnames{j}, L.mode); dv = dv(isfinite(dv) & dv>0);
+                    ecols{j} = dv(:); any_ = any_ || ~isempty(dv);
+                end
+                if any_
+                    fe = fullfile(anaDir, sprintf('cs_dwellevents_by_%s%s.csv', ...
+                        regexprep(L.mode,'\W','_'), filterTok()));
+                    writeWideCSV(fe, L.gnames, ecols); written{end+1} = fe;
+                end
+            end
+            [~,n1] = fileparts(written{1});
+            lblCmp.Text = sprintf('Exported %d file(s) to %s — %s.csv + %d more', ...
+                numel(written), anaDir, n1, numel(written)-1);
+        catch ME
+            lblCmp.Text = ['Point export failed: ' ME.message];
+        end
+    end
+
+    function pickOk(d), d.UserData = true; uiresume(d); end
+    function setAll(tb, v), D = tb.Data; D.use(:) = v; tb.Data = D; end
 
     % ---- shared downstream helpers ----
     function resetDownstream()
         % Clear ALL downstream (Refine/Sites/Dwell/Compare) in-memory state + caches so a project
         % switch or a Load never leaks a prior dataset's footprints/densities/results into the new one.
         try, dwellStopTimer(); catch, end   % stop any running Dwell animation before wiping results
-        CSW = []; DD = []; siteDensCache = struct('key',{},'dens',{},'raw',{}); refNullCache = struct('key',{},'nullMax',{},'pmap',{});
+        CSW = []; DD = []; cmpKeptSites = []; cmpLast = []; cmpCells = []; siteDensCache = struct('key',{},'dens',{},'raw',{}); refNullCache = struct('key',{},'nullMax',{},'pmap',{});
         dwellAnim = [];
         refFoot = []; refSelIdx = 0; refRowMap = []; siteSelIdx = 0; siteRowMap = []; siteMemberSel = 0;
         if ~isempty(refCbar) && isgraphics(refCbar), delete(refCbar); end; refCbar = [];
@@ -2213,7 +2775,7 @@ end
         try
             % Prefer='raw' is a benign placeholder so the auto-detect doesn't error; Pattern overrides it.
             Tracks = build_trackstruct(tracksDir, 'Prefer', 'raw', 'Pattern', pat, 'TimeUnit', tu, 'Save', false, ...
-                'Calib', struct('pixSizeUm',PXUM,'fovUm',FOVUM,'dt_s',DTS,'binNm',PRECNM,'densBinNm',PRECNM), ...
+                'Calib', calibForBuild(), ...
                 'Verbose', false, 'ProgressFcn', @(i,n,name) setBuild(sprintf('Building %d/%d: %s (MSD)…', i, n, name),[0.2 0.4 0.5]));
         catch ME
             setBuild(['Build failed: ' ME.message],[0.75 0.1 0.1]); return;
@@ -2742,7 +3304,13 @@ end
         try
             writeCalib();                                          % cs_calib.mat before curation reads it
             % read Tool 1's curated _filtered pair; write a NEW _curated set; keep the full localization cloud
+            % The project's pixel size, as a LIVE handle. The viewer draws the raw frame and the
+            % ER/mito overlay across (width-1)*pixUm, and could previously only read that off the
+            % movie's own TIFF tags — so a movie with no metadata got a hardcoded 27.61 µm and every
+            % overlay sat at the wrong scale. A handle rather than a number so a calibration
+            % corrected on the Experiment tab reaches the overlay without re-embedding the tab.
             tvOpts = struct('readPrefer','filtered','exportSuffix','curated','preserveCloud',true);
+            tvOpts.pixUmFcn = @() PXUM;
             track_viewer(tImport, tracksDir, @resolveOverlay, {}, tvOpts);
         catch ME
             placeholder(tImport, ['Could not embed track curation: ' ME.message]);
@@ -2794,7 +3362,27 @@ end
         if isgraphics(eCalFov),  FOVUM  = eCalFov.Value;  end
         if isgraphics(eCalDt),   DTS    = eCalDt.Value;   end
         if isgraphics(eCalPrec), PRECNM = eCalPrec.Value; end
+        % The FOV is a CONSEQUENCE of the pixel size and the image width, so when the width is known
+        % a typed pixel size recomputes it. Leaving the two independent is how a corrected pixel size
+        % ends up sitting beside a field of view computed from the number it replaced — arithmetic
+        % that no longer holds, on screen, with nothing to flag it. The FOV field stays editable for
+        % a project with no movie to measure, where there is no width and nothing to derive from.
+        if isfinite(IMW) && IMW > 1 && isfinite(PXUM) && PXUM > 0
+            want = (IMW-1)*PXUM;
+            if abs(want-FOVUM) > 1e-9
+                FOVUM = want;
+                if isgraphics(eCalFov), eCalFov.Value = FOVUM; end
+            end
+        end
         writeCalib();
+        refreshDimsLabel();
+    end
+
+    function onManifestChanged()
+        % Cheap and idempotent: onCalAuto no-ops unless a number actually differs, so firing this on
+        % every manifest change (a condition assignment, a note, a rescan) costs one settings-file
+        % read and does nothing visible unless the calibration really moved.
+        try, onCalAuto(); catch, end
     end
 
     function onCalAuto(quiet)
@@ -2808,6 +3396,14 @@ end
         if isempty(projectDir) || ~isfolder(projectDir), return; end
         if exist('spt_project_calib','file')~=2, return; end
         try, pc = spt_project_calib(projectDir); catch, return; end
+        IMW = pc.width; IMH = pc.height;
+        % 'edited' is the resolver's own label for a value read back out of the manifest, so the
+        % build's ranking and the toolbar's tint are driven by one source of truth rather than two.
+        % The FOV rides with the pixel size: it is derived from it, so if the pixel size is a
+        % correction the FOV is one too.
+        CALEDIT = {};
+        if strcmp(pc.src.pixUm,'edited'), CALEDIT{end+1} = 'pixSizeUm'; CALEDIT{end+1} = 'fovUm'; end
+        if strcmp(pc.src.dt_s,'edited'),  CALEDIT{end+1} = 'dt_s'; end
         changed = false;
         if isfinite(pc.pixUm) && abs(pc.pixUm-PXUM) > 1e-9
             PXUM = pc.pixUm;  if isgraphics(eCalPx),  eCalPx.Value  = PXUM;  end, changed = true;
@@ -2840,17 +3436,22 @@ end
         %
         % The top bar has no room for a status line, so the provenance rides on the tooltips — the
         % one place already attached to the number in question.
-        srcTxt = @(f) tern(strcmp(f,'settings'), 'read from Tool 1''s _settings.txt', ...
+        srcTxt = @(f) tern(strcmp(f,'edited'),   'YOUR value, typed on the Experiment tab — it overrides the files', ...
+                    tern(strcmp(f,'settings'), 'read from Tool 1''s _settings.txt', ...
                     tern(strcmp(f,'movie'),      'read from the movie''s own metadata', ...
                     tern(strcmp(f,'xml'),        'read from the tracks XML', ...
                     tern(strcmp(f,'derived'),    'computed as (width−1) × pixel size', ...
-                                                 'NOT found in this project — this is your value'))));
+                                                 'NOT found in this project — this is your value')))));
         % A value nothing in the project supports is TINTED, not just tooltipped. When you open a
         % second project the panel still holds the first one's numbers — it has to hold something —
         % and a confident white box is what made that invisible in the first place. Amber means "this
         % came from your previous session, not from this data".
-        UNSUP = [1 0.96 0.86]; OK = [1 1 1];
-        tint = @(h,f) set(h,'BackgroundColor', tern(strcmp(f,'missing'), UNSUP, OK));
+        % An EDITED value gets its own tint. White would make a correction indistinguishable from a
+        % number read out of the files, and amber would call it unsupported when it is the most
+        % authoritative value there is. Green says "this is yours, and it is in force".
+        UNSUP = [1 0.96 0.86]; OK = [1 1 1]; EDIT = [0.90 0.97 0.90];
+        tint = @(h,f) set(h,'BackgroundColor', tern(strcmp(f,'missing'), UNSUP, ...
+                                               tern(strcmp(f,'edited'), EDIT, OK)));
         if isgraphics(eCalPx)
             eCalPx.Tooltip = sprintf('Camera pixel size (µm/px). %s.', srcTxt(pc.src.pixUm));
             tint(eCalPx, pc.src.pixUm);
@@ -2864,9 +3465,37 @@ end
                 'Tool 1 does not record a FOV, so it can only be computed from the movie.'], srcTxt(pc.src.fovUm));
             tint(eCalFov, pc.src.fovUm);
         end
+        refreshDimsLabel();
         if ~isempty(lblProj) && isgraphics(lblProj)
             if isempty(pc.why), lblProj.Text = 'No tracked cells here yet — calibration is yours to set.';
             else,               lblProj.Text = ['Calibration: ' pc.why]; end
+        end
+    end
+
+    function h = exptCtlNow(), h = exptCtl; end   % live handle (an anonymous @() would capture [])
+
+    function cb = calibForBuild()
+        % The calibration the importer gets, WITH the provenance it needs. Passing only the numbers
+        % is what let a build quietly prefer a stale frameInterval in the XML over the dt the user
+        % had just corrected: the importer could not tell a typed value from a defaulted one.
+        cb = struct('pixSizeUm',PXUM,'fovUm',FOVUM,'dt_s',DTS,'binNm',PRECNM,'densBinNm',PRECNM);
+        cb.edited = CALEDIT;
+    end
+
+    function refreshDimsLabel()
+        % IMW/IMH are whatever the last resolve found; the tooltip spells the arithmetic out so the
+        % FOV can be checked rather than believed.
+        if ~isgraphics(lblDims), return; end
+        if isfinite(IMW) && isfinite(IMH)
+            lblDims.Text = sprintf('%g×%g px', IMW, IMH);
+            lblDims.Tooltip = sprintf(['Image is %g×%g pixels, from the movie. ' ...
+                'FOV = (%g − 1) × %.5g µm/px = %.5g µm. Change the pixel size and the FOV follows; ' ...
+                'if the FOV looks wrong, the pixel size is what to check.'], ...
+                IMW, IMH, IMW, PXUM, (IMW-1)*PXUM);
+        else
+            lblDims.Text = '— px';
+            lblDims.Tooltip = ['No movie found for this cell, so the image dimensions are unknown ' ...
+                'and the FOV cannot be checked against them. The FOV shown is yours to set.'];
         end
     end
 
@@ -2926,6 +3555,11 @@ function y = tern(c, a, b)
 if c, y = a; else, y = b; end
 end
 
+function n = num0(v)
+% a scalar numeric for a key, whatever a missing or odd field turns up as
+if isempty(v) || ~isnumeric(v), n = 0; else, n = double(v(1)); end
+end
+
 function v = fieldOr(s, f)
 % struct field s.(f) if present and a struct, else [] — so QC survives structs without erDist/MSD.
 if isstruct(s) && isfield(s,f), v = s.(f); else, v = []; end
@@ -2944,6 +3578,85 @@ end
 function s = semv(v)
 v = v(:); v = v(isfinite(v));
 if numel(v) < 2, s = 0; else, s = std(v)/sqrt(numel(v)); end
+end
+
+function m = med0(v)
+v = v(:); v = v(isfinite(v));
+if isempty(v), m = NaN; else, m = median(v); end
+end
+
+function m = modev(v)
+% Modal value as the CENTRE OF THE BUSIEST HISTOGRAM BIN, not MATLAB's mode().
+%
+% mode() answers "which value occurs most often", which is the wrong question for a continuous
+% sample: per-site enrichment, area and mean-dwell are all distinct to many decimal places, no
+% value repeats, and mode() then returns the SMALLEST one — a number that looks like a statistic
+% and is really just the minimum. Binning first is what makes a mode mean anything here.
+%
+% Bin width by Freedman-Diaconis (2*IQR/n^(1/3)) — IQR-based, so the long right tail that dwell
+% times always have cannot inflate it the way a std-based rule would; Scott's rule as the fallback
+% when the IQR is zero, and the median when there is nothing to bin at all.
+%
+% A binned mode DEPENDS ON THE BIN WIDTH. Read it as "where the bulk of the distribution sits",
+% cross-checked against the CDF, and do not quote it as a precise value.
+v = v(:); v = v(isfinite(v));
+if isempty(v), m = NaN; return; end
+if numel(v) < 3 || (max(v)-min(v)) <= 0, m = median(v); return; end
+w = 2*(pct0(v,75)-pct0(v,25)) / numel(v)^(1/3);            % Freedman-Diaconis
+if ~(w > 0), w = 3.49*std(v)/numel(v)^(1/3); end           % Scott
+if ~(w > 0), m = median(v); return; end
+edges = min(v):w:(max(v)+w);
+if numel(edges) < 2, m = median(v); return; end
+[cnt, e] = histcounts(v, edges);
+[~, i] = max(cnt);
+m = (e(i) + e(i+1))/2;
+end
+
+function q = pct0(v, p)
+% p-th percentile without the Statistics toolbox — prctile's midpoint convention (order statistics
+% at (i-0.5)/n, linearly interpolated), so modev's bin width matches what prctile would give.
+v = sort(v(:)); n = numel(v);
+if n == 0, q = NaN; return; end
+if n == 1, q = v(1); return; end
+x = p/100*n - 0.5;
+if x <= 0,   q = v(1); return; end
+if x >= n-1, q = v(n); return; end
+i = floor(x); f = x - i;
+q = v(i+1)*(1-f) + v(i+2)*f;
+end
+
+function writeWideCSV(path, names, cols)
+% One column per group, rows padded to the longest with empty fields — a Prism Column data table.
+% Prism reads ragged columns this way; a long format would need pivoting before it could be plotted
+% as "scatter with mean", which is the figure these numbers are for.
+fid = fopen(path,'w');
+if fid < 0, error('cannot write %s', path); end
+c = onCleanup(@() fclose(fid)); %#ok<NASGU>
+fprintf(fid, '%s\n', strjoin(cellfun(@csvq, names(:)', 'uni',0), ','));
+nMax = max(cellfun(@numel, cols));
+for r = 1:nMax
+    f = cell(1,numel(cols));
+    for j = 1:numel(cols)
+        if r <= numel(cols{j}), f{j} = sprintf('%.6g', cols{j}(r)); else, f{j} = ''; end
+    end
+    fprintf(fid, '%s\n', strjoin(f, ','));
+end
+end
+
+function s = numOrDash(v)
+% A number, or an em dash when it could not be computed. Printing 'NaN' in a results table invites
+% it being read as a value; a dash says the cell did not answer.
+if isempty(v) || ~isscalar(v) || ~isfinite(v), s = '—'; else, s = sprintf('%.4g', v); end
+end
+
+function s = csvq(t)
+% One CSV field, quoted — a condition named "WT, day 2" must not become two columns.
+t = char(t);
+if any(t == ',') || any(t == '"') || any(t == newline)
+    s = ['"' strrep(t,'"','""') '"'];
+else
+    s = t;
+end
 end
 
 function y = round4(x), if isfinite(x), y = round(x,4); else, y = x; end, end

@@ -12,10 +12,13 @@ function [CSW, DD] = cs_experiment_aggregate(manifest)
 %
 % OUTPUT
 %   CSW : combined site-window struct array, each with extra .condition and .srcFolder fields.
-%   DD  : struct with .events (each + .condition/.srcFolder), .perSite (+ .condition), .allDwell.
+%   DD  : struct with .events (each + .condition/.srcFolder), .perSite (+ .condition), .allDwell,
+%         and .minPctInside — the >=% inside threshold the folders' dwell was computed at. It is the
+%         UNIQUE set, so a non-scalar value means the folders were computed differently and their
+%         dwell numbers are not comparable; Compare says so rather than pooling them silently.
 
 CSW = struct([]);
-DD  = struct('events',struct([]),'perSite',struct([]),'allDwell',[]);
+DD  = struct('events',struct([]),'perSite',struct([]),'allDwell',[],'minPctInside',0);
 if nargin<1 || ~isstruct(manifest) || ~isfield(manifest,'cells') || isempty(manifest.cells), return; end
 cells = manifest.cells;
 
@@ -32,7 +35,7 @@ end
 isExcluded = @(fo,fi) isKey(exclSet, kf(fo,fi));
 folders = unique({cells.folder});
 
-allSites = {}; allEv = {}; allPS = {};
+allSites = {}; allEv = {}; allPS = {}; allMinPct = [];
 for i = 1:numel(folders)
     fo = folders{i};
     fCSW = fullfile(fo,'CSW_final.mat');
@@ -57,6 +60,14 @@ for i = 1:numel(folders)
         try
             Ld = load(fDD);
             if isfield(Ld,'DD') && isstruct(Ld.DD)
+                % The >=% inside threshold this folder's dwell was computed at. Folders that
+                % disagree are pooling two different measurements, so every distinct value is kept
+                % and the caller is the one that decides whether to complain.
+                if isfield(Ld.DD,'minPctInside') && isscalar(Ld.DD.minPctInside)
+                    allMinPct(end+1) = Ld.DD.minPctInside; %#ok<AGROW>
+                else
+                    allMinPct(end+1) = 0; %#ok<AGROW>
+                end
                 if isfield(Ld.DD,'events') && ~isempty(Ld.DD.events)
                     ev = Ld.DD.events; ev = ev(arrayfun(@(x) ~isExcluded(fo, x.file), ev));
                     for j = 1:numel(ev), ev(j).condition = getCond(condMap, kf(fo, ev(j).file)); ev(j).srcFolder = fo; end
@@ -77,6 +88,7 @@ CSW      = catStructs(allSites);
 DD.events = catStructs(allEv);
 DD.perSite= catStructs(allPS);
 if ~isempty(DD.events), DD.allDwell = [DD.events.dwell]'; end
+DD.minPctInside = unique(allMinPct);            % scalar when the folders agree; a vector when not
 end
 
 % -------------------------------------------------------------------------

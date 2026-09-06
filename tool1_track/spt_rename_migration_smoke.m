@@ -83,11 +83,22 @@ for i = 2:numel(L)
     assert(nf == nh, 'row %d has %d fields against a %d-column header — the file is ragged', i-1, nf, nh);
 end
 fprintf('\n');
-% the migrated row must keep its OWN values, not have them shifted left by the dropped column
-old = strsplit(L{contains(L,'oldCell')}, ',');
-assert(strcmp(old{end}, '2026-08-03 15:09:32'), 'the migrated row lost its run_time; fields shifted');
+% The migrated row must keep its OWN values, not have them shifted by the dropped column.
+% run_time is no longer the LAST field: pixel_um / frame_s / calib_src were appended when calibration
+% became per cell, and a row written before they existed is padded so the file stays square. So the
+% check moved from "run_time is last" to "run_time is still at its own column" — the same property,
+% stated in a way the added columns cannot invalidate — plus: the padding must be visibly NA, never a
+% number this row never had.
+hdrF = strsplit(L{1}, ',');
+old  = strsplit(L{contains(L,'oldCell')}, ',');
+iRun = find(strcmp(hdrF,'run_time'), 1);
+assert(~isempty(iRun), 'run_time is gone from the header');
+assert(strcmp(old{iRun}, '2026-08-03 15:09:32'), 'the migrated row lost its run_time; fields shifted');
 assert(strcmp(old{13}, '5564'), 'the migrated row''s n_tracks moved: got %s', old{13});
-fprintf('pre-rename row migrated in place (n_tracks %s, run_time %s)\n', old{13}, old{end});
+assert(all(strcmp(old(iRun+1:end), 'NA')), ...
+    'a row predating per-cell calibration was padded with something other than NA — it would read as measured');
+fprintf('pre-rename row migrated in place (n_tracks %s, run_time %s, %d padded column(s))\n', ...
+    old{13}, old{iRun}, numel(old)-iRun);
 
 % ---- 4. prm.erAware must still be honoured ----------------------------------------------------------
 src = fileread(fullfile(here,'spt_process_cell.m'));

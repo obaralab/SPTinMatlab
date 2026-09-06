@@ -32,6 +32,14 @@ function T = spt_track_diffusion(T, opts)
 %
 % ADDS to T (aligned with T.matrix [nF x nT x 3] = frame,x,y in um; NaN where no localization):
 %   .Dt          [nF x nT]  per-localization D (um^2/s)
+%   .gapSteps    [1 x nT]   steps spanning MORE than one frame (gap-closed links)
+%   .maxGapFr    [1 x nT]   largest frame span of any step in that track
+%   .nSteps      [1 x nT]   steps in total, so gapSteps./nSteps is the gap fraction
+%
+% GAPS AND D. With gap-closing on (Tool 1's "Max gap (fr)"), a step can span several frames, and its
+% squared displacement is 4*D*(g*dt) — not 4*D*dt. Dividing by dt alone attributes a longer
+% interval's motion to a single frame and inflates D by g. Both estimators here weight by the real
+% span; the census above is so that you can confirm it rather than take it on trust.
 %   .confined    [nF x nT]  logical, D <= confineD
 %   .stateChange [nF x nT]  logical, a fast->slow ENTRY (rising edge into a confined run) — a capture event
 %   .diffOpts    struct of the parameters used (provenance)
@@ -52,20 +60,53 @@ minRun  = max(1, round(getf(opts,'minRun', 5)));   % a confined run must last th
 M = T.matrix; [nF, nT, ~] = size(M);
 X = M(:,:,2); Y = M(:,:,3);
 Dt = nan(nF, nT);
+% Per-track GAP census. Every track here has been through gap-closing linking, so a step can span
+% more than one frame — and a step that spans two frames is a displacement observed over twice the
+% time. Both estimators account for that, but you cannot check a result you cannot see, so the
+% counts are recorded per track rather than left implicit in the matrix's NaNs.
+gapSteps = zeros(1, nT);      % steps spanning more than one frame
+maxGapFr = zeros(1, nT);      % the largest frame span of any step in this track
+nSteps   = zeros(1, nT);      % steps in total, so the fraction is derivable
 h = max(1, floor(win/2));
 
 for j = 1:nT
     rr = find(isfinite(X(:,j)) & isfinite(Y(:,j)));   % localization rows of this track, frame order
     if numel(rr) < 2, continue; end
     x = X(rr,j); y = Y(rr,j); n = numel(x);
+    % FRAME index of each localization, hoisted out of the mode branch: BOTH estimators need to
+    % know how many frames a step really spans, not how many localizations separate it.
+    tcol = M(rr,j,1);
+    if all(abs(tcol - round(tcol)) < 1e-6), fnum = round(tcol);          % integer => frame indices
+    else, fnum = round(tcol / max(dt,eps)); end                          % seconds => back to frames
+    gsAll = diff(fnum);
+    nSteps(j)   = numel(gsAll);
+    gapSteps(j) = sum(gsAll > 1);
+    if ~isempty(gsAll), maxGapFr(j) = max(gsAll); end
     d = nan(n,1);
     if startsWith(mode,'msd')
+        % BIN BY FRAME LAG, not by localization offset. Lagging k localizations spans k frames only
+        % when the track has no gaps; with maxGap >= 1 it spans more, so fitting those displacements
+        % against 4*k*dt attributes a longer interval's motion to a shorter one and inflates D — the
+        % same error the lag1 branch below was fixed for, which never got carried over here. This
+        % mirrors the build-time MSD in TrackImporter_direct, which has always binned by frame gap.
         for i = 1:n
-            lo = max(1,i-h); hi = min(n,i+h); seg = [x(lo:hi) y(lo:hi)]; m = size(seg,1);
-            kmax = min(4, m-1); if kmax < 2, continue; end
-            ks = (1:kmax)'; msd = zeros(kmax,1);
-            for k = 1:kmax, dd = seg(k+1:end,:)-seg(1:end-k,:); msd(k) = mean(sum(dd.^2,2)); end
-            A = [4*ks*dt ones(kmax,1)]; b = A\msd;             % msd = 4 D (k dt) + b
+            lo = max(1,i-h); hi = min(n,i+h);
+            sx = x(lo:hi); sy = y(lo:hi); sf = fnum(lo:hi); m = numel(sx);
+            if m < 3, continue; end
+            kmax = min(4, max(sf) - min(sf));
+            if kmax < 2, continue; end
+            num = zeros(kmax,1); cnt = zeros(kmax,1);
+            for a = 1:m-1
+                gg = sf(a+1:m) - sf(a);
+                dd = (sx(a+1:m)-sx(a)).^2 + (sy(a+1:m)-sy(a)).^2;
+                keepg = gg >= 1 & gg <= kmax;
+                if ~any(keepg), continue; end
+                num = num + accumarray(gg(keepg), dd(keepg), [kmax 1], @sum, 0);
+                cnt = cnt + accumarray(gg(keepg), 1,          [kmax 1], @sum, 0);
+            end
+            ok = cnt > 0; if nnz(ok) < 2, continue; end
+            ks = find(ok); msd = num(ok) ./ cnt(ok);
+            A = [4*ks*dt ones(numel(ks),1)]; b = A\msd;        % msd = 4 D (k dt) + b
             d(i) = max(b(1), 0);
         end
     else
@@ -83,8 +124,7 @@ for j = 1:nT
         % With every g = 1 this is identical to the previous mean(r^2)/(4*dt) - sigma^2/dt, so an
         % ungapped track is unchanged to the bit.
         s2 = sum(diff([x y],1,1).^2, 2);                       % single-step squared displacement (n-1)
-        tcol = M(rr,j,1);                                      % frame index, or seconds under TimeUnit='seconds'
-        dtau = diff(tcol);
+        dtau = diff(tcol);                                     % tcol hoisted above (frames or seconds)
         if all(abs(tcol - round(tcol)) < 1e-6)                 % integer-valued => frame indices
             tau = dtau * dt;
         else                                                   % already elapsed seconds
@@ -137,6 +177,7 @@ end
     'dt',dt,'sigmaUm',sigmaUm), M);
 
 T.Dt = Dt; T.confined = confined; T.stateChange = stateChange;
+T.gapSteps = gapSteps; T.maxGapFr = maxGapFr; T.nSteps = nSteps;
 T.diffOpts = struct('dt',dt,'sigmaUm',sigmaUm,'win',win,'mode',char(mode),'confineD',confineD, ...
                     'confMode',char(confMode),'confFrac',confFrac,'baseWin',baseWin,'minRun',minRun, ...
                     'minSeg',minSeg,'penalty',penalty, ...

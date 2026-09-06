@@ -9,6 +9,9 @@ function c = spt_tiff_calib(tiffPath)
 %   .dispLo     display range low  (raw intensity units, as Fiji last saved it)
 %   .dispHi     display range high
 %   .nFrames    frame count from the metadata (NOT the page count)
+%   .width      image width  in pixels (NaN when unreadable)
+%   .height     image height in pixels — the FOV is (width-1)*pixUm, so these are what makes a FOV
+%               explicable rather than one bare number on a toolbar
 %   .unit       the raw 'unit=' string, for reporting
 %   .src        struct of provenance per field: 'imagej' | 'resunit' | 'missing'
 %
@@ -39,13 +42,19 @@ function c = spt_tiff_calib(tiffPath)
 PIX_LO = 0.005; PIX_HI = 5;        % um/px — below is beyond any light microscope, above is not SPT
 DT_LO  = 1e-6;  DT_HI  = 3600;     % s
 
-c = struct('pixUm',NaN,'dt_s',NaN,'dispLo',NaN,'dispHi',NaN,'nFrames',NaN,'unit','', ...
+c = struct('pixUm',NaN,'dt_s',NaN,'dispLo',NaN,'dispHi',NaN,'nFrames',NaN, ...
+           'width',NaN,'height',NaN,'unit','', ...
            'src',struct('pixUm','missing','dt_s','missing','disp','missing'));
 if nargin < 1 || isempty(tiffPath) || ~isfile(tiffPath), return; end
 
 try, info = imfinfo(tiffPath); catch, return; end
 if isempty(info), return; end
 i1 = info(1);
+
+% Dimensions come from the SAME imfinfo the calibration is read from. spt_project_calib used to call
+% imfinfo a second time just for the width, which on a 5 700-page stack is not a free call.
+if isfield(i1,'Width')  && ~isempty(i1.Width)  && i1.Width  > 0, c.width  = double(i1.Width);  end
+if isfield(i1,'Height') && ~isempty(i1.Height) && i1.Height > 0, c.height = double(i1.Height); end
 
 % ---- the ImageJ metadata block ------------------------------------------------------------------
 ij = struct();

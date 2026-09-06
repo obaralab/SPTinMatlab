@@ -44,7 +44,7 @@ SPTinMatlab/
 ├── tool1_track/                       TOOL 1 · Track (spt_app + engine)
 │   ├── spt_app.m                      the app: Experiment · Match files · Detect · Track & filter
 │   ├── spt_match.m                    3-folder matcher (SPT ↔ ER-seg ↔ mito-seg)
-│   ├── spt_dog.m spt_detect.m spt_pool_quality.m spt_count_per_frame.m   detection
+│   ├── spt_dog.m spt_detect.m spt_ridge.m spt_pool_quality.m spt_count_per_frame.m  detection
 │   ├── spt_track.m                    LAP tracker (euclid/penalty/geodesic modes, §6.2)
 │   ├── spt_link_cost.m spt_link_cost_geo.m spt_seg_off_fraction.m        link costs (shared)
 │   ├── spt_er_support.m spt_on_er.m   ER support (mask ⊕ 1 px) + on-ER test — the strict rule (§6.2)
@@ -59,7 +59,7 @@ SPTinMatlab/
     ├── app/spt_analyze_app.m          the tab app; MODE selects the tab set (Experiment always tab 1,
     │                                  the rest numbered 2…N per launcher):
     │                                    'curate'  → Tool 2: Experiment · Import&Curate · Build&QC
-    │                                    'analyze' → Tool 3: Experiment · Contact sites · Refine · Sites · Dwell · Compare
+    │                                    'analyze' → Tool 3: Experiment · Contact sites · Refine · Sites · Dwell · Engagement · Compare
     │                                    'full'    → Experiment then both sets in one window
     ├── app/spt_curate_app.m           Tool 2 launcher (thin wrapper: spt_analyze_app('curate'))
     ├── app/spt_experiment_panel.m     SHARED Experiment tab embedded by all three tools
@@ -103,11 +103,110 @@ SPTinMatlab/
 
 ---
 
-## 3. Calibration (per-dataset — cameras differ)
+## 3. Calibration (per-CELL — cameras differ, and so do cells)
 
-Every stage reads calibration from **`cs_calib.mat`** (a `calib` struct) via **`cs_config.m`**; defaults
-apply when absent. Set in the app top bars. **These are per-dataset** because the advisor's paper used a
-different camera (FOV 20.48 µm) than the current rig (FOV 27.61 µm).
+Calibration is resolved **per cell**, not per dataset. Cells in one comparison are routinely acquired on
+different rigs at different frame rates — the advisor's paper used a different camera (FOV 20.48 µm) than
+the current rig (FOV 27.61 µm) — so a single pair of numbers applied to every cell mis-scales every µm
+coordinate and every diffusion coefficient for the cells it does not describe.
+
+Each cell's values are resolved by **`spt_project_calib(projectDir, base [, useManifest])`**,
+most-trustworthy source first:
+
+| rank | source | label |
+|---|---|---|
+| **0** | **your edit**, read back out of `<project>/experiment_details.mat` | `edited` |
+| 1 | `tracks/<base>_settings.txt` — what Tool 1 actually tracked with | `settings` |
+| 2 | the movie TIFF's own metadata, and the **only** source for the image dimensions | `movie` |
+| 3 | the tracks XML `frameInterval` (dt only) | `xml` |
+
+It returns `NaN` rather than a guess. Values are stored on the cell's record in the **experiment
+manifest** (`experiment_details.mat`), shown in every tool's Experiment tab as `µm/px` · `dt (s)` ·
+`calib`, and **editable there** — a typed value is marked `edited`, is locked, and is not overwritten by
+a later Rescan or by Tool 1's resolver on the next run.
+
+**Rank 0 is the fix for a silent disagreement.** The manifest stored the correction and the resolver
+never read it, so the Experiment tab showed the edited value while the top bar, the build and every
+downstream stage went on using the fallback, with nothing on screen to say the two disagreed. A
+correction that is displayed but not applied is worse than none: it is a wrong number wearing the
+user's authority. Only values the panel marked **locked** are taken — a hand edit sets that and nothing
+else does, which is what stops Tool 1's own stamp-back (`setCalib` with `lock=false`) from outranking
+the file it was read from and making the ranking circular.
+
+`useManifest=false` is passed by `cs_experiment_scan`, which *fills* the manifest: it must report what
+the filesystem currently says, and the panel then re-applies the edit on top of the rescan. Reading the
+manifest there would make an edit its own evidence and no rescan could show what the files contain.
+
+**The edit propagates**, per `spt_calib_ui_smoke`: the top bar updates live (edited fields tinted green,
+tooltip naming them as yours) via the panel's `onChange`; `analysis/cs_calib.mat` is rewritten so
+`cs_config` carries it downstream; and the `Calib` struct sent to `build_trackstruct` gains an
+`edited` field listing which keys were typed, so `TrackImporter_direct/cell_calib` ranks them above the
+cell's own TIFF tags and above the XML's `frameInterval`. Tool 1's `cellCalib` already ranked a
+hand-edited value first at run time. Regressions: `spt_calib_edit_smoke` (the resolver — rank, that it
+bites, lock-only, per-field, no scan loop, project scoping, dimensions) and `spt_calib_ui_smoke` (the
+wiring, offscreen).
+
+**Bulk assignment.** The panel's calibration row applies one `µm/px` / `dt` to the **selected rows**
+or to **every row the filter is showing** (the button names the count). A 0 in either field leaves
+that field alone, so `dt` can be set across a plate without disturbing a measured pixel size. Applied
+values are `edited` + locked, identical to typing one in. The scope is never inferred from an empty
+selection — that would make "nothing selected" mean "all 93 cells" — and overwriting a value that was
+*measured* from a cell's own files asks for confirmation first, since that is the only case where the
+operation destroys evidence. One `notifyChange` per batch, not per cell: each one saves the manifest
+and re-resolves the host's calibration. Regression: `spt_calib_bulk_smoke` (scope by filter, scope by
+selection, edited+locked, blank-leaves-alone, one save, and that the resolver then answers with the
+applied value).
+
+Two latent bugs surfaced while testing it, both pre-existing: `filterRows` called a `tern()` helper
+the file never defined, so **every keystroke in the Experiment tab's filter box threw** and the box
+did nothing; and a `shownRows` accessor written as `@() rowMap(:)'` captured `rowMap` by value at
+construction — the same gotcha `getCells` carries a note about — so it had to be nested.
+
+**The curate overlay is sized the same way.** `track_viewer` draws the raw movie and the ER/mito
+masks across `Overlay FOV (um)`, and used to size it from the movie's **own TIFF tags only**. A movie
+with no metadata returns NaN, the assignment was skipped, and the spinner silently kept its shipped
+default of **27.61 µm** — the old rig's field of view — while the tracks stayed in µm at the
+project's real scale. The image is then drawn at the wrong width and slides further off the tracks
+the further you get from the origin: on a 256 px movie at 0.097 µm/px the tracks span 24.735 µm and
+the frame was drawn across 27.61, **12 % too wide**. It afflicts the no-metadata case only, which is
+why it looks file-specific. The host now passes `opts.pixUmFcn` (a live handle, so a corrected
+calibration reaches the overlay without re-embedding the tab) and the order is **movie tags →
+project pixel size → leave alone**, with the source named in the overlay status line and an
+unsupported width tinted amber. Regression: `spt_overlay_fov_smoke`, which asserts the broken state
+first so the fix cannot pass for an unrelated reason.
+
+**Tool 3 has the same exposure one layer down, and it is fixed at the source.** Tool 3 reads no
+movie metadata at draw time — it draws the raw frame at `(rawW-1)*Tracks(k).calib.pixSizeUm` and the
+organelle mask across `Tracks(k).calib.fovUm`, both stamped once at build. `cell_calib` resolved that
+pixel size from the cell's own **image metadata**, then the panel, then `0.10785`, and **never read
+`tracks/<base>_settings.txt`** — Tool 1's record of what it actually tracked with. The two disagree
+exactly when a user overrode the pixel size in Tool 1, which is the whole workflow for a movie with
+no usable metadata: the `X_um` in the XML are at the override, and the build stamped the tag the user
+rejected. `cell_calib` now ranks `_settings.txt` **above the cell's own image** (below only a hand
+edit), for the same reason `spt_project_calib` does — nothing may contradict what produced the
+coordinates without making them wrong. `calib.fovUm` is no longer resolved independently either: it
+is derived as `(width-1) x` whichever pixel size won, so a cell can no longer carry 27.61 µm beside
+0.097 µm/px. Regression: `spt_tool3_scale_smoke`.
+
+The dwell-tab organelle overlay also stepped the mask by `fov/W` and placed 1-based column `c` at
+`c*ux`; both are now `fov/(W-1)` and `(c-1)*ux`, matching the `X_um = (0-based col) * pixUm`
+convention the tracks use. That was a **one-camera-pixel** shift (~0.1 µm) against contact sites
+0.1-0.5 µm across. Display only — ER/mito distances come from Tool 1's CSV and never went through
+this path, which is precisely why the drawn mask could disagree with the numbers beside it.
+
+**Image dimensions** (`.width`/`.height`, from the movie via `spt_tiff_calib`) come back with the
+calibration and are shown on the Tools 2/3 top bar beside the FOV as e.g. `256×200 px`. The FOV is
+**never read** from anywhere — it is always `(width-1) x pixUm`, recomputed from whichever pixel size
+won, so an edited pixel size moves it and the two cannot disagree on screen. A bare FOV is
+unfalsifiable; the dimensions beside it make the arithmetic checkable at a glance.
+
+A cell that can resolve nothing falls back to the **panel** value. That fallback is never silent: it is
+named in the run log, recorded in that cell's `_settings.txt` as `calibration.pixel_um_src = panel`, and
+shown as `panel ⚠` in the manifest table.
+
+Tool 2 and Tool 3 additionally read **`cs_calib.mat`** (a `calib` struct) via **`cs_config.m`** for the
+project-level fields Tool 1 does not record (field of view, localization precision, density bin);
+defaults apply when absent.
 
 | field | meaning | this rig |
 |---|---|---|
@@ -132,7 +231,7 @@ Pairs each SPT stack with its ER/mito seg by a shared key: strip the channel suf
 `_(2_TA_BC|er_mip|er)`, `_(3_TA_BC|mito_mip|ch1_mito|mito)`) + a user token (default `_VAPB`). Returns
 `{key, spt, erSeg, mitoSeg}` per cell.
 
-### 4.2 Detect (`spt_dog.m`, `spt_detect.m`, `spt_pool_quality.m`)
+### 4.2 Detect (`spt_dog.m`, `spt_detect.m`, `spt_ridge.m`, `spt_pool_quality.m`)
 Difference-of-Gaussians on a background high-pass, scaled by the **spot diameter (µm)**; 5×5 non-max
 suppression + subpixel centroid. Per-spot **quality = the DoG response at the peak**. Two threshold modes
 (Detect-tab dropdown): **Top %** — keep the top X% of pooled candidate qualities, adapting per cell
@@ -142,6 +241,117 @@ comparable across cells). Both resolve to `spt_detect`'s 4th arg `thrAbs`. Detec
 `_settings.txt` records `threshold_mode`, `top_percent`, `quality_min`, and the resolved `thr_abs`; a
 project-level `tracks/detection_summary.csv` keeps **one upserted row per cell** so every cell's threshold
 is visible at a glance (`spt_write_settings.m`, `spt_append_detection_summary.m`).
+
+All of the following are **collapsed behind one disclosure** on the Detect tab (`▸ interleaved acquisition &
+bleedthrough options`) and every one defaults to off/auto: a project whose SPT, ER and mito stacks have equal
+frame counts needs none of them and sees detection exactly as before. The row auto-opens for a cell whose
+organelle stack has a different frame count, or whose movie tests as interleaved, naming the reason — and
+never auto-collapses once any option is set.
+
+**Interleaved-stack guard** (`spt_interleave_check.m`). A two-colour acquisition saved as ONE stack with
+the channels alternating page by page detects as a chain of spurious spots along every organelle, silently.
+Structural test: in an interleaved stack `corr(f_t, f_t+2) > corr(f_t, f_t+1)` (same channel two pages
+apart), in an ordinary movie the reverse. Measured on three real cells: interleaved `delta = +0.279/+0.259/
++0.268`, their own de-interleaved exports `-0.108/-0.099/-0.088` — separated by ~0.35, cut at +0.02. Warns
+on the Detect tab when a cell is picked and at run time (`spt_process_cell:interleavedStack`). **The remedy
+is the de-interleaved stack, not a filter.** Related: `_spt1` and `_spt12` both strip to the same cell key
+under the `_spt\d*` suffix, so `spt_match` now warns (`spt_match:duplicateKey`) when two stacks claim one
+cell. Regression: `spt_bleedthrough_smoke` parts (D).
+
+**De-interleaving** (`frameStride`/`frameOffset`, Detect-tab **de-interleave**, default **off**). When the
+acquisition keeps ONE stack with both channels alternating page by page, this selects one channel's pages
+(`odd` = 1,3,5…, `even` = 2,4,6…) and **renumbers them as consecutive frames** — leaving page numbers in
+place would read as a one-frame gap between every pair and forbid every link at maxGap 1. Detection, the
+quality tuner, the preview and the frame slider all honour it. **`dtS` is multiplied by the stride** (and which interval was supplied is verified against the stack's own
+ImageJ metadata — an interleaved file records half its de-interleaved export, 0.01003212 vs 0.02006423 s on
+the real data, so a frame interval typed in by mistake is detected and NOT doubled again;
+`spt_process_cell:dtAlreadyPerFrame` / `:dtDisagrees`):
+calibration times *pages*, and the real interval between the frames you kept is twice that; every D, MSD,
+dwell-second and k_out downstream reads `dtS`. Verified on a real cell against a separate single-channel
+export of the same acquisition: **bit-for-bit identical** (400 frames, 31 613 detections, 3 344 tracks),
+versus **411 tracks** for the same stack un-de-interleaved. Regression: `spt_bleedthrough_smoke` part (E).
+
+**Threshold pooling** (`thrFrames`, Detect-tab **thr from**, default `all`). Top % percentiles the pooled
+candidate qualities; bleedthrough floods that pool, so contaminated frames RAISE the threshold and suppress
+real detections on the clean frames too — by a cell-specific amount. Three cells: pooled-over-all threshold
+25.1/32.0/36.6 giving 16.8/35.4/47.6 clean dets/frame (2.8x spread between cells); pooled over the clean
+parity 6.7/7.4/16.7 giving 82.7/63.7/65.1 (1.3x). Most of the apparent cell-to-cell variation was the
+threshold moving with contamination. Point `thrFrames` at the clean parity, or use `Quality >=`.
+
+**Alignment rejection** (`spt_skel_align.m`, Detect-tab **align °**, default 0 = off). **Recommended off for
+comparative work**: its bite depends on organelle MORPHOLOGY, not contamination — 19%/8%/5% across three
+cells of one condition, inversely with mito density (denser network -> more junctions -> ill-defined local
+direction). If morphology differs by condition that is a condition-dependent detection bias. The curvature
+test does not share this: its cut tracks contamination (48/24/17% against excesses of 84/56/37%) with a flat
+2-5% cost on the clean channel. The curvature ratio is
+orientation-blind, leaving bleedthrough that is mildly elongated and smeared ALONG a mitochondrion. Requires
+all three: within 4 px of the organelle skeleton, elongation >= 1.5, and major axis within `align °` of the
+local skeleton direction. Measured: of 1716 survivors of R=2, 426 were elongated and on the skeleton, at a
+median 14 deg from it (78% inside 30; random would be 45 deg / 33%). At 30 deg the contaminated channel went
+56.0 -> 45.6 dets/frame, the clean channel unchanged at 15.4. **Cost, scored against the clean channel as
+ground truth: 5 genuine detections against 425 artefacts — 99% artefact, 1.4% of real molecules** — and that
+1.4% falls on molecules sitting on mitochondria, biasing mito enrichment slightly downward.
+
+**Two particle channels, one contaminated.** An interleaved stack may hold TWO particle channels (ch1/ch3
+in successive 10 ms slots) where only one is acquired alongside the organelle exposure and picks up its
+bleedthrough. De-interleaving then DISCARDS HALF THE REAL DATA — keep every frame and set `bleedFrames` to
+the contaminated parity. Measured on such a cell (top 10%): gate off, ch1 16.6 dets/frame vs ch3 106.7
+(6.4x); at R=2, 15.8 vs 55.6 (3.5x) — half the excess removed for a 5% cost on the clean channel; at R=1.5,
+2.2x but 19% of ch1 gone. The width test added nothing (ridge-shaped leak). The clean parity is the control:
+both image the same molecules, so its rate is what an uncontaminated frame looks like.
+
+**Wrong-parity guard.** The segmentation is derived from the organelle pages, so de-interleaving onto THOSE
+pages compares the organelle against a mask drawn from itself and everything reads as colocalised. Measured
+on a real cell: correct parity 23% of detections in-mask (mask covers 11% of the field) = **2.0x enriched**,
+the real signal; wrong parity **67% in-mask = 6.0x** — triple, self-consistent, and it looks like a result.
+`spt_process_cell:trackingOrganelleChannel` fires on the run and the Detect status turns red. Note the
+earlier "this stack is interleaved" warning fires only when the stride is UNSET, which is not when this
+happens — the two guards cover different mistakes.
+
+**Parity attribution from the organelle mask.** Given a segmentation, `spt_interleave_check` also reports
+mean IMAGE intensity inside the mask vs outside, per parity, and names which parity is the organelle
+channel (measured 1.66/1.43/1.37x vs 1.03-1.05x on three real cells). It reports which parity CARRIES organelle
+signal, not which parity IS the organelle channel: additive bleedthrough onto a real particle frame lifts
+the same number, so the two cases are indistinguishable by intensity and the message gives both readings. Same number is the crosstalk check on the channel kept, written as
+`detection.mito_intensity_enrich`. **The mask attributes the channel and never filters detections** — a
+molecule ON a mitochondrion is the measurement; and applying the shape/size gates only inside the mask
+would bias enrichment and mito fraction downward, since that is exactly where the biology is. Intensity
+rather than detection counts, because a detection-based enrichment *is* the readout and cannot judge itself.
+
+**Ridge rejection** (`spt_ridge.m`, Detect-tab **Reject ridges**, default **0 = off**), for GENUINE crosstalk
+— organelle emission leaking into an otherwise single-channel frame, not alternating pages. A DoG finds blobs;
+an extended structure bleeding through from another channel is a **ridge**, and local-max detection strings a
+chain of spot-sized detections along its crest. They are as bright as real molecules, so no threshold
+separates them. Curvature does: `r = trace(H)²/det(H)` at the peak — SIFT's edge-response elimination
+(Lowe 2004 §4.1) — is 4 at a round peak and grows without bound as the response becomes ridge-like; the
+control is the largest eigenvalue ratio to accept (`2` is a sensible start). Saddles (`det ≤ 0`) go too.
+The step is **1 px and must stay there**: enlarging it scales `tr` by `h²` and `det` by `h⁴`, so `r` is
+invariant (measured 4.001 vs 4.001 at scale 1, 4.000 vs 4.000 at scales 2–3) — the ratio is size-blind by
+construction. **Size** lives in a second test (`sizeMax`, Detect-tab **max width ×**, default 0 = off): the
+Hessian-implied peak width `√(c/|λ_min|)` is proportional to the spot scale for a real point source (1.53 /
+3.06 / 4.58 px at scales 1/2/3), while the same filament gave 6.16 / 9.07 / 11.03 and never dipped below
+3.12 / 5.29 / 8.92 — so the cut is a multiple of the expected width and `1.6` sits inside the gap at every
+scale. The two are **not redundant**: shape catches the crest, size catches the ends, crossings and focal
+blobs that are round enough to pass a curvature ratio. A **bleedFrames** setting (`all`/`odd`/`even`,
+1-based) applies both only to the contaminated parity of an interleaved acquisition.
+It runs **before** NMS, so a filament peak cannot suppress a real molecule and then be discarded itself,
+and `spt_pool_quality` applies the same gate so the percentile threshold is not set by candidates that are
+about to be thrown away. **Shape-only by design** — a molecule *on* a mitochondrion is still a point source
+and survives; rejecting by the mito mask instead would delete the contact-site colocalisation the pipeline
+exists to measure. It is a large reduction in spurious hits, **not** a complete filter: focal blobs, filament
+ends and crossings are genuinely round at the spot scale. Regression: `spt_bleedthrough_smoke`.
+
+**Interleaved acquisition** (`segEvery`, Detect-tab **SPT frames / organelle**, default **auto**). An
+organelle channel imaged at half the SPT rate has half the pages. Indexing both stacks with the same frame
+number did not misalign a few frames — it left **every frame past the last organelle page** with no mask at
+all: `NaN` mito/ER distance and an empty link support, which strict ER-geodesic reads as "forbid every
+link". SPT frame *t* now reads organelle page `ceil(t/segEvery)`; `auto` takes the ratio from the page
+counts only when it is a clean integer. A frame past the end keeps its `NaN` and is **counted**
+(`nFramesNoSegPage`, `frames.no_organelle_page`, plus a run-time warning) rather than clamped to the last
+page, which would hand it a mask that is not its own. It is an index map — no TIFF pages are duplicated. **Detection only**: every VIEWER (Tool 1's track player,
+Tool 2's curate overlay, Tool 3's picker and Sites/Dwell overlays) still reads the organelle stack
+page-for-page and expects matching lengths — pre-duplicate the organelle frames if you want the overlays to
+follow (Fiji script in the README).
 
 **Localization** is a 5×5 intensity-weighted **centroid** (center of mass) on the high-pass image — not a
 Gaussian fit, so there is no fitted PSF width or per-spot Cramér-Rao precision. Two derived metrics fill that
@@ -208,7 +418,10 @@ Key=value lines: `detection.diameter_um`, `detection.threshold_mode` (top-percen
 `tracking.link_mode` (the **effective** engine key euclid|penalty|geodesic; plus
 `tracking.link_mode_req` only when an ER mode was **downgraded** for a cell with no ER segmentation),
 `tracking.link_um`, `tracking.max_gap_um`, `tracking.max_gap_frames`, `tracking.er_aware`,
-`tracking.lambda`, `calibration.pixel_um`, `calibration.frame_s`, `result.n_spots`, `result.n_tracks`,
+`tracking.lambda`, `calibration.pixel_um`, `calibration.pixel_um_src`, `calibration.frame_s`,
+`calibration.frame_s_src` (the `_src` lines name where **this cell's** calibration came from —
+`settings`|`movie`|`xml`|`edited`|`panel`; `panel` means nothing in the cell supplied one and the value
+is the app's fallback, and the value line says `FALLBACK` too), `result.n_spots`, `result.n_tracks`,
 `result.have_er`, `result.have_mito`. In **geodesic** mode two more lines record what the strict rule
 excluded: `tracking.frames_no_er_mask`, `tracking.dets_off_er` (§6.2).
 **Tool 2 reads the tracking lines to populate its curate params.**
@@ -218,8 +431,11 @@ Header, in order (`spt_append_detection_summary.m`):
 ```
 cell, threshold_mode, top_percent, quality_min, thr_abs, diameter_um,
 link_mode, link_um, max_gap_um, max_gap_frames, lambda,
-n_spots, n_tracks, er_aware, run_time
+n_spots, n_tracks, run_time, pixel_um, frame_s, calib_src
 ```
+`pixel_um` / `frame_s` / `calib_src` are **this cell's own** calibration and where it came from — this is
+the one file where every cell's scale is visible side by side. Rows written before these columns existed
+are padded with `NA` when the file is rewritten.
 `link_mode` is the **effective** engine key (the same value as `<base>_settings.txt`'s
 `tracking.link_mode`, so a cell downgraded for want of an ER segmentation reads `euclid` here).
 `quality_min` / `thr_abs` are `NA` when they do not apply. Upserted by cell name on every run, so with
@@ -432,6 +648,17 @@ New tab app `spt_analyze_app.m`; built on the `drivers/` layer. Build order:
    used to leave a divergent shadow file) and refreshes the QC. These fields are what Tool 3's **Confined /
    State-change** density channels run on (§7.3).
 
+   **Gap-closed steps.** Tool 1's linker closes gaps (**Max gap (fr)**, routinely 1), so one step can span
+   two frame intervals: its squared displacement is `4·D·(2·dt)`, and dividing by `4·dt` credits a two-frame
+   journey to one frame — D comes out **double** for that step. Both modes now weight each step by the frames
+   it actually spans. `lag1` already did; `'msdfit'` did **not** — it lagged over **localizations** while
+   fitting against `4·k·dt`, the same error by a different route, reading ~16 % high on tracks with 25 % of
+   localizations dropped. It now bins by **frame** lag. A build also carries a per-track **gap census** —
+   **`gapSteps`** (steps spanning >1 frame), **`maxGapFr`** (largest span), **`nSteps`** — so a run can be
+   checked rather than trusted. Regression: `spt_gap_diffusion_smoke`, two-sided (an over-correcting
+   estimator fails too) and carrying its own proof: it reproduces the old localization-lagged fit alongside
+   the new one, so the fix is shown to bite rather than asserted.
+
    Then, in the same tab, an **interactive QC** (per cell or pooled): a per-cell summary table; pooled
    **track-length**, **ER/mito signed-distance** (with **on-ER %** — §6.2, e.g. "on-ER 96.0% (median
    −0.193 µm)") and **D-distribution** (per-track D = slope/4, median annotated, the confinement threshold
@@ -592,12 +819,82 @@ New tab app `spt_analyze_app.m`; built on the `drivers/` layer. Build order:
    `PXUM`). The contact-site outline, dwell colouring (inside frames red; head marker red while INSIDE), and
    organelle overlay draw on **either** backdrop. **🎥 Save video…** renders the animation (chosen backdrop +
    trajectory + dwell + moving organelle) to MP4/AVI (`exportgraphics`→`VideoWriter`).
-7. **Compare** *(done)* — a grouped-stats layer over `CSW_final.mat` (+ `DD` for dwell metrics), on either
+   Dwell has a **≥% in** spinner (`cs_window_dwell` opt `minPctInside`, default 0 = every member):
+   keep only member tracks with at least that % of their window localizations inside the footprint —
+   the mapper's own `trackPctInside`, i.e. molecules that DWELL rather than pass through. It is a
+   selection on the measured quantity (it can only raise mean dwell and lower `k_out`, since it removes
+   the short visits), so the threshold is stored as `DD.minPctInside`, echoed in the Dwell status line
+   and appended to Compare's. A site left with no qualifying track reports `k_out`/mean dwell as **NaN**,
+   not 0 — no events is no rate, and a rate of zero would read as "never leaves". Regression:
+   `cs_window_dwell_smoke` part C.
+
+7. **Engagement** *(done)* — `cs_mito_engage.m` (headless), a **diffusion-contrast** readout: are molecules
+   SLOWED where they meet the organelle, and does a compound abolish that? Every step is labelled by
+   **where it started** — BOUND if that localization is within `d` of the organelle, FREE otherwise — and
+   `D` is pooled separately over the two classes, giving `Dratio = D_bound / D_free`. Below 1 is engagement;
+   1 is no contrast. Classifying by the START of a step and not by both endpoints is the whole correctness
+   argument: requiring both ends inside the zone conditions on the step being SHORT (a long step starting in
+   a narrow zone leaves it), which is selection on the very quantity being measured — on an **untethered**
+   synthetic cell with one uniform D that gave `Dratio` 0.66, a strong false hit produced entirely by the
+   geometry. Start-only gives ~1. Its cost is dilution toward 1, never a false positive, so the readout is
+   conservative in the direction a hit call needs.
+   The ratio is measured **within** each cell, so labelling density, expression level and how much organelle
+   a cell contains — the three things most likely to differ between wells for reasons that are not the
+   compound — cancel. An absolute occupancy count is at the mercy of all three, and especially so when the
+   compound itself changes organelle morphology.
+   Estimator: `D = (Σr² − 4σ²n) / (4Στ)` with `τ = (frame span) × dt`, pooled over steps rather than averaged
+   per step, so **gap-closed steps are handled by construction** — a step spanning two frames carries
+   `τ = 2·dt`, and crediting it to one interval would inflate D by two. Not built on `T.Dt`, which is a rolling
+   estimate over ~7 localizations and so mixes both sides of the boundary this metric exists to resolve.
+   Controls: **precision nm** (the noise floor; entered in nm, converted to µm), **min steps** per class, a
+   **distance scan** (N distances between the two bounds → one row per cell per distance, and one line per
+   condition on the scan plot). A cell that cannot meet `min steps` in either class shows a **dash and its
+   reason**, never a number computed from a handful of steps. **Export CSV** writes
+   `analysis/cs_engagement_<key>.csv` — one row per cell × distance with `D_bound, D_free, D_ratio, n_bound,
+   n_free, n_crossing, occupancy, condition` — so a compound can be scored from the file without re-running.
+   `n_crossing` (steps that left the zone, counted where they started) is what sets the dilution: a large
+   share means much of the bound pool is molecules on their way out.
+   Regressions: `cs_mito_engage_smoke` — a tethered cell recovers the planted contrast, **an untethered cell
+   with the same geometry reads ~1** (the control that says the zone alone cannot manufacture a hit), gaps do
+   not move it, every step is classified exactly once, and a thin cell refuses. `spt_engage_tab_smoke` covers
+   the wiring: nm→µm, the answer reaching the named rows, N distances → N rows, refusal as a dash, and the
+   CSV contents.
+
+8. **Compare** *(done)* — a grouped-stats layer over `CSW_final.mat` (+ `DD` for dwell metrics), on either
    **this project** or the whole **experiment** (every folder in the Experiment tab, via `cs_experiment_aggregate`).
-   **Group by** {mito vs non-mito · window (time-resolved) · condition (cell)} × **metric** {dwell s · k_out /s ·
-   enrichment · area µm² · n_loc · mito fraction · # sites}. Shows a grouped **mean ± sem** table, a
-   **per-site scatter** with group means, a **pooled dwell-time CDF** per group, and a two-group **rank-sum p**
-   when the Stats toolbox is present. **Export CSV** writes the grouped table. The Nature suite's
+   **Sites** {all sites · mito only · non-mito only} and **dw% ≥** {0..100} — two filters applied BEFORE
+   grouping, honoured by the table, the scatter, the dwell-time distribution and the tests alike. `dw%` is
+   the picker's site statistic (median over the site's member tracks of each track's % of window
+   localizations inside the footprint), recomputed from the footprint in use rather than read off the
+   stored `trackPctInside`; gating on it drops SPURIOUS sites — ordinary traffic the detector called a
+   site — from **every** metric, and their dwell events leave the pooled distribution with them. Distinct
+   from Dwell's `≥% in`, which is per member track at compute time; the two compose. ×
+   **group by** {mito vs non-mito · window (time-resolved) · condition (cell) · condition x mito · window x mito}
+   × **metric** {dwell s · k_out /s · enrichment · area µm² · n_loc · mito fraction · # sites}.
+   `sites = mito only` + `group by = condition` is the **cross-condition mito comparison** (WT vs FFAT vs …
+   over mito sites); `condition x mito` is the different question of mito vs non-mito *inside* each condition.
+   The filter is part of the exported file name, so the two do not overwrite each other. Shows a grouped
+   **mean ± sem** table, a **per-site scatter** with group means, a **pooled dwell-time CDF** per group, and a
+   Table columns are `group · n · mean · sem · median · mode`, the **mode BINNED** (centre of the busiest
+   Freedman-Diaconis bin — `mode()` on a continuous per-site sample returns the minimum, since nothing
+   repeats). **Export points** writes the per-datapoint values for Prism: wide (one column per group,
+   a Prism Column data table), long (each point with cell/site/window/condition/dw% for traceability),
+   and the pooled dwell EVENTS per group, which is what the CDF is drawn from. A **cells…** picker
+   selects which cells enter the comparison — a per-comparison choice, unlike the manifest's durable
+   `exclude` flag, and available in project mode too. Every filter, the cell set included (by size plus
+   a hash), is part of the exported file names.
+   **rank-sum p** when the Stats toolbox is present — the one two-group test, or, under a crossed grouping,
+   mito vs non-mito *inside each* condition/window, or, for more than two groups (the cross-condition case,
+   where no pair exists to rank-sum), a **Kruskal-Wallis omnibus**. The CDF is the distribution behind the
+   means: one stair per group over pooled event durations, each legend entry carrying that curve's n and
+   median. **Export CSV** writes the grouped table.
+   The **crossed** groupings (`condition x mito`, `window x mito`) split every condition into its mito and
+   non-mito sites and keep the pair adjacent, so a mutant's mito effect can be compared with WT's instead of
+   being averaged against it. Every metric crosses, `k_out /s` included. Sites are matched to their dwell
+   record on **identity** (srcFolder · file · cellIndex · csID · window), never on `siteUID` alone — that id
+   restarts at 1 per folder, and matching on it let a condition that was mapped but never dwelled report
+   another condition's `k_out`. An unmatched site now contributes no value (`n = 0`), not a borrowed one.
+   Regression: `spt_compare_group_smoke`. The Nature suite's
    Deff/JBM machinery (`CS_builder` full, `CSensemble`, `CSaverager`, tessellation, changepoints) is
    **intentionally dropped** — this integrated `TrackStruct` has no `Tracks.Deff`/`LocIndex`/`MitoCSindex`, and
    the requested scope is geometry + residence + enrichment (a per-track diffusion readout, if ever wanted,

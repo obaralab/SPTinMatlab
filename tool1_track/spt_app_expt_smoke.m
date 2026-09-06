@@ -23,6 +23,21 @@ tbl = findobj(et,'Type','uitable'); assert(~isempty(tbl),'Experiment tab has no 
 cols = tbl(1).ColumnName; assert(any(strcmpi(cols,'condition')), 'panel table missing condition column');
 fprintf('Experiment panel embedded: %d columns incl. condition\n', numel(cols));
 
+% Calibration is per cell and lives in the manifest, so Tool 1 — the tool that USES it to convert
+% px to µm — must show it here and let it be corrected here. Editability is the feature, not the
+% column: a read-only µm/px would leave a mis-calibrated cell with nowhere to be fixed.
+ed = tbl(1).ColumnEditable;
+for want = {'µm/px','dt (s)'}
+    j = find(strcmp(cols, want{1}), 1);
+    assert(~isempty(j), 'panel table missing the %s column — calibration is not per cell here', want{1});
+    assert(numel(ed) >= j && ed(j), 'the %s column is not editable', want{1});
+end
+j = find(strcmp(cols,'calib'), 1);
+assert(~isempty(j), 'panel table does not say where each cell''s calibration came from');
+assert(~ed(j), 'the calibration source must be a readout, not something to type into');
+assert(numel(ed) == numel(cols), 'ColumnEditable (%d) and ColumnName (%d) are out of step', numel(ed), numel(cols));
+fprintf('per-cell calibration editable in Tool 1''s manifest table (µm/px, dt (s); calib read-only)\n');
+
 % ingest a project through the Match tab's picker path -> exptCtl.addFolder -> a scanned row appears
 if isfolder(proj)
     % find the Match "Pick…" for the project field is fiddly; instead call the panel's add via its button
