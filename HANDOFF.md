@@ -425,6 +425,21 @@ column, long carries cell, track, n_loc, D, **fit_window_pct**, sigma_loc and me
 window travels with the value because an adaptive R² fit chooses it per track, and a D exported
 without it cannot be compared against a D fitted over a different span.
 
+**Picking a cell, and exporting across cells.** Clicking a row of the Build & QC cell table now
+selects that cell for QC; it sets the dropdown rather than bypassing it, so both routes lead to one
+code path and the control still shows which cell is displayed. Export is two buttons — **Export
+shown** (the QC cell, narrowed by the filters) and **Export ALL cells** (every cell in the build,
+same filters, whichever one the dropdown shows). Both go through `qcSelectionOf`/`qcRecords`, so the
+all-cells file cannot drift from what the panels would show cell by cell. The long file carries
+`cell` and `condition` (from the manifest) on every row, so 93 cells come out as one pivotable file.
+Verified on the CysLig subset: click row 2 -> that cell; shown = 22 tracks/1 cell; all = 64 tracks/3
+cells, matching the 64-of-438 the pooled view reports.
+
+**An export that writes a file silently reads as an export that did nothing.** The status line sits
+at the top of the tab and the Export buttons at the bottom left, ~600 px apart, so the confirmation
+was effectively invisible. It now lands in three places: the status line, the **Build log** (a
+record you can scroll back to), and a two-second green flash on the label beside the button.
+
 > ### exportapp MIS-RENDERS A NESTED uigridlayout — do not "fix" this layout from a screenshot
 >
 > A `uigridlayout` nested inside a `uigridlayout` is painted several rows low by `exportapp`, while

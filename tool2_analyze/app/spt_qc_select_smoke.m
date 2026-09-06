@@ -22,6 +22,12 @@ function spt_qc_select_smoke()
 %   5. THE PANELS AGREE — the D-distribution title reports the same n the selection label does.
 %   6. THE EXPORT MATCHES — one row per selected track, carrying the fit window each track used,
 %      because an adaptive fit chooses that per track and a D without it cannot be compared.
+%   7. ROW CLICK PICKS THE CELL — clicking a row of the cell table selects it for QC and moves the
+%      dropdown with it, so the control still shows which cell you are looking at.
+%   8. EXPORT ALL CELLS — the all-cells export covers every cell in the build under the SAME
+%      filters, whichever one the dropdown is showing, and names the cell on every row.
+%   9. IT SAYS SO — an export that writes a file silently reads as an export that did nothing. The
+%      Build log gets a line; the status line and the label beside the button are also set.
 %
 % Synthetic; reads no dataset. Runs offscreen.
 
@@ -63,7 +69,7 @@ end
 
 %% (1) the selection row sits under the table, above the plots ----------------------------------------
 qs = pick(findobj(f,'Type','uigridlayout'), ...
-    @(x) isequal(x.RowHeight,{}) == false && numel(x.ColumnWidth)==6 && isequal(x.ColumnWidth{1},44), ...
+    @(x) numel(x.ColumnWidth)==7 && isequal(x.ColumnWidth{1},44) && isequal(x.ColumnWidth{2},54), ...
     'QC selection row');
 tb = pick(findobj(f,'Type','uitable'), @(x) any(strcmp(x.ColumnName,'med len')), 'build cell table');
 axD = pick(findobj(f,'Type','axes'), @(x) contains(string(x.Title.String),'D distribution'), 'D distribution');
@@ -101,8 +107,8 @@ t = char(string(axD.Title.String));
 assert(contains(t,'n=1'), 'the D distribution says "%s" while the label counts 1 selected track', t);
 
 %% (6) the export carries the selection, and the fit window --------------------------------------------
-press(f, 'Export D CSV');
-L = dir(fullfile(proj,'analysis','qc_trackD_*_long.csv'));
+press(f, 'Export shown');
+L = dir(fullfile(proj,'analysis','qc_trackD_*shown_long.csv'));
 assert(~isempty(L), 'no long-form CSV was written');
 txt = strsplit(strtrim(fileread(fullfile(L(1).folder, L(1).name))), newline);
 assert(numel(txt) == 2, 'the CSV holds %d lines, wanted a header + the 1 selected track', numel(txt)-1);
@@ -116,7 +122,52 @@ wtxt = strsplit(strtrim(fileread(fullfile(W(1).folder, W(1).name))), newline);
 assert(numel(wtxt) == 2 && strcmp(strtrim(wtxt{1}),'D_um2_per_s'), ...
     'the wide CSV is not a single Prism-pasteable column: header "%s", %d lines', wtxt{1}, numel(wtxt));
 
+%% (9) the export announces itself ------------------------------------------------------------------
+ta = pick(findobj(f,'Type','uitextarea'), @(x) any(contains(string(x.Value),'Build log')), 'Build log');
+assert(any(contains(string(ta.Value),'Exported')), ...
+    ['the Build log has no record of the export. Writing a file with no visible trace reads as an ' ...
+     'export that did not happen — the status line alone sits 600 px from the button.']);
+
+%% (7) clicking a table row selects that cell ---------------------------------------------------------
+% Two cells now, so "the dropdown followed the click" is distinguishable from "it was already there".
+makeCell(proj, 'cellB', { 'E', 50, -0.10, false; 'F', 50, 2.00, false });
+press(f, 'Build + QC');
+dd = pick(findobj(f,'Type','uidropdown'), @(x) any(strcmp(x.Items,'All (pooled)')), 'QC cell dropdown');
+tb2 = pick(findobj(f,'Type','uitable'), @(x) any(strcmp(x.ColumnName,'med len')), 'build cell table');
+assert(strcmp(dd.Value,'All (pooled)'), 'a fresh build should show All (pooled), not %s', dd.Value);
+cb = tb2.CellSelectionCallback;
+assert(~isempty(cb), ...
+    'the cell table has no selection callback, so a row can only be chosen from the dropdown');
+cb(tb2, struct('Indices',[2 1])); drawnow;
+assert(strcmp(dd.Value,'cellB'), ...
+    ['clicking row 2 left the QC dropdown on "%s". Both routes must lead to one place, and the ' ...
+     'dropdown must still SHOW which cell is displayed after a click.'], dd.Value);
+
+%% (8) export ALL cells, under the same filters ---------------------------------------------------------
+setv(lenS, 0); ckM.Value = false; fire(ckM);
+assert(selCount(f) == 2, 'cellB alone should show its 2 tracks, showing %d', selCount(f));
+press(f, 'Export ALL cells');
+A = dir(fullfile(proj,'analysis','qc_trackD_*allcells*_long.csv'));
+assert(~isempty(A), 'no all-cells CSV was written');
+at = strsplit(strtrim(fileread(fullfile(A(1).folder, A(1).name))), newline);
+assert(numel(at) == 7, ...
+    ['the all-cells export holds %d rows, wanted 6 (4 tracks in cellA + 2 in cellB). It is exporting ' ...
+     'only the cell on screen.'], numel(at)-1);
+assert(any(contains(at,'cellA')) && any(contains(at,'cellB')), ...
+    'the all-cells export does not name both cells, so its rows cannot be told apart');
+
+% ...and the filters still apply to it
+setv(lenS, 30);
+press(f, 'Export ALL cells');
+A2 = dir(fullfile(proj,'analysis','qc_trackD_*len30*allcells*_long.csv'));
+assert(~isempty(A2), 'the all-cells export ignored the length filter (no len30 file)');
+a2 = strsplit(strtrim(fileread(fullfile(A2(1).folder, A2(1).name))), newline);
+assert(numel(a2) == 6, ...
+    ['len>=30 over both cells exported %d rows, wanted 5 (3 in cellA + 2 in cellB). The filters must ' ...
+     'apply to the all-cells export — they are the point of it.'], numel(a2)-1);
+
 fprintf('4 tracks -> len>=30: 3 · mito<=0 (median): 2 · both: 1 · exported 1 row with its fit window\n');
+fprintf('row click -> cellB · all-cells export 6 rows, 5 after len>=30 · logged\n');
 fprintf('\nQC-SELECT SMOKE PASSED.\n');
 end
 

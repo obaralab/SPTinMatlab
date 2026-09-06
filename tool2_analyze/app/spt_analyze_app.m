@@ -367,6 +367,7 @@ end
             'ColumnWidth',[{'auto',52,64}, repmat({44},1,numel(chanHdr)), {60,58,60,58,54}], ...
             'ColumnEditable',[false false false, false(1,numel(chanHdr)), true true true true true], ...
             'CellEditCallback',@(s2,e2) onCalEdit(e2), ...
+            'SelectionType','row', 'CellSelectionCallback',@(s2,e2) onQcRowPick(e2), ...
             'Tooltip',['Per-cell calibration — edit any of the last four for one cell without disturbing ' ...
                        'the rest. ° = inherited from the Calibration panel above rather than read from ' ...
                        'that cell''s own file. dt comes from each cell''s tracks XML. ' ...
@@ -380,8 +381,8 @@ end
         % EXPLICIT Layout.Row on every child of lp. Auto-placement put this row fourth — under the
         % D distribution, overlapping its axis — even though it is created second, and a crushed
         % control row is the kind of thing only a render catches.
-        qs = uigridlayout(lp,[1 6],'ColumnWidth',{44,58, 92,68, '1x',104}, ...
-            'Padding',[0 0 0 0],'ColumnSpacing',6);
+        qs = uigridlayout(lp,[1 7],'ColumnWidth',{44,54, 88,64, '1x',86,104}, ...
+            'Padding',[0 0 0 0],'ColumnSpacing',5);
         uilabel(qs,'Text','len ≥','HorizontalAlignment','right');
         spnLenMin = uispinner(qs,'Limits',[0 1e5],'Value',0,'Step',5,'FontSize',9, ...
             'Tooltip','Keep tracks with at least this many localizations. 0 keeps everything.', ...
@@ -395,10 +396,17 @@ end
         spnMitoMax = uispinner(qs,'Limits',[-5 5],'Value',0.2,'Step',0.05,'FontSize',9, ...
             'ValueDisplayFormat','%.2f µm','ValueChangedFcn',@(~,~) redrawQcPooled());
         lblQcSel = uilabel(qs,'Text','','FontSize',9,'FontColor',[0.2 0.4 0.5]);
-        uibutton(qs,'Text','Export D CSV','FontSize',9, ...
-            'Tooltip',['Write the per-track D of the SELECTED tracks — wide for a Prism Column table ' ...
-                       'and long with the identifiers, plus the fit window each track used.'], ...
-            'ButtonPushedFcn',@(~,~) onExportQcD());
+        uibutton(qs,'Text','Export shown','FontSize',9, ...
+            'Tooltip',['Write the per-track D of the tracks currently selected — the QC cell above, ' ...
+                       'narrowed by the two filters on the left. Wide for a Prism Column table, and ' ...
+                       'long with the identifiers plus the fit window each track used.'], ...
+            'ButtonPushedFcn',@(~,~) onExportQcD(false));
+        uibutton(qs,'Text','Export ALL cells','FontSize',9,'FontWeight','bold', ...
+            'Tooltip',['The same export over EVERY cell in the build, whichever one the QC dropdown ' ...
+                       'is showing. The length and mito filters still apply — they are the point of ' ...
+                       'the export — and the long file names the cell on every row, so 93 cells come ' ...
+                       'out as one file you can pivot rather than 93 you have to concatenate.'], ...
+            'ButtonPushedFcn',@(~,~) onExportQcD(true));
 
         axDist  = uiaxes(lp); title(axDist,'ER / mito distance');
         axDdist = uiaxes(lp); title(axDdist,'D distribution');
@@ -2964,6 +2972,42 @@ end
 
     function v = gs(s2,f), v = ''; if isstruct(s2)&&isfield(s2,f)&&(ischar(s2.(f))||isstring(s2.(f))), v = char(s2.(f)); end, end
 
+    function [recs, ER, MI, L] = qcRecords(ks)
+        % One record per track over the given cells. Factored out of drawQC so the ALL-CELLS export
+        % measures every track exactly the way the on-screen panels measure the shown ones — same
+        % fit spec, same fields. Two loops would drift the moment the fit mode gained an option.
+        recs = {}; ER = []; MI = []; L = [];
+        for k = ks
+            T = buildTracks(k); M = T.matrix; if size(M,3) < 3, continue; end
+            dtk = trackDt(k);
+            msdT = fieldOr(T,'MSD');                                                    % may be absent (old struct)
+            [~, erT] = cs_channel_has(T,'er');   [~, miT] = cs_channel_has(T,'mito');   % [] when not imaged
+            for c = 1:size(M,2)
+                X = M(:,c,2); Y = M(:,c,3); F = M(:,c,1); ok = isfinite(X) & isfinite(Y);
+                if nnz(ok) < 2, continue; end
+                rr = spt_fit_msd(colOr(msdT,c), dtk, fitSpec());        % per-track D at the current fit mode/window
+                s = struct('cellIdx',k,'col',c,'base',char(T.file),'X',X(ok),'Y',Y(ok),'F',F(ok),'len',nnz(ok), ...
+                    'MSD', colOr(msdT,c), 'ER', finiteCol(erT,c), 'MI', finiteCol(miT,c), 'D', rr.D, 'sigLoc', rr.sigLocUm, 'fracUsed', rr.fracUsed, ...
+                    'dt', dtk, ...                                       % stepwise (per-localization) diffusion, aligned to X/Y/F:
+                    'Dt',   maskCol(fieldOr(T,'Dt'),          c, ok), ...
+                    'CSD',  trimCol(fieldOr(T,'CSD'), c, nnz(ok)-1));    % path length through each step (µm)
+                recs{end+1} = s; L(end+1)=s.len; ER=[ER; s.ER]; MI=[MI; s.MI]; %#ok<AGROW>
+            end
+        end
+    end
+
+    function onQcRowPick(e)
+        % Clicking a row of the cell table selects that cell for QC. The dropdown above stays and
+        % stays authoritative — this only sets it — so both routes lead to one code path and the
+        % control still SHOWS which cell you are looking at after you click.
+        try, r = e.Indices(1); catch, return; end
+        if isempty(buildTracks) || r < 1 || r > numel(buildTracks), return; end
+        nm = char(buildTracks(r).file);
+        if isempty(ddQCcell) || ~isgraphics(ddQCcell) || ~any(strcmp(ddQCcell.Items, nm)), return; end
+        if strcmp(ddQCcell.Value, nm), return; end          % already showing it: do not rebuild
+        ddQCcell.Value = nm; drawQC(nm);
+    end
+
     function onQCcell()
         if ~isempty(ddQCcell) && isgraphics(ddQCcell), drawQC(ddQCcell.Value); end
     end
@@ -2975,24 +3019,7 @@ end
         end
 
         % ---- flat, clickable track list across the displayed cells ----
-        qcTracks = {}; ER = []; MI = []; L = [];
-        for k = ks
-            T = buildTracks(k); M = T.matrix; if size(M,3) < 3, continue; end
-            dtk = trackDt(k);
-            for c = 1:size(M,2)
-                X = M(:,c,2); Y = M(:,c,3); F = M(:,c,1); ok = isfinite(X) & isfinite(Y);
-                if nnz(ok) < 2, continue; end
-                msdT = fieldOr(T,'MSD');                                                    % may be absent (old struct)
-                [~, erT] = cs_channel_has(T,'er');   [~, miT] = cs_channel_has(T,'mito');   % [] when not imaged
-                rr = spt_fit_msd(colOr(msdT,c), dtk, fitSpec());        % per-track D at the current fit mode/window
-                s = struct('cellIdx',k,'col',c,'base',char(T.file),'X',X(ok),'Y',Y(ok),'F',F(ok),'len',nnz(ok), ...
-                    'MSD', colOr(msdT,c), 'ER', finiteCol(erT,c), 'MI', finiteCol(miT,c), 'D', rr.D, 'sigLoc', rr.sigLocUm, 'fracUsed', rr.fracUsed, ...
-                    'dt', dtk, ...                                       % stepwise (per-localization) diffusion, aligned to X/Y/F:
-                    'Dt',   maskCol(fieldOr(T,'Dt'),          c, ok), ...
-                    'CSD',  trimCol(fieldOr(T,'CSD'), c, nnz(ok)-1));    % path length through each step (µm)
-                qcTracks{end+1} = s; L(end+1)=s.len; ER=[ER; s.ER]; MI=[MI; s.MI]; %#ok<AGROW>
-            end
-        end
+        [qcTracks, ER, MI, L] = qcRecords(ks);
         qcSelIdx = 0; qcHi = [];
 
         % ---- tracks panel (click one) ----
@@ -3214,6 +3241,10 @@ end
 
 
     function keep = qcSelection()
+        keep = qcSelectionOf(qcTracks);
+    end
+
+    function keep = qcSelectionOf(recs)
         % Which tracks the pooled panels describe. Two cuts, both per TRACK:
         %   length  — localizations, not frames spanned; a gap-closed track is not credited for the
         %             frames it was absent.
@@ -3221,14 +3252,14 @@ end
         %             nor excludes it, and negative is inside the mask. Median matches how the Dwell
         %             tab summarises a track against a footprint; a min() would select any track that
         %             ever brushed a mitochondrion, which is a different and much weaker claim.
-        keep = true(1, numel(qcTracks));
-        if isempty(qcTracks), return; end
+        keep = true(1, numel(recs));
+        if isempty(recs), return; end
         if ~isempty(spnLenMin) && isgraphics(spnLenMin) && spnLenMin.Value > 0
-            keep = keep & cellfun(@(x) x.len >= spnLenMin.Value, qcTracks);
+            keep = keep & cellfun(@(x) x.len >= spnLenMin.Value, recs);
         end
         if ~isempty(ckMito) && isgraphics(ckMito) && ckMito.Value
             thr = spnMitoMax.Value;
-            keep = keep & cellfun(@(x) hasMedMito(x, thr), qcTracks);
+            keep = keep & cellfun(@(x) hasMedMito(x, thr), recs);
         end
     end
 
@@ -3323,42 +3354,100 @@ end
         for i = 1:numel(cs), X = [X; cs{i}.X; NaN]; Y = [Y; cs{i}.Y; NaN]; end %#ok<AGROW>
     end
 
-    function onExportQcD()
-        % Per-track D for the selected tracks, in the two shapes the Compare tab already writes:
-        % WIDE (one column, straight into a Prism Column table) and LONG (every value with the cell,
-        % track and fit window behind it, so a number can be traced back). The fit window travels
-        % with the value because an adaptive fit chose it per track — a D exported without it cannot
-        % be compared against a D fitted over a different span.
-        if isempty(qcTracks), setBuild('Build first — there are no tracks to export.',[0.6 0.4 0.1]); return; end
-        sel = qcTracks(qcSelection());
-        if isempty(sel), setBuild('No tracks selected — widen the filters.',[0.6 0.4 0.1]); return; end
+    function onExportQcD(allCells)
+        % Per-track D as two files: WIDE (one column, straight into a Prism Column table) and LONG
+        % (every value with the cell, track and fit window behind it, so a number can be traced
+        % back). The fit window travels with the value because an adaptive fit chose it per track —
+        % a D exported without it cannot be compared against a D fitted over a different span.
+        %
+        % allCells=false exports what is on screen; true exports every cell in the build under the
+        % SAME filters. Both go through qcSelection/qcRecords, so the all-cells file cannot drift
+        % from what the panels would show if you selected each cell in turn.
+        if nargin < 1, allCells = false; end
+        if isempty(buildTracks), setBuild('Build first — there are no tracks to export.',[0.6 0.4 0.1]); return; end
+
+        if allCells
+            setBuild(sprintf('Measuring %d cells at the current fit…', numel(buildTracks)),[0.2 0.4 0.5]); drawnow;
+            recs = qcRecords(1:numel(buildTracks));
+            scopeTag = sprintf('allcells%d', numel(buildTracks));
+        else
+            if isempty(qcTracks), setBuild('Nothing shown — pick a QC cell first.',[0.6 0.4 0.1]); return; end
+            recs = qcTracks;
+            scopeTag = 'shown';
+        end
+        sel = recs(qcSelectionOf(recs));
+        if isempty(sel), setBuild('No tracks pass the filters — widen them.',[0.6 0.4 0.1]); return; end
+
         dst = fullfile(projectDir,'analysis'); if ~isfolder(dst), mkdir(dst); end
         tag = 'all'; if ~isempty(spnLenMin) && spnLenMin.Value > 0, tag = sprintf('len%d', round(spnLenMin.Value)); end
         if ~isempty(ckMito) && ckMito.Value, tag = sprintf('%s_mito%.2f', tag, spnMitoMax.Value); end
         mode = fitModeNow();
         if strcmp(mode,'adaptive'), fitName = sprintf('adaptiveR2max%.0f', eMsdFrac.Value);
         else,                       fitName = sprintf('fixed%.0f', eMsdFrac.Value); end
-        stem = fullfile(dst, sprintf('qc_trackD_%s_%s', fitName, tag));
+        stem = fullfile(dst, sprintf('qc_trackD_%s_%s_%s', fitName, tag, scopeTag));
 
         D = cellfun(@(x) x.D, sel); ok = isfinite(D) & D > 0;
+        nCells = numel(unique(cellfun(@(x) x.cellIdx, sel)));
         try
             fid = fopen([stem '_wide.csv'],'w');
             fprintf(fid,'D_um2_per_s\n'); fprintf(fid,'%.6g\n', D(ok)); fclose(fid);
 
             fid = fopen([stem '_long.csv'],'w');
-            fprintf(fid,'cell,track_col,n_loc,D_um2_per_s,fit_window_pct,sigma_loc_um,median_mito_um,fit_mode\n');
+            fprintf(fid,'cell,condition,track_col,n_loc,D_um2_per_s,fit_window_pct,sigma_loc_um,median_mito_um,median_er_um,fit_mode\n');
             for i = 1:numel(sel)
                 x = sel{i}; if ~(isfinite(x.D) && x.D > 0), continue; end
-                mv = fieldOr(x,'MI'); mv = mv(isfinite(mv));
-                mm = NaN; if ~isempty(mv), mm = median(mv); end
-                fprintf(fid,'%s,%d,%d,%.6g,%.4g,%.4g,%s,%s\n', x.base, x.col, x.len, x.D, ...
-                    x.fracUsed, x.sigLoc, numOrDash(mm), mode);
+                fprintf(fid,'%s,%s,%d,%d,%.6g,%.4g,%.4g,%s,%s,%s\n', x.base, csvSafe(condFor(x.base)), ...
+                    x.col, x.len, x.D, x.fracUsed, x.sigLoc, ...
+                    numOrDash(medOr(x,'MI')), numOrDash(medOr(x,'ER')), mode);
             end
             fclose(fid);
         catch ME
             setBuild(['Export failed: ' ME.message],[0.75 0.1 0.1]); return;
         end
-        setBuild(sprintf('Exported %d track D values -> %s_wide.csv + _long.csv', nnz(ok), stem), [0.1 0.5 0.2]);
+        % SAY SO IN THREE PLACES. The status line alone was not enough feedback: it lives at the top
+        % of the tab, the Export buttons are at the bottom left, and a message that appears 600 px
+        % from the thing you clicked reads as nothing happening at all.
+        msg = sprintf('Exported %d track D values from %d cell(s) -> %s_wide.csv + _long.csv', ...
+            nnz(ok), nCells, stem);
+        setBuild(msg, [0.1 0.5 0.2]);       % 1. the status line
+        logBuild(msg);                       % 2. the Build log, which keeps a record you can scroll
+        flashQcSel(sprintf('✓ exported %d tracks · %d cell(s)', nnz(ok), nCells));   % 3. next to the button
+    end
+
+    function flashQcSel(txt)
+        % Confirm where the user is looking — the selection label sits between the filters and the
+        % Export buttons. Green for two seconds, then the label goes back to reporting the count.
+        if isempty(lblQcSel) || ~isgraphics(lblQcSel), return; end
+        lblQcSel.Text = txt; lblQcSel.FontColor = [0.10 0.50 0.20]; lblQcSel.FontWeight = 'bold';
+        t = timer('StartDelay',2.2,'TimerFcn',@(tt,~) restore(tt));
+        start(t);
+        function restore(tt)
+            try, stop(tt); delete(tt); catch, end
+            % The panel may have been rebuilt or the app closed while the timer ran.
+            if isempty(lblQcSel) || ~isgraphics(lblQcSel), return; end
+            lblQcSel.FontColor = [0.2 0.4 0.5]; lblQcSel.FontWeight = 'normal';
+            try, redrawQcPooled(); catch, end
+        end
+    end
+
+    function v = medOr(x, f)
+        v = fieldOr(x,f); v = v(isfinite(v));
+        if isempty(v), v = NaN; else, v = median(v); end
+    end
+
+    function c = condFor(base)
+        % This cell's condition from the experiment manifest, so an all-cells export can be grouped
+        % in Prism without joining anything by hand. '' when the manifest has no row for it.
+        c = '';
+        if isempty(exptCtl) || ~isstruct(exptCtl), return; end
+        try, cl = exptCtl.getCells(); catch, return; end
+        if isempty(cl), return; end
+        hit = find(strcmp({cl.file}, char(base)), 1);
+        if ~isempty(hit) && isfield(cl,'condition'), c = char(cl(hit).condition); end
+    end
+
+    function t = csvSafe(v)
+        t = strrep(char(v), ',', ';');    % a condition with a comma would shift every later column
     end
 
     function s = calSrc(cellIdx)
