@@ -60,11 +60,13 @@ buildChanKeys = {};   % the channel columns tblBuild was BUILT with — onCalEdi
                       % index map from this, so adding a channel cannot silently shift calibration
 chanTok=''; chanWhy='';   % SPT channel token derived per project (see spt_channel_token)
 calibKnown=false;   % is the panel calibration supported by THIS project (adopted or typed)?
-buildTracks=[]; ddQCcell=[]; axLen=[]; axMSD=[]; axCov=[]; axDist=[]; axDdist=[]; lblQCm=[]; eMsdFrac=[];   % QC handles
+buildTracks=[]; ddQCcell=[]; axMSD=[]; axCov=[]; axDist=[]; axDdist=[]; lblQCm=[]; eMsdFrac=[];   % QC handles
 tsName=''; eTsName=[]; ddBuild=[];   % the ACTIVE TrackStruct basename in analysis/ (named builds)
-axDloc=[]; axDtrace=[];   % stepwise-diffusion QC: pooled per-localization D, and D(t) for the clicked track
+axDtrace=[];   % stepwise D(t) for the clicked track (the POOLED per-localization panel was retired:
+              % it measured the same thing, and the left column is for per-TRACK quantities now)
 axCSD=[]; csdHi=[];       % cumulative-displacement panel + the highlight of the clicked track
-ddHi=[]; dlHi=[];         % where the CLICKED track sits in the two pooled D histograms
+spnLenMin=[]; ckMito=[]; spnMitoMax=[]; lblQcSel=[]; qcKeep=[];   % QC track selection (length / near mito)
+ddHi=[];                  % where the CLICKED track sits in the pooled D histogram
 % Confinement / state-change is not part of the pipeline right now: the build stores only the
 % rolling D, and Tool 3's picker has no diffusion-state density channels. The criterion and all four
 % of its modes live on in spt_confine_flags / spt_track_diffusion, measured against a matched
@@ -342,7 +344,11 @@ end
         lblQCm = uilabel(r2,'Text','Build, then click a track in the tracks panel to inspect it (it plays here).','FontColor',[0.2 0.4 0.5]);
         % row 3 — main: [ left pooled | middle clickable tracks | right: embedded player + small MSD ]
         mn = uigridlayout(g,[1 3],'ColumnWidth',{'0.78x','1.15x','1.05x'},'Padding',[0 0 0 0],'ColumnSpacing',8);
-        lp = uigridlayout(mn,[6 1],'RowHeight',{92,'1x','1x','1x','1x','1x'},'Padding',[0 0 0 0],'RowSpacing',6);
+        % Five rows, not six. The track-LENGTH histogram is gone (its space is the selection row
+        % below), and so is the pooled stepwise-D histogram: that is the same measurement as the
+        % stepwise D(t) already on the right, and one of the two had to go. What remains gets more
+        % height each, which the column badly needed.
+        lp = uigridlayout(mn,[5 1],'RowHeight',{92,32,'1x','1x','1x'},'Padding',[0 0 0 0],'RowSpacing',6);
         % Calibration is PER CELL, and it lives here because this is the per-cell inventory of the
         % build. Each cell is stamped at import from its own file metadata where the acquisition chain
         % kept it, and from the Calibration panel otherwise; a ° marks a value inherited from the panel
@@ -368,11 +374,37 @@ end
                        'bin nm is the DENSITY BIN, which sets the grid and so the physical size of ' ...
                        'object the detector looks for. Match bin nm across cells you want to compare, ' ...
                        'even when their precisions differ.']);
-        axLen   = uiaxes(lp); title(axLen,'track length');
+        % SELECT which tracks the pooled panels describe. Length and proximity to mito are the two
+        % cuts that actually decide whether a track is worth keeping, and reading them off a
+        % histogram then going elsewhere to act on them is the slow way round.
+        % EXPLICIT Layout.Row on every child of lp. Auto-placement put this row fourth — under the
+        % D distribution, overlapping its axis — even though it is created second, and a crushed
+        % control row is the kind of thing only a render catches.
+        qs = uigridlayout(lp,[1 6],'ColumnWidth',{44,58, 92,68, '1x',104}, ...
+            'Padding',[0 0 0 0],'ColumnSpacing',6);
+        uilabel(qs,'Text','len ≥','HorizontalAlignment','right');
+        spnLenMin = uispinner(qs,'Limits',[0 1e5],'Value',0,'Step',5,'FontSize',9, ...
+            'Tooltip','Keep tracks with at least this many localizations. 0 keeps everything.', ...
+            'ValueChangedFcn',@(~,~) redrawQcPooled());
+        ckMito = uicheckbox(qs,'Text','near mito ≤','Value',false,'FontSize',9, ...
+            'Tooltip',['Keep only tracks whose MEDIAN signed mito distance is under the value on the ' ...
+                       'right. Median over the track, so one excursion neither includes nor excludes ' ...
+                       'it. Negative distance is inside the mask, so 0 means "more than half the ' ...
+                       'track sits on mitochondria".'], ...
+            'ValueChangedFcn',@(~,~) redrawQcPooled());
+        spnMitoMax = uispinner(qs,'Limits',[-5 5],'Value',0.2,'Step',0.05,'FontSize',9, ...
+            'ValueDisplayFormat','%.2f µm','ValueChangedFcn',@(~,~) redrawQcPooled());
+        lblQcSel = uilabel(qs,'Text','','FontSize',9,'FontColor',[0.2 0.4 0.5]);
+        uibutton(qs,'Text','Export D CSV','FontSize',9, ...
+            'Tooltip',['Write the per-track D of the SELECTED tracks — wide for a Prism Column table ' ...
+                       'and long with the identifiers, plus the fit window each track used.'], ...
+            'ButtonPushedFcn',@(~,~) onExportQcD());
+
         axDist  = uiaxes(lp); title(axDist,'ER / mito distance');
         axDdist = uiaxes(lp); title(axDdist,'D distribution');
-        axDloc  = uiaxes(lp); title(axDloc,'stepwise D (per localization)');   % pooled Dt — one value per loc
         axCSD   = uiaxes(lp); title(axCSD,'CSD — cumulative displacement');    % every track faint, clicked one bold
+        tblBuild.Layout.Row = 1; qs.Layout.Row = 2;
+        axDist.Layout.Row   = 3; axDdist.Layout.Row = 4; axCSD.Layout.Row = 5;
         axCov  = uiaxes(mn); axCov.Toolbar.Visible='off'; title(axCov,'tracks (click one)'); axCov.ButtonDownFcn=@(s,e) onCovClick(e);
         rp = uigridlayout(mn,[4 1],'RowHeight',{'1.35x','1x','1x','1x'},'Padding',[0 0 0 0],'RowSpacing',6);
         pc = uigridlayout(rp,[1 1],'Padding',[0 0 0 0]);   % embedded selected-track player
@@ -390,7 +422,7 @@ end
         % One policy for every plot in this tab: zoom and pan stay, the hover data tip goes. It is
         % the tip that arms a linger timer against a specific object, and every one of these axes is
         % cleared and rebuilt under the pointer.
-        spt_axes_policy([axLen axDist axDdist axDloc axCSD axMSD axDtrace axSweep]);
+        spt_axes_policy([axDist axDdist axCSD axMSD axDtrace axSweep]);
         spt_axes_policy(axCov);   % click-to-select a track coexists with zoom/pan
         txtBuild = uitextarea(g,'Editable','off','Value',{'Build log:'});
     end
@@ -2970,100 +3002,34 @@ end
         axis(axCov,'equal'); set(axCov,'YDir','reverse');   % interactions are set once at construction
         xlabel(axCov,'x (µm)'); ylabel(axCov,'y (µm)'); title(axCov, sprintf('tracks (click one) — %d', numel(qcTracks)));
 
-        % ---- pooled length + ER/mito distance ----
+        % ---- pooled ER/mito distance. Deliberately over ALL tracks, not the selected ones: this is
+        % the histogram you read the "near mito ≤" threshold OFF, so filtering it by that threshold
+        % would be circular. The threshold is drawn on it instead.
         L = L(:);
-        cla(axLen);
-        if ~isempty(L)
-            histogram(axLen, L, min(40,max(5,round(max(L)/2))), 'FaceColor',[0.5 0.6 0.8],'EdgeColor','none');
-            try, set(axLen,'YScale','log'); catch, end
-        end
-        xlabel(axLen,'length (frames)'); ylabel(axLen,'count'); title(axLen, sprintf('track length (median %.0f)', median0_(L)));
-
         cla(axDist); hold(axDist,'on'); leg = {};
         if ~isempty(ER), histogram(axDist, ER, 40, 'FaceColor',[0.15 0.6 0.25],'EdgeColor','none','FaceAlpha',0.6); leg{end+1}='ER'; end %#ok<AGROW>
         if ~isempty(MI), histogram(axDist, MI, 40, 'FaceColor',[0.85 0.2 0.6],'EdgeColor','none','FaceAlpha',0.6); leg{end+1}='mito'; end %#ok<AGROW>
-        xline(axDist, 0, 'k-'); hold(axDist,'off');
+        xline(axDist, 0, 'k-');
+        if ~isempty(MI) && ~isempty(ckMito) && isgraphics(ckMito) && ckMito.Value
+            xline(axDist, spnMitoMax.Value, '--', 'Color',[0.85 0.2 0.6],'LineWidth',1.2);
+        end
+        hold(axDist,'off');
         xlabel(axDist,'signed distance (µm)  [− inside]'); ylabel(axDist,'spots'); title(axDist,'ER / mito distance');
-        if ~isempty(leg), legend(axDist, leg, 'Location','best'); end
-
-        % D distribution across the displayed tracks (at the current fit %) + MSD-intercept precision
-        Dv = cellfun(@(x) x.D, qcTracks); Dv = Dv(isfinite(Dv) & Dv>0);
-        frv = cellfun(@(x) x.fracUsed, qcTracks); frv = frv(isfinite(frv));
-        if strcmp(fitModeNow(),'adaptive') && ~isempty(frv)
-            fitTag = sprintf('adaptive fit %.0f–%.0f%% (median %.0f%%)', min(frv), max(frv), median(frv));
-        else
-            fitTag = sprintf('fixed fit %.0f%%', eMsdFrac.Value);
-        end
-        cla(axDdist);
-        if ~isempty(Dv), histogram(axDdist, Dv, min(40,max(5,round(numel(Dv)/3))), 'FaceColor',[0.4 0.55 0.75],'EdgeColor','none'); end
-        xlabel(axDdist,'D (µm²/s)'); ylabel(axDdist,'tracks');
-        title(axDdist, sprintf('D distribution — median %.3g µm²/s  ·  %s', median0_(Dv), fitTag));
-        % ---- pooled STEPWISE diffusion: one D per localization (spt_track_diffusion), not per track ----
-        % This is a different quantity from the D-distribution above: that one fits an MSD per TRACK,
-        % this one is the rolling noise-corrected D at every localization, each step weighted by
-        % the time it actually spans.
-        cla(axDloc);
-        Dl = [];
-        for k = ks
-            Tk = buildTracks(k);
-            if ~isfield(Tk,'Dt') || isempty(Tk.Dt), continue; end
-            d = Tk.Dt(:); Dl = [Dl; d(isfinite(d))]; %#ok<AGROW>
-        end
-        if isempty(Dl)
-            title(axDloc,'stepwise D (per localization) — not in this TrackStruct');
-            xlabel(axDloc,''); ylabel(axDloc,'');
-        else
-            % Show the WHOLE range. This used to drop the top 0.5%, which hid exactly the fast
-            % localizations you would go looking for — 349 of them on the reference cell. The
-            % original problem was CLAMPING the tail into the last bin, which builds a false spike
-            % that reads as a real population; simply plotting the full range has no such artefact,
-            % and with the log y-axis below a sparse tail stays perfectly legible. The cost is axis
-            % width, and it is small: on that cell the max is 5.94 against a 99.5th percentile of
-            % 2.92, so the bulk still occupies half the axis.
-            hi = max(Dl); if ~(hi > 0), hi = eps; end
-            histogram(axDloc, Dl, linspace(0, hi, 60), 'FaceColor',[0.45 0.35 0.65],'EdgeColor','none');
-            try, set(axDloc,'YScale','log'); catch, end                   % the slow end is orders below the bulk
-            xlim(axDloc, [0 max(hi, eps)]);
-            xlabel(axDloc, sprintf('stepwise D (µm²/s)/loc  ·  full range, max %.2g', hi));
-            ylabel(axDloc,'localizations');
-            title(axDloc, sprintf('stepwise D · med %.3g · n=%s', ...
-                median(Dl), kfmt_(numel(Dl))), 'FontSize',8.5);
+        % A KEY DRAWN IN THE AXES, not legend(). In a uigridlayout, legend() parents itself to the
+        % LAYOUT rather than to the axes, and a legend has no Layout property — so it is auto-placed
+        % into a grid cell of its own and shoves every panel below it out of position. That is what
+        % put the selection row under the D distribution instead of under the table. Text objects
+        % belong to the axes and cannot take a cell.
+        if ~isempty(leg)
+            cols = struct('ER',[0.15 0.6 0.25],'mito',[0.85 0.2 0.6]);
+            for kL = 1:numel(leg)
+                text(axDist, 0.97, 1.02 - 0.11*kL, leg{kL}, 'Units','normalized', ...
+                    'Color',cols.(leg{kL}), 'FontSize',8.5, 'FontWeight','bold', ...
+                    'HorizontalAlignment','right', 'VerticalAlignment','top', 'HitTest','off');
+            end
         end
 
-        % ---- CSD: cumulative path length per track (µm). Every track faint, median bold; the
-        % clicked track is highlighted on top, the same way the tracks panel behaves.
-        cla(axCSD); csdHi = [];
-        ddHi = []; dlHi = [];    % the pooled D panels are redrawn below; their markers go with them
-        Cx = []; Cy = []; nC = 0; Call = {};
-        for i = 1:numel(qcTracks)
-            cv = fieldOr(qcTracks{i},'CSD'); cv = cv(isfinite(cv));
-            if numel(cv) < 2, continue; end
-            Cx = [Cx; (1:numel(cv))'; NaN]; Cy = [Cy; cv(:); NaN]; nC = nC + 1; %#ok<AGROW>
-            Call{end+1} = cv(:); %#ok<AGROW>
-        end
-        if nC == 0
-            if isfield(buildTracks,'CSD'), msg = 'CSD — no track long enough to plot';
-            else,                          msg = 'CSD — not in this TrackStruct'; end
-            title(axCSD, msg); xlabel(axCSD,''); ylabel(axCSD,'');
-        else
-            plot(axCSD, Cx, Cy, '-','Color',[0.85 0.55 0.15 0.13],'LineWidth',0.5,'HitTest','off');
-            hold(axCSD,'on');
-            nmax = max(cellfun(@numel, Call));
-            P = nan(nmax, nC);
-            for i = 1:nC, P(1:numel(Call{i}), i) = Call{i}; end
-            % The median at step k is over only the tracks still alive at step k, so past the bulk of
-            % the length distribution it is a handful of long tracks and drifts upward. Draw it only
-            % while enough tracks contribute, and say how far that is.
-            nAlive = sum(isfinite(P), 2);
-            kMax = find(nAlive >= max(5, 0.10*nC), 1, 'last'); if isempty(kMax), kMax = 1; end
-            med = median(P(1:kMax,:), 2, 'omitnan');
-            plot(axCSD, (1:kMax)', med, '-','Color',[0.55 0.30 0.05],'LineWidth',1.6,'HitTest','off');
-            hold(axCSD,'off');
-            tot = cellfun(@(v) v(end), Call);
-            xlabel(axCSD,'step #'); ylabel(axCSD,'path length (µm)');
-            title(axCSD, sprintf('CSD — %d tracks · median total %.2f µm · median to step %d', ...
-                nC, median(tot), kMax), 'FontSize',8.5);
-        end
+        redrawQcPooled();
 
         if ~isempty(playerCtl) && isstruct(playerCtl), playerCtl.load([], 0); end   % clear the player until a track is clicked
         cla(axMSD); title(axMSD,'MSD + D fit (click a track)');
@@ -3135,18 +3101,6 @@ end
                 hold(axDdist,'off');
             end
         end
-        if ~isempty(axDloc) && isgraphics(axDloc)
-            if ~isempty(dlHi) && isgraphics(dlHi), delete(dlHi); end
-            dvv = fieldOr(s,'Dt'); dvv = dvv(isfinite(dvv));
-            if ~isempty(dvv)
-                hold(axDloc,'on');
-                dlHi = xline(axDloc, median(dvv), '-', sprintf('this track %.3g', median(dvv)), ...
-                    'Color',[1 0.55 0],'LineWidth',2,'FontSize',7, ...
-                    'LabelVerticalAlignment','top','LabelHorizontalAlignment','center');
-                hold(axDloc,'off');
-            end
-        end
-
         % stepwise D(t) for THIS track. The MSD panel above gives one D for the whole track; this
         % shows how it varies along the track, which is the point of computing it per localization.
         cla(axDtrace);
@@ -3257,6 +3211,155 @@ end
     % precision above: two cameras with different precisions must still be binned the same way for
     % their density maps to be comparable. Falls back to this cell's precision, then the panel.
     function v = trackBin(cellIdx),  v = trackCal(cellIdx,'binNm', trackPrec(cellIdx)); end
+
+
+    function keep = qcSelection()
+        % Which tracks the pooled panels describe. Two cuts, both per TRACK:
+        %   length  — localizations, not frames spanned; a gap-closed track is not credited for the
+        %             frames it was absent.
+        %   mito    — the MEDIAN signed distance over the track, so one excursion neither includes
+        %             nor excludes it, and negative is inside the mask. Median matches how the Dwell
+        %             tab summarises a track against a footprint; a min() would select any track that
+        %             ever brushed a mitochondrion, which is a different and much weaker claim.
+        keep = true(1, numel(qcTracks));
+        if isempty(qcTracks), return; end
+        if ~isempty(spnLenMin) && isgraphics(spnLenMin) && spnLenMin.Value > 0
+            keep = keep & cellfun(@(x) x.len >= spnLenMin.Value, qcTracks);
+        end
+        if ~isempty(ckMito) && isgraphics(ckMito) && ckMito.Value
+            thr = spnMitoMax.Value;
+            keep = keep & cellfun(@(x) hasMedMito(x, thr), qcTracks);
+        end
+    end
+
+    function tf = hasMedMito(x, thr)
+        v = fieldOr(x,'MI'); v = v(isfinite(v));
+        tf = ~isempty(v) && median(v) <= thr;    % no mito data on this track => not selectable
+    end
+
+    function redrawQcPooled()
+        % The pooled per-TRACK panels, over the SELECTED tracks. Called on build and whenever a
+        % selection control moves, so the histogram and the CSD always describe the same set the
+        % label counts and the export writes.
+        if isempty(axDdist) || ~isgraphics(axDdist), return; end
+        qcKeep = qcSelection();
+        sel = qcTracks(qcKeep);
+        nAll = numel(qcTracks);
+
+        if ~isempty(lblQcSel) && isgraphics(lblQcSel)
+            if numel(sel) == nAll
+                lblQcSel.Text = sprintf('all %d tracks', nAll);
+            else
+                lblQcSel.Text = sprintf('%d of %d tracks selected', numel(sel), nAll);
+            end
+        end
+
+        % the track map: unselected faint, selected solid, so the cut is visible where the tracks are
+        if ~isempty(axCov) && isgraphics(axCov)
+            cla(axCov); hold(axCov,'on');
+            [Xo,Yo] = catXY(qcTracks(~qcKeep)); [Xs,Ys] = catXY(sel);
+            if ~isempty(Xo), plot(axCov, Xo, Yo, '-','Color',[0.80 0.82 0.88],'LineWidth',0.4,'HitTest','off'); end
+            if ~isempty(Xs), plot(axCov, Xs, Ys, '-','Color',[0.35 0.42 0.62],'LineWidth',0.5,'HitTest','off'); end
+            hold(axCov,'off');
+            axis(axCov,'equal'); set(axCov,'YDir','reverse');
+            xlabel(axCov,'x (µm)'); ylabel(axCov,'y (µm)');
+            if numel(sel) == nAll, title(axCov, sprintf('tracks (click one) — %d', nAll));
+            else, title(axCov, sprintf('tracks (click one) — %d of %d selected', numel(sel), nAll)); end
+            qcHi = [];   % the old highlight was just cleared with the axes
+        end
+
+        % ---- D distribution: one D per TRACK, at whichever fit the user chose ----
+        Dv  = cellfun(@(x) x.D, sel); Dv = Dv(isfinite(Dv) & Dv > 0);
+        frv = cellfun(@(x) x.fracUsed, sel); frv = frv(isfinite(frv));
+        if strcmp(fitModeNow(),'adaptive') && ~isempty(frv)
+            fitTag = sprintf('adaptive R² fit %.0f–%.0f%% (median %.0f%%)', min(frv), max(frv), median(frv));
+        else
+            fitTag = sprintf('fixed fit %.0f%%', eMsdFrac.Value);
+        end
+        cla(axDdist); ddHi = [];
+        if ~isempty(Dv)
+            histogram(axDdist, Dv, min(40,max(5,round(numel(Dv)/3))), 'FaceColor',[0.4 0.55 0.75],'EdgeColor','none');
+        end
+        xlabel(axDdist,'D (µm²/s)'); ylabel(axDdist,'tracks');
+        title(axDdist, sprintf('D distribution — n=%d · median %.3g µm²/s  ·  %s', ...
+            numel(Dv), median0_(Dv), fitTag), 'FontSize',8.5);
+
+        % ---- CSD over the same set ----
+        cla(axCSD); csdHi = [];
+        Cx = []; Cy = []; nC = 0; Call = {};
+        for i = 1:numel(sel)
+            cv = fieldOr(sel{i},'CSD'); cv = cv(isfinite(cv));
+            if numel(cv) < 2, continue; end
+            Cx = [Cx; (1:numel(cv))'; NaN]; Cy = [Cy; cv(:); NaN]; nC = nC + 1; %#ok<AGROW>
+            Call{end+1} = cv(:); %#ok<AGROW>
+        end
+        if nC == 0
+            if isfield(buildTracks,'CSD'), msg = 'CSD — no selected track long enough to plot';
+            else,                          msg = 'CSD — not in this TrackStruct'; end
+            title(axCSD, msg); xlabel(axCSD,''); ylabel(axCSD,'');
+        else
+            plot(axCSD, Cx, Cy, '-','Color',[0.85 0.55 0.15 0.13],'LineWidth',0.5,'HitTest','off');
+            hold(axCSD,'on');
+            nmax = max(cellfun(@numel, Call));
+            P = nan(nmax, nC);
+            for i = 1:nC, P(1:numel(Call{i}), i) = Call{i}; end
+            % The median at step k is over only the tracks still alive at step k, so past the bulk of
+            % the length distribution it is a handful of long tracks and drifts upward. Draw it only
+            % while enough tracks contribute, and say how far that is.
+            nAlive = sum(isfinite(P), 2);
+            kMax = find(nAlive >= max(5, 0.10*nC), 1, 'last'); if isempty(kMax), kMax = 1; end
+            med = median(P(1:kMax,:), 2, 'omitnan');
+            plot(axCSD, (1:kMax)', med, '-','Color',[0.55 0.30 0.05],'LineWidth',1.6,'HitTest','off');
+            hold(axCSD,'off');
+            tot = cellfun(@(v) v(end), Call);
+            xlabel(axCSD,'step #'); ylabel(axCSD,'path length (µm)');
+            title(axCSD, sprintf('CSD — %d tracks · median total %.2f µm · median to step %d', ...
+                nC, median(tot), kMax), 'FontSize',8.5);
+        end
+    end
+
+    function [X,Y] = catXY(cs)
+        X = []; Y = [];
+        for i = 1:numel(cs), X = [X; cs{i}.X; NaN]; Y = [Y; cs{i}.Y; NaN]; end %#ok<AGROW>
+    end
+
+    function onExportQcD()
+        % Per-track D for the selected tracks, in the two shapes the Compare tab already writes:
+        % WIDE (one column, straight into a Prism Column table) and LONG (every value with the cell,
+        % track and fit window behind it, so a number can be traced back). The fit window travels
+        % with the value because an adaptive fit chose it per track — a D exported without it cannot
+        % be compared against a D fitted over a different span.
+        if isempty(qcTracks), setBuild('Build first — there are no tracks to export.',[0.6 0.4 0.1]); return; end
+        sel = qcTracks(qcSelection());
+        if isempty(sel), setBuild('No tracks selected — widen the filters.',[0.6 0.4 0.1]); return; end
+        dst = fullfile(projectDir,'analysis'); if ~isfolder(dst), mkdir(dst); end
+        tag = 'all'; if ~isempty(spnLenMin) && spnLenMin.Value > 0, tag = sprintf('len%d', round(spnLenMin.Value)); end
+        if ~isempty(ckMito) && ckMito.Value, tag = sprintf('%s_mito%.2f', tag, spnMitoMax.Value); end
+        mode = fitModeNow();
+        if strcmp(mode,'adaptive'), fitName = sprintf('adaptiveR2max%.0f', eMsdFrac.Value);
+        else,                       fitName = sprintf('fixed%.0f', eMsdFrac.Value); end
+        stem = fullfile(dst, sprintf('qc_trackD_%s_%s', fitName, tag));
+
+        D = cellfun(@(x) x.D, sel); ok = isfinite(D) & D > 0;
+        try
+            fid = fopen([stem '_wide.csv'],'w');
+            fprintf(fid,'D_um2_per_s\n'); fprintf(fid,'%.6g\n', D(ok)); fclose(fid);
+
+            fid = fopen([stem '_long.csv'],'w');
+            fprintf(fid,'cell,track_col,n_loc,D_um2_per_s,fit_window_pct,sigma_loc_um,median_mito_um,fit_mode\n');
+            for i = 1:numel(sel)
+                x = sel{i}; if ~(isfinite(x.D) && x.D > 0), continue; end
+                mv = fieldOr(x,'MI'); mv = mv(isfinite(mv));
+                mm = NaN; if ~isempty(mv), mm = median(mv); end
+                fprintf(fid,'%s,%d,%d,%.6g,%.4g,%.4g,%s,%s\n', x.base, x.col, x.len, x.D, ...
+                    x.fracUsed, x.sigLoc, numOrDash(mm), mode);
+            end
+            fclose(fid);
+        catch ME
+            setBuild(['Export failed: ' ME.message],[0.75 0.1 0.1]); return;
+        end
+        setBuild(sprintf('Exported %d track D values -> %s_wide.csv + _long.csv', nnz(ok), stem), [0.1 0.5 0.2]);
+    end
 
     function s = calSrc(cellIdx)
         % 'measured' / 'inherited' per field, so the UI can say where a cell's numbers came from

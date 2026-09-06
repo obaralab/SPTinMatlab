@@ -405,6 +405,48 @@ rebuild — and re-run the picker if sites were already placed, since those were
 
 ---
 
+## 9d. Build & QC left column — selection, not just histograms
+
+Two panels retired: the track-LENGTH histogram (readable but not actionable) and the pooled
+stepwise-D histogram (the same measurement as the stepwise D(t) already on the right). In their
+place a selection row directly under the cell table: **`len ≥`**, **`near mito ≤`** (checkbox +
+threshold), a count label, and **Export D CSV**. The D distribution, the CSD and the track map all
+follow the selection; the ER/mito histogram deliberately does NOT, because that is the plot you read
+the mito threshold off, so filtering it by that threshold would be circular — the threshold is drawn
+on it as a dashed line instead.
+
+The mito cut is the track's **MEDIAN** signed distance, matching how Dwell summarises a track against
+a footprint. A `min()` rule would select any track that ever brushed a mitochondrion, which is a much
+weaker claim; `spt_qc_select_smoke` has a fixture track whose median is +1.20 and whose minimum is
+-0.90 specifically so the two rules disagree and the test can tell them apart.
+
+Export writes `analysis/qc_trackD_<fitmode>_<filters>.{wide,long}.csv` — wide is one Prism-pasteable
+column, long carries cell, track, n_loc, D, **fit_window_pct**, sigma_loc and median mito. The fit
+window travels with the value because an adaptive R² fit chooses it per track, and a D exported
+without it cannot be compared against a D fitted over a different span.
+
+> ### exportapp MIS-RENDERS A NESTED uigridlayout — do not "fix" this layout from a screenshot
+>
+> A `uigridlayout` nested inside a `uigridlayout` is painted several rows low by `exportapp`, while
+> its `Position` is correct. Minimal repro (12 lines, no app): a [5 1] grid of
+> table / nested-grid / 3 axes reports `qs.Position = [1 551 400 32]` — row 2, directly under the
+> table — and exports it drawn between axes 2 and 3, with an empty band left where it belongs.
+>
+> This cost most of an hour: the render was read as a layout bug, "fixed" twice (explicit
+> `Layout.Row` on every child, then replacing `legend()` — see below), and neither changed the
+> export because nothing was wrong. **Verify this tab by Position, not by exportapp.**
+> `spt_qc_select_smoke` asserts the ordering numerically for exactly this reason.
+>
+> Renders remain the right tool for everything else — three real layout bugs earlier in this work
+> were only visible in one — but not for a tab containing a nested grid.
+
+Found on the way, and worth knowing generally: **`legend()` on an axes inside a uigridlayout parents
+itself to the LAYOUT, not the axes, and has no `Layout` property**, so it is auto-placed into a grid
+cell of its own. The ER/mito panel's legend was doing this. Replaced with `text()` in the axes.
+Any new legend in a gridded tab will do the same thing.
+
+---
+
 ## 10. Open threads
 
 1. **`_ch24` may itself be interleaved.** `_spt12` was ch1+ch3 alternating. If `_ch24` is ch2+ch4 the

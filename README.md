@@ -189,6 +189,7 @@ spt_calib_ui_smoke          % ...and it reaches the top bar, cs_calib.mat and th
 spt_calib_bulk_smoke        % one calibration across a plate: scoped by the filter, and by nothing else
 spt_overlay_fov_smoke       % the raw frame is drawn across the width the TRACKS were measured in
 spt_tool3_scale_smoke       % ...and the build stamps that same width, so Tool 3 draws it too
+spt_qc_select_smoke         % QC selects tracks by length and mito, and every panel agrees
 spt_compare_group_smoke     % Compare: crossing, the site/dw%/cell filters, and the per-point export
 spt_precision_smoke         % sigma_loc = sqrt(b)/2 recovers a known injected precision
 ```
