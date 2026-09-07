@@ -864,9 +864,19 @@ New tab app `spt_analyze_app.m`; built on the `drivers/` layer. Build order:
    (`analysis/examples_<key>_<d>nm.mat`) that Tool 2 opens with *Load TrackStruct…* — giving the
    player, MSD + adaptive fit, stepwise D(t), CSD and the per-track D export on exactly those
    tracks. A `.mat` rather than an XML/CSV round trip because the round trip would lose the MSD
-   curves, the per-localization D and the distances that are already computed. Fields are sliced by
-   SHAPE (anything `[* x nT]`), not by a named list, so a field added later cannot be silently left
-   at full width with its columns no longer corresponding.
+   curves, the per-localization D and the distances that are already computed. **The interactive
+   overlaid video is Tool 2's own player** — load the file there, click a track, and it plays over
+   the raw movie with the ER/mito overlay. There is deliberately no second player in Tool 3.
+   Fields are sliced by SHAPE, not by a named list, so a field added later cannot be silently left
+   at full width with its columns no longer corresponding — and **two** layouts occur, not one:
+   `[* x nT]` (matrix, MSD, Dt, CSD, steps, distances) and `[nT x 1]` per-track column vectors
+   (`lengths`, `trackIDs`). Handling only the first left those two at full width while everything
+   else was cut, so `lengths(j)` described a different track from `matrix(:,j,:)` — with no error.
+   Where `nF == nT` the two layouts are indistinguishable; the slicer warns and leaves the field
+   alone rather than guessing. `examples_*.mat` is excluded from `listBuilds`: it is a valid
+   TrackStruct but a SUBSET, and letting it become the active build would have every downstream
+   stage quietly analyse 176 tracks instead of 7615. It stays reachable from *Load TrackStruct…*,
+   whose own count still includes it so the picker opens rather than loading the active build.
    Regressions: `cs_engage_examples_smoke`, `cs_mito_engage_smoke` — a tethered cell recovers the planted contrast, **an untethered cell
    with the same geometry reads ~1** (the control that says the zone alone cannot manufacture a hit), gaps do
    not move it, every step is classified exactly once, and a thin cell refuses. `spt_engage_tab_smoke` covers
