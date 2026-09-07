@@ -16,9 +16,12 @@ function spt_qc_select_smoke()
 %      non-problem. See the minimal repro note in HANDOFF.md.
 %   2. THE RETIRED PANELS ARE GONE — no axes titled 'track length' or 'stepwise D (per localization)'.
 %   3. LENGTH selects on localization count.
-%   4. MITO selects on the track's MEDIAN signed distance, so one excursion neither includes nor
-%      excludes a track. A min() rule would select any track that ever brushed a mitochondrion,
-%      which is a much weaker claim, and the fixture is built so the two rules disagree.
+%   4. DISTANCE selects on the track's MEDIAN signed distance, so one excursion neither includes nor
+%      excludes a track. A min() rule would select any track that ever brushed the organelle, which
+%      is a much weaker claim, and the fixture is built so the two rules disagree.
+%   4b. THE CHANNEL IS A CHOICE — mito and ER are separate cuts and select different tracks. Only
+%      channels with data are offered, so a project with no ER is never given a filter that would
+%      silently select nothing.
 %   5. THE PANELS AGREE — the D-distribution title reports the same n the selection label does.
 %   6. THE EXPORT MATCHES — one row per selected track, carrying the fit window each track used,
 %      because an adaptive fit chooses that per track and a D without it cannot be compared.
@@ -45,8 +48,11 @@ cleanup = onCleanup(@() rmdir(proj,'s'));
 %   B  long,  median mito +1.50  (far)               -> passes length only
 %   C  short, median mito -0.20  (inside)            -> passes mito only
 %   D  long,  median mito +1.20 but DIPS to -0.90    -> median far, min near: separates the rules
-spec = { 'A', 60, -0.30, false; 'B', 60,  1.50, false; ...
-         'C', 12, -0.20, false; 'D', 60,  1.20, true };
+% The ER column is deliberately the mito column's mirror image — the track nearest mito is the
+% furthest from ER — so "the filter uses the channel it was told to" is distinguishable from "the
+% filter works but always reads mito".
+spec = { 'A', 60, -0.30,  2.00, false; 'B', 60,  1.50, -0.40, false; ...
+         'C', 12, -0.20,  2.00, false; 'D', 60,  1.20, -0.30, true };
 makeCell(proj, 'cellA', spec);
 
 f = spt_analyze_app('curate'); f.Visible = 'off';
@@ -85,20 +91,33 @@ assert(qs.Position(2) > axD.Position(2) + axD.Position(4), ...
 %% (3) length ------------------------------------------------------------------------------------------
 sp   = findobj(f,'Type','uispinner');
 lenS = pick(sp, @(x) isequal(x.Limits,[0 1e5]), 'min-length spinner');
-mitS = pick(sp, @(x) isequal(x.Limits,[-5 5]),  'mito-distance spinner');
-ckM  = pick(findobj(f,'Type','uicheckbox'), @(x) contains(string(x.Text),'near mito'), 'near-mito checkbox');
+mitS = pick(sp, @(x) isequal(x.Limits,[-5 5]),  'distance spinner');
+ddD  = pick(findobj(f,'Type','uidropdown'), @(x) any(strcmp(x.Items,'any distance')), 'distance-channel dropdown');
 
 assert(selCount(f) == 4, 'with no filters the QC shows %d of 4 tracks', selCount(f));
 setv(lenS, 30);
 assert(selCount(f) == 3, 'len >= 30 selected %d tracks, wanted 3 (the 12-localization one drops)', selCount(f));
 
-%% (4) mito, on the MEDIAN -----------------------------------------------------------------------------
-setv(lenS, 0); ckM.Value = true; fire(ckM); setv(mitS, 0);
+%% (4) distance, on the MEDIAN -------------------------------------------------------------------------
+setv(lenS, 0); setv(ddD, 'mito'); setv(mitS, 0);
 % A (-0.30) and C (-0.20) have median <= 0. D dips to -0.90 but its MEDIAN is +1.20, so a
 % median rule excludes it and a min rule would not — which is the whole point of the choice.
 assert(selCount(f) == 2, ...
     ['mito <= 0 selected %d tracks, wanted 2. If this is 3 the filter is using the MINIMUM distance ' ...
      'along the track, which selects any track that ever brushed a mitochondrion.'], selCount(f));
+
+%% (4b) the SAME cut against ER picks the other tracks ---------------------------------------------------
+assert(any(strcmp(ddD.ItemsData,'er')), ...
+    'the distance filter offers no ER option even though the fixture carries ER distances');
+setv(ddD, 'er');
+% ER is the mirror: B (-0.40) and D (-0.30) are the ones inside it.
+assert(selCount(f) == 2, 'ER <= 0 selected %d tracks, wanted 2', selCount(f));
+selER = selectedNames(f);
+setv(ddD, 'mito'); selMI = selectedNames(f);
+assert(~isequal(sort(selER), sort(selMI)), ...
+    ['the ER and mito cuts selected the SAME tracks (%s). The filter is not reading the channel it ' ...
+     'was told to.'], strjoin(selMI, ','));
+setv(ddD, 'mito');
 
 %% (5) the panels report the same n ----------------------------------------------------------------------
 setv(lenS, 30);                                   % now A only: long AND median-inside
@@ -130,7 +149,7 @@ assert(any(contains(string(ta.Value),'Exported')), ...
 
 %% (7) clicking a table row selects that cell ---------------------------------------------------------
 % Two cells now, so "the dropdown followed the click" is distinguishable from "it was already there".
-makeCell(proj, 'cellB', { 'E', 50, -0.10, false; 'F', 50, 2.00, false });
+makeCell(proj, 'cellB', { 'E', 50, -0.10, 2.00, false; 'F', 50, 2.00, -0.10, false });
 press(f, 'Build + QC');
 dd = pick(findobj(f,'Type','uidropdown'), @(x) any(strcmp(x.Items,'All (pooled)')), 'QC cell dropdown');
 tb2 = pick(findobj(f,'Type','uitable'), @(x) any(strcmp(x.ColumnName,'med len')), 'build cell table');
@@ -144,7 +163,7 @@ assert(strcmp(dd.Value,'cellB'), ...
      'dropdown must still SHOW which cell is displayed after a click.'], dd.Value);
 
 %% (8) export ALL cells, under the same filters ---------------------------------------------------------
-setv(lenS, 0); ckM.Value = false; fire(ckM);
+setv(lenS, 0); setv(ddD, '');
 assert(selCount(f) == 2, 'cellB alone should show its 2 tracks, showing %d', selCount(f));
 press(f, 'Export ALL cells');
 A = dir(fullfile(proj,'analysis','qc_trackD_*allcells*_long.csv'));
@@ -172,6 +191,18 @@ fprintf('\nQC-SELECT SMOKE PASSED.\n');
 end
 
 % ================================================================================================
+function names = selectedNames(f)
+% The selected tracks, identified by their exported track_col. Read off the D-distribution title's
+% n and the map title would only give a count; this gives identity, which is what assertion 4b needs.
+ls = findobj(f,'Type','axes');
+ax = ls(arrayfun(@(a) contains(string(a.Title.String),'D distribution'), ls));
+h  = findobj(ax(1),'Type','histogram');
+names = {};
+if isempty(h), return; end
+d = sort(h(1).Data(:))';
+names = arrayfun(@(v) sprintf('%.4g', v), d, 'uni', 0);
+end
+
 function n = selCount(f)
 % The count the selection label reports, which is what every pooled panel is drawn from.
 ls = findobj(f,'Type','uilabel');
@@ -187,17 +218,18 @@ assert(isfinite(n), 'the QC selection label was not found — the panels have no
 end
 
 function makeCell(dir_, base, spec)
-% One cell. spec rows: {name, nLoc, medianMitoUm, dipsInside}.
+% One cell. spec rows: {name, nLoc, medianMitoUm, medianErUm, dipsInside}.
 rng(5); rows = []; SPOT = 0; tid = 0;
 for i = 1:size(spec,1)
-    tid = tid + 1; n = spec{i,2}; md = spec{i,3}; dip = spec{i,4};
+    tid = tid + 1; n = spec{i,2}; md = spec{i,3}; ed = spec{i,4}; dip = spec{i,5};
     x0 = 2 + 4*i; y0 = 3 + 2*i;
     d = md + 0.05*randn(n,1);
+    e = ed + 0.05*randn(n,1);
     if dip, d(round(n/2)+(0:3)) = -0.90; end     % a brief excursion: changes min, not median
     for j = 1:n
         SPOT = SPOT + 1;
         rows(end+1,:) = [tid, SPOT, j-1, (j-1)*0.02, x0+0.05*j, y0+0.04*j, ...
-                         100, 100, 140, 4000, d(j), NaN]; %#ok<AGROW>
+                         100, 100, 140, 4000, d(j), e(j)]; %#ok<AGROW>
     end
 end
 tr = fullfile(dir_,'tracks');

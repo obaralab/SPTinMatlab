@@ -65,7 +65,7 @@ tsName=''; eTsName=[]; ddBuild=[];   % the ACTIVE TrackStruct basename in analys
 axDtrace=[];   % stepwise D(t) for the clicked track (the POOLED per-localization panel was retired:
               % it measured the same thing, and the left column is for per-TRACK quantities now)
 axCSD=[]; csdHi=[];       % cumulative-displacement panel + the highlight of the clicked track
-spnLenMin=[]; ckMito=[]; spnMitoMax=[]; lblQcSel=[]; qcKeep=[];   % QC track selection (length / near mito)
+spnLenMin=[]; ddDistCh=[]; spnDistMax=[]; lblQcSel=[]; qcKeep=[];   % QC track selection (length / near a channel)
 ddHi=[];                  % where the CLICKED track sits in the pooled D histogram
 % Confinement / state-change is not part of the pipeline right now: the build stores only the
 % rolling D, and Tool 3's picker has no diffusion-state density channels. The criterion and all four
@@ -381,19 +381,23 @@ end
         % EXPLICIT Layout.Row on every child of lp. Auto-placement put this row fourth — under the
         % D distribution, overlapping its axis — even though it is created second, and a crushed
         % control row is the kind of thing only a render catches.
-        qs = uigridlayout(lp,[1 7],'ColumnWidth',{44,54, 88,64, '1x',86,104}, ...
+        qs = uigridlayout(lp,[1 7],'ColumnWidth',{44,54, 116,64, '1x',82,100}, ...
             'Padding',[0 0 0 0],'ColumnSpacing',5);
         uilabel(qs,'Text','len ≥','HorizontalAlignment','right');
         spnLenMin = uispinner(qs,'Limits',[0 1e5],'Value',0,'Step',5,'FontSize',9, ...
             'Tooltip','Keep tracks with at least this many localizations. 0 keeps everything.', ...
             'ValueChangedFcn',@(~,~) redrawQcPooled());
-        ckMito = uicheckbox(qs,'Text','near mito ≤','Value',false,'FontSize',9, ...
-            'Tooltip',['Keep only tracks whose MEDIAN signed mito distance is under the value on the ' ...
-                       'right. Median over the track, so one excursion neither includes nor excludes ' ...
-                       'it. Negative distance is inside the mask, so 0 means "more than half the ' ...
-                       'track sits on mitochondria".'], ...
+        % Which channel the distance cut is against. A dropdown rather than a mito-only checkbox:
+        % the rest of the pipeline is channel-generic, and a project with ER segmentation has the
+        % same question to ask of it. Items are rebuilt per build from the channels that actually
+        % carry data, so a project with no ER is never offered a filter that would select nothing.
+        ddDistCh = uidropdown(qs,'Items',{'any distance'},'ItemsData',{''},'Value','','FontSize',9, ...
+            'Tooltip',['Keep only tracks whose MEDIAN signed distance to this channel is under the ' ...
+                       'value on the right. Median over the track, so one excursion neither includes ' ...
+                       'nor excludes it. Negative is inside the mask, so 0 means "more than half the ' ...
+                       'track sits on the organelle".'], ...
             'ValueChangedFcn',@(~,~) redrawQcPooled());
-        spnMitoMax = uispinner(qs,'Limits',[-5 5],'Value',0.2,'Step',0.05,'FontSize',9, ...
+        spnDistMax = uispinner(qs,'Limits',[-5 5],'Value',0.2,'Step',0.05,'FontSize',9, ...
             'ValueDisplayFormat','%.2f µm','ValueChangedFcn',@(~,~) redrawQcPooled());
         lblQcSel = uilabel(qs,'Text','','FontSize',9,'FontColor',[0.2 0.4 0.5]);
         uibutton(qs,'Text','Export shown','FontSize',9, ...
@@ -3021,6 +3025,7 @@ end
         % ---- flat, clickable track list across the displayed cells ----
         [qcTracks, ER, MI, L] = qcRecords(ks);
         qcSelIdx = 0; qcHi = [];
+        refreshDistChannels(ER, MI);
 
         % ---- tracks panel (click one) ----
         cla(axCov); Xa=[]; Ya=[];
@@ -3037,8 +3042,12 @@ end
         if ~isempty(ER), histogram(axDist, ER, 40, 'FaceColor',[0.15 0.6 0.25],'EdgeColor','none','FaceAlpha',0.6); leg{end+1}='ER'; end %#ok<AGROW>
         if ~isempty(MI), histogram(axDist, MI, 40, 'FaceColor',[0.85 0.2 0.6],'EdgeColor','none','FaceAlpha',0.6); leg{end+1}='mito'; end %#ok<AGROW>
         xline(axDist, 0, 'k-');
-        if ~isempty(MI) && ~isempty(ckMito) && isgraphics(ckMito) && ckMito.Value
-            xline(axDist, spnMitoMax.Value, '--', 'Color',[0.85 0.2 0.6],'LineWidth',1.2);
+        kD = distKey();
+        if ~isempty(kD)
+            % Draw the cut in the colour of the channel it applies to, so on a project with both
+            % ER and mito it is unambiguous which histogram the line belongs to.
+            cD = [0.85 0.2 0.6]; if strcmp(kD,'er'), cD = [0.15 0.6 0.25]; end
+            xline(axDist, spnDistMax.Value, '--', 'Color',cD,'LineWidth',1.2);
         end
         hold(axDist,'off');
         xlabel(axDist,'signed distance (µm)  [− inside]'); ylabel(axDist,'spots'); title(axDist,'ER / mito distance');
@@ -3257,15 +3266,47 @@ end
         if ~isempty(spnLenMin) && isgraphics(spnLenMin) && spnLenMin.Value > 0
             keep = keep & cellfun(@(x) x.len >= spnLenMin.Value, recs);
         end
-        if ~isempty(ckMito) && isgraphics(ckMito) && ckMito.Value
-            thr = spnMitoMax.Value;
-            keep = keep & cellfun(@(x) hasMedMito(x, thr), recs);
+        key = distKey();
+        if ~isempty(key)
+            thr = spnDistMax.Value;
+            keep = keep & cellfun(@(x) hasMedDist(x, key, thr), recs);
         end
     end
 
-    function tf = hasMedMito(x, thr)
-        v = fieldOr(x,'MI'); v = v(isfinite(v));
-        tf = ~isempty(v) && median(v) <= thr;    % no mito data on this track => not selectable
+    function refreshDistChannels(ER, MI)
+        % Offer only the channels that have data in what is on screen. A project with no ER
+        % segmentation should not be offered an ER filter that would silently select nothing —
+        % that reads as a broken filter rather than as absent data.
+        if isempty(ddDistCh) || ~isgraphics(ddDistCh), return; end
+        items = {'any distance'}; data = {''};
+        if ~isempty(MI) && any(isfinite(MI)), items{end+1} = 'near mito ≤'; data{end+1} = 'mito'; end
+        if ~isempty(ER) && any(isfinite(ER)), items{end+1} = 'near ER ≤';   data{end+1} = 'er';   end
+        was = ddDistCh.Value;
+        ddDistCh.Items = items; ddDistCh.ItemsData = data;
+        % Keep the current choice across a cell change when that channel is still available;
+        % otherwise fall back to off rather than silently filtering on a different channel.
+        if any(strcmp(data, was)), ddDistCh.Value = was; else, ddDistCh.Value = ''; end
+    end
+
+    function k = distKey()
+        % '' = no distance filter. Otherwise 'mito' or 'er' — the record field is chosen from this,
+        % never from a hardcoded channel, so adding a third channel is a change in ONE place.
+        k = '';
+        if ~isempty(ddDistCh) && isgraphics(ddDistCh) && ~isempty(ddDistCh.Value), k = char(ddDistCh.Value); end
+    end
+
+    function v = distOf(x, key)
+        switch key
+            case 'mito', v = fieldOr(x,'MI');
+            case 'er',   v = fieldOr(x,'ER');
+            otherwise,   v = [];
+        end
+        v = v(isfinite(v));
+    end
+
+    function tf = hasMedDist(x, key, thr)
+        v = distOf(x, key);
+        tf = ~isempty(v) && median(v) <= thr;    % no distance on this track => not selectable
     end
 
     function redrawQcPooled()
@@ -3380,7 +3421,8 @@ end
 
         dst = fullfile(projectDir,'analysis'); if ~isfolder(dst), mkdir(dst); end
         tag = 'all'; if ~isempty(spnLenMin) && spnLenMin.Value > 0, tag = sprintf('len%d', round(spnLenMin.Value)); end
-        if ~isempty(ckMito) && ckMito.Value, tag = sprintf('%s_mito%.2f', tag, spnMitoMax.Value); end
+        kD = distKey();
+        if ~isempty(kD), tag = sprintf('%s_%s%.2f', tag, kD, spnDistMax.Value); end
         mode = fitModeNow();
         if strcmp(mode,'adaptive'), fitName = sprintf('adaptiveR2max%.0f', eMsdFrac.Value);
         else,                       fitName = sprintf('fixed%.0f', eMsdFrac.Value); end

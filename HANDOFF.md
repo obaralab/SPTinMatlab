@@ -415,7 +415,14 @@ follow the selection; the ER/mito histogram deliberately does NOT, because that 
 the mito threshold off, so filtering it by that threshold would be circular — the threshold is drawn
 on it as a dashed line instead.
 
-The mito cut is the track's **MEDIAN** signed distance, matching how Dwell summarises a track against
+The distance cut is a **channel dropdown**, not a mito-only checkbox — `any distance` / `near mito ≤`
+/ `near ER ≤` — and the item list is rebuilt per build from the channels that actually carry finite
+distances, so a project with no ER is never offered a filter that would silently select nothing (that
+reads as a broken filter rather than as absent data). The chosen channel drives the threshold line's
+colour on the ER/mito histogram and appears in the export filename (`..._mito0.20_`, `..._er0.20_`).
+Adding a third channel is a change in `distOf` and `refreshDistChannels` only.
+
+The distance cut is the track's **MEDIAN** signed distance, matching how Dwell summarises a track against
 a footprint. A `min()` rule would select any track that ever brushed a mitochondrion, which is a much
 weaker claim; `spt_qc_select_smoke` has a fixture track whose median is +1.20 and whose minimum is
 -0.90 specifically so the two rules disagree and the test can tell them apart.
