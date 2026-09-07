@@ -854,7 +854,20 @@ New tab app `spt_analyze_app.m`; built on the `drivers/` layer. Build order:
    n_free, n_crossing, occupancy, condition` — so a compound can be scored from the file without re-running.
    `n_crossing` (steps that left the zone, counted where they started) is what sets the dilution: a large
    share means much of the bound pool is molecules on their way out.
-   Regressions: `cs_mito_engage_smoke` — a tethered cell recovers the planted contrast, **an untethered cell
+   **Seeing the tracks behind the number.** `cs_engage_examples.m` keeps every track with at least
+   one step STARTING in the zone — the same rule that builds `D_bound`, so the examples are drawn
+   from exactly the population the ratio is computed over. Deliberately not a ranking: selecting the
+   most-engaged tracks would make every condition look engaged, inactive ones included, because the
+   ranking is on the quantity being measured. The tab draws a sample of them as a gallery (one row
+   per condition, each track on a crop of its own organelle mask, localizations coloured by whether
+   they are inside the zone), and **Examples → Tool 2** writes them all as a sliced TrackStruct
+   (`analysis/examples_<key>_<d>nm.mat`) that Tool 2 opens with *Load TrackStruct…* — giving the
+   player, MSD + adaptive fit, stepwise D(t), CSD and the per-track D export on exactly those
+   tracks. A `.mat` rather than an XML/CSV round trip because the round trip would lose the MSD
+   curves, the per-localization D and the distances that are already computed. Fields are sliced by
+   SHAPE (anything `[* x nT]`), not by a named list, so a field added later cannot be silently left
+   at full width with its columns no longer corresponding.
+   Regressions: `cs_engage_examples_smoke`, `cs_mito_engage_smoke` — a tethered cell recovers the planted contrast, **an untethered cell
    with the same geometry reads ~1** (the control that says the zone alone cannot manufacture a hit), gaps do
    not move it, every step is classified exactly once, and a thin cell refuses. `spt_engage_tab_smoke` covers
    the wiring: nm→µm, the answer reaching the named rows, N distances → N rows, refusal as a dash, and the

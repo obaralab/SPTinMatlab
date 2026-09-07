@@ -53,7 +53,7 @@ CALEDIT = {};           % which top-bar numbers are HAND EDITS ('pixSizeUm','fov
 tg=[]; tImport=[]; tBuild=[]; tCS=[];                                 % tabs
 tRefine=[]; tSites=[]; tDwell=[]; tExpt=[]; tEngage=[]; tCompare=[];   % downstream tabs
 % Engagement tab handles
-engDd=[]; engKey=[]; engD0=[]; engD1=[]; engN=[]; engSig=[]; engMin=[]; engTbl=[]; engLbl=[];
+engDd=[]; engKey=[]; engD0=[]; engD1=[]; engN=[]; engSig=[]; engMin=[]; engTbl=[]; engLbl=[]; engAxEx=[]; engNEx=[];
 engAxCell=[]; engAxScan=[]; engLast=[];
 ddTimeUnit=[]; lblBuild=[]; tblBuild=[]; txtBuild=[];                 % Build handles
 buildChanKeys = {};   % the channel columns tblBuild was BUILT with — onCalEdit derives its column
@@ -2050,8 +2050,8 @@ end
     % already carries. That makes it usable on a plate of cells that were never picked or mapped.
     function buildEngageTab(parent)
         g = uigridlayout(parent,[3 1],'RowHeight',{34,26,'1x'},'Padding',[10 10 10 10],'RowSpacing',6);
-        r = uigridlayout(g,[1 16],'ColumnWidth',{40,150, 44,86, 66,58,58,44, 78,64, 62,58, 88, 92, '1x', 0}, ...
-            'Padding',[0 0 0 0],'ColumnSpacing',7);
+        r = uigridlayout(g,[1 16],'ColumnWidth',{40,132, 40,72, 62,52,52,40, 68,56, 56,52, 82, 84, 46, 118}, ...
+            'Padding',[0 0 0 0],'ColumnSpacing',6);
         uilabel(r,'Text','data','HorizontalAlignment','right');
         engDd = uidropdown(r,'Items',{'current project','experiment (all folders)'},'Value','current project', ...
             'Tooltip','This project''s active build, or every folder in the Experiment tab (each folder''s own build).');
@@ -2076,16 +2076,25 @@ end
             'ButtonPushedFcn',@(s,e) onEngageCompute());
         uibutton(r,'Text','Export CSV','ButtonPushedFcn',@(s,e) onEngageExport(), ...
             'Tooltip','One row per cell per distance, with the step counts — the file you would score compounds from.');
-        uilabel(r,'Text','');
+        engNEx = uispinner(r,'Limits',[1 12],'Value',5,'Step',1, ...
+            'Tooltip','How many example tracks to DRAW per condition. The export writes all of them.');
+        uibutton(r,'Text','Examples → Tool 2','ButtonPushedFcn',@(s,e) onEngageExamples(), ...
+            'Tooltip',['Write a TrackStruct holding every track that touches the zone — the same ' ...
+                       'population D_bound is built from — and open it in Tool 2 with Load ' ...
+                       'TrackStruct… for the player, MSD, stepwise D(t), CSD and the per-track D ' ...
+                       'export, on exactly these tracks.']);
         engLbl = uilabel(g,'Text','Needs a built TrackStruct with a mito/ER distance. Set the project, then Compute.', ...
             'FontColor',[0.2 0.4 0.5],'WordWrap','on');
         mn = uigridlayout(g,[1 2],'ColumnWidth',{'1.15x','0.85x'},'Padding',[0 0 0 0],'ColumnSpacing',8);
         engTbl = uitable(mn,'ColumnName',{'cell','condition','d µm','D bound','D free','ratio','n bound','n free','note'}, ...
             'ColumnWidth',{'1x',90,48,64,64,54,58,58,150});
-        rc = uigridlayout(mn,[2 1],'RowHeight',{'1x','1x'},'Padding',[0 0 0 0],'RowSpacing',6);
+        rc = uigridlayout(mn,[3 1],'RowHeight',{'1x','1x','1.1x'},'Padding',[0 0 0 0],'RowSpacing',6);
         engAxCell = uiaxes(rc); title(engAxCell,'D ratio per cell (at the chosen distance)');
         engAxScan = uiaxes(rc); title(engAxScan,'D ratio vs engagement distance');
-        spt_axes_policy([engAxCell engAxScan]);
+        % The examples. A number on a plot is a claim about trajectories; this is the trajectories.
+        engAxEx = uiaxes(rc); title(engAxEx,'example tracks at the interface (Compute to fill)');
+        engAxCell.Layout.Row = 1; engAxScan.Layout.Row = 2; engAxEx.Layout.Row = 3;
+        spt_axes_policy([engAxCell engAxScan engAxEx]);
     end
 
     function onEngageCompute()
@@ -2102,6 +2111,12 @@ end
         end
         engLast = E;
         cond = engageConditions({E(:,1).file});
+        try
+            [selEx, ~, dEx] = engageExampleSel();
+            drawEngageExamples(selEx, dEx);
+        catch MEx
+            if isgraphics(engAxEx), cla(engAxEx); title(engAxEx, ['examples unavailable: ' MEx.message]); end
+        end
 
         % Table: every cell at every distance, so a cell that only engages at one radius is visible
         % rather than hidden behind a single chosen number.
@@ -2174,6 +2189,130 @@ end
                 end
             end
         end
+    end
+
+    function [selE, TsubE, dEx] = engageExampleSel()
+        % The shared selection: every track with at least one step STARTING in the zone, at the
+        % scan's middle distance — the same distance the per-cell plot reports, so the pictures and
+        % the number describe the same thing.
+        selE = []; TsubE = []; dEx = NaN;
+        if ~ensureTracksLoaded() || isempty(buildTracks), return; end
+        dl = linspace(engD0.Value, engD1.Value, round(engN.Value));
+        dEx = dl(max(1, round(numel(dl)/2)));
+        [selE, TsubE] = cs_engage_examples(buildTracks, struct('dUm',dEx,'key',engKey.Value));
+    end
+
+    function drawEngageExamples(selE, dEx)
+        % One ROW per condition, N tracks across. Each track is drawn on its own crop of the
+        % organelle mask, so "around the mitochondria" is literal rather than implied, and each
+        % localization is coloured by whether it is INSIDE the zone — the same test that decides
+        % which pool its step joins.
+        if isempty(engAxEx) || ~isgraphics(engAxEx), return; end
+        cla(engAxEx); engAxEx.Visible = 'on';
+        if isempty(selE)
+            title(engAxEx,'example tracks — nothing selected'); return;
+        end
+        nPer = 5; if ~isempty(engNEx) && isgraphics(engNEx), nPer = round(engNEx.Value); end
+        cond = engageConditions({selE.file});
+        [ug,~,gi] = unique(cond(:),'stable');
+
+        PAD = 0.55;                 % µm of margin around each track, so the mask context is visible
+        CELLW = 1.0;                % one grid cell of the gallery, in normalized units
+        hold(engAxEx,'on');
+        rng(7);                     % a fixed seed: the same examples every time you press Compute
+        nDrawn = 0;
+        for j = 1:numel(ug)
+            rows = find(gi == j);
+            % Flatten (cell, track) pairs for this condition, then take an unbiased sample of them.
+            pairs = [];
+            for r = rows(:)'
+                for c = selE(r).cols, pairs(end+1,:) = [r c]; end %#ok<AGROW>
+            end
+            if isempty(pairs), continue; end
+            take = pairs(randperm(size(pairs,1), min(nPer, size(pairs,1))), :);
+            for m = 1:size(take,1)
+                k = take(m,1); c = take(m,2);
+                T = buildTracks(selE(k).cellIndex);
+                X = T.matrix(:,c,2); Y = T.matrix(:,c,3);
+                ok = isfinite(X) & isfinite(Y); X = X(ok); Y = Y(ok);
+                if numel(X) < 2, continue; end
+                [dv, have] = cs_channel_dist(T, engKey.Value, 'tracked');
+                inz = false(size(X));
+                if have && numel(dv) == numel(T.matrix(:,:,1))
+                    Dm = reshape(dv, size(T.matrix,1), size(T.matrix,2));
+                    dcol = Dm(:,c); inz = dcol(ok) <= dEx;
+                end
+                % place this track in the gallery grid, scaled so every panel is the same size
+                x0 = min(X)-PAD; x1 = max(X)+PAD; y0 = min(Y)-PAD; y1 = max(Y)+PAD;
+                sc = max(max(x1-x0, y1-y0), eps);
+                gx = (m-1)*CELLW*1.06; gy = -(j-1)*CELLW*1.06;
+                px = @(v) gx + (v - x0)/sc*CELLW;
+                py = @(v) gy + (v - y0)/sc*CELLW;
+                drawMaskCrop(selE(k).file, [x0 x1 y0 y1], sc, gx, gy, CELLW);
+                plot(engAxEx, px(X), py(Y), '-','Color',[0.45 0.5 0.62],'LineWidth',0.7);
+                plot(engAxEx, px(X(~inz)), py(Y(~inz)), '.','Color',[0.55 0.6 0.7],'MarkerSize',6);
+                plot(engAxEx, px(X(inz)),  py(Y(inz)),  '.','Color',[0.85 0.2 0.55],'MarkerSize',8);
+                nDrawn = nDrawn + 1;
+            end
+            % Truncate from the LEFT: an unassigned cell falls back to its file name, and those
+            % differ in their last few characters, not their first.
+            lb = ug{j}; if numel(lb) > 20, lb = ['…' lb(end-18:end)]; end
+            text(engAxEx, -0.06, -(j-1)*CELLW*1.06 + CELLW/2, lb, ...
+                'HorizontalAlignment','right','FontSize',8.5,'FontWeight','bold','Interpreter','none');
+        end
+        hold(engAxEx,'off');
+        axis(engAxEx,'equal'); engAxEx.XTick = []; engAxEx.YTick = [];
+        engAxEx.XLim = [-1.6 max(nPer,1)*CELLW*1.06 + 0.1];
+        title(engAxEx, sprintf(['example tracks at d = %.3g µm — %d shown, magenta = inside the zone ' ...
+            '(grey mask = %s)'], dEx, nDrawn, engKey.Value), 'FontSize',8.5);
+    end
+
+    function drawMaskCrop(base, box, sc, gx, gy, CELLW)
+        % The organelle mask under one example, cropped to that track's box. Best-effort: a project
+        % whose segmentation cannot be resolved still gets the track and the colouring, which is
+        % where the classification actually lives.
+        try
+            ov = resolveOverlay(base);
+            p2 = ''; if isfield(ov,'seg') && isfield(ov.seg, engKey.Value), p2 = ov.seg.(engKey.Value); end
+            if isempty(p2) || ~isfile(p2), return; end
+            k = find(strcmp({buildTracks.file}, char(base)), 1);
+            if isempty(k), return; end
+            pxu = trackPx(k);
+            im = imread(p2, 1); if size(im,3)==3, im = rgb2gray(im); end
+            v = unique(im(:)); nz = v(v>0); fg = 1; if ~isempty(nz), fg = double(min(nz)); end
+            mask = (im == fg);
+            % Same convention as everywhere else: X_um = (0-based col) * pixUm.
+            c0 = max(1, floor(box(1)/pxu)+1); c1 = min(size(mask,2), ceil(box(2)/pxu)+1);
+            r0 = max(1, floor(box(3)/pxu)+1); r1 = min(size(mask,1), ceil(box(4)/pxu)+1);
+            if c1 <= c0 || r1 <= r0, return; end
+            sub = mask(r0:r1, c0:c1);
+            xa = gx + ([(c0-1) (c1-1)]*pxu - box(1))/sc*CELLW;
+            ya = gy + ([(r0-1) (r1-1)]*pxu - box(3))/sc*CELLW;
+            rgbm = cat(3, 0.72*ones(size(sub)), 0.74*ones(size(sub)), 0.80*ones(size(sub)));
+            image(engAxEx,'XData',xa,'YData',ya,'CData',rgbm,'AlphaData',double(sub)*0.75,'HitTest','off');
+        catch
+        end
+    end
+
+    function onEngageExamples()
+        [selE, TsubE, dEx] = engageExampleSel();
+        if isempty(selE), engLbl.Text = 'Build or load a TrackStruct first.'; return; end
+        nTr = sum(arrayfun(@(x) numel(x.cols), selE));
+        if nTr == 0
+            engLbl.Text = sprintf('No track has a step starting within %.3g µm of %s — nothing to export.', ...
+                dEx, engKey.Value);
+            return
+        end
+        dst = fullfile(projectDir,'analysis'); if ~isfolder(dst), mkdir(dst); end
+        f = fullfile(dst, sprintf('examples_%s_%.0fnm.mat', engKey.Value, dEx*1000));
+        Tracks = TsubE; %#ok<NASGU>
+        try, save(f, 'Tracks', '-v7.3');
+        catch ME, engLbl.Text = ['Could not write the examples: ' ME.message]; return; end
+        nC = sum(arrayfun(@(x) ~isempty(x.cols), selE));
+        engLbl.Text = sprintf(['Wrote %d track(s) from %d cell(s) touching %s within %.3g µm -> %s   ' ...
+            '·  open it in Tool 2 with "Load TrackStruct…" for the player, MSD, stepwise D(t), CSD ' ...
+            'and the per-track D export on exactly these tracks.'], nTr, nC, engKey.Value, dEx, f);
+        logBuild(sprintf('Engagement examples: %d track(s), %d cell(s) -> %s', nTr, nC, f));
     end
 
     function onEngageExport()

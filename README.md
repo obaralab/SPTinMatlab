@@ -190,6 +190,7 @@ spt_calib_bulk_smoke        % one calibration across a plate: scoped by the filt
 spt_overlay_fov_smoke       % the raw frame is drawn across the width the TRACKS were measured in
 spt_tool3_scale_smoke       % ...and the build stamps that same width, so Tool 3 draws it too
 spt_qc_select_smoke         % QC selects tracks by length and mito, and every panel agrees
+cs_engage_examples_smoke    % the example tracks ARE the population D_bound is built from
 spt_compare_group_smoke     % Compare: crossing, the site/dw%/cell filters, and the per-point export
 spt_precision_smoke         % sigma_loc = sqrt(b)/2 recovers a known injected precision
 ```
