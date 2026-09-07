@@ -75,7 +75,7 @@ end
 
 %% (1) the selection row sits under the table, above the plots ----------------------------------------
 qs = pick(findobj(f,'Type','uigridlayout'), ...
-    @(x) numel(x.ColumnWidth)==7 && isequal(x.ColumnWidth{1},44) && isequal(x.ColumnWidth{2},54), ...
+    @(x) numel(x.ColumnWidth)==8 && isequal(x.ColumnWidth{1},40) && isequal(x.ColumnWidth{2},50), ...
     'QC selection row');
 tb = pick(findobj(f,'Type','uitable'), @(x) any(strcmp(x.ColumnName,'med len')), 'build cell table');
 axD = pick(findobj(f,'Type','axes'), @(x) contains(string(x.Title.String),'D distribution'), 'D distribution');
@@ -209,9 +209,11 @@ ls = findobj(f,'Type','uilabel');
 n = NaN;
 for k = 1:numel(ls)
     t = char(string(ls(k).Text));
-    m = regexp(t, '^(\d+) of (\d+) tracks selected$', 'tokens','once');
+    % Not anchored at the end: the label gained a "· N rejected" suffix, and an anchored pattern
+    % simply stopped matching rather than reporting a wrong count.
+    m = regexp(t, '^(\d+) of (\d+) tracks selected', 'tokens','once');
     if ~isempty(m), n = str2double(m{1}); return; end
-    m = regexp(t, '^all (\d+) tracks$', 'tokens','once');
+    m = regexp(t, '^all (\d+) tracks', 'tokens','once');
     if ~isempty(m), n = str2double(m{1}); return; end
 end
 assert(isfinite(n), 'the QC selection label was not found — the panels have nothing to agree with');

@@ -53,7 +53,7 @@ CALEDIT = {};           % which top-bar numbers are HAND EDITS ('pixSizeUm','fov
 tg=[]; tImport=[]; tBuild=[]; tCS=[];                                 % tabs
 tRefine=[]; tSites=[]; tDwell=[]; tExpt=[]; tEngage=[]; tCompare=[];   % downstream tabs
 % Engagement tab handles
-engDd=[]; engKey=[]; engD0=[]; engD1=[]; engN=[]; engSig=[]; engMin=[]; engTbl=[]; engLbl=[]; engAxEx=[]; engNEx=[];
+engExN=0; engDd=[]; engKey=[]; engD0=[]; engD1=[]; engN=[]; engSig=[]; engMin=[]; engTbl=[]; engLbl=[]; engAxEx=[]; engNEx=[];
 engAxCell=[]; engAxScan=[]; engLast=[];
 ddTimeUnit=[]; lblBuild=[]; tblBuild=[]; txtBuild=[];                 % Build handles
 buildChanKeys = {};   % the channel columns tblBuild was BUILT with — onCalEdit derives its column
@@ -66,6 +66,7 @@ axDtrace=[];   % stepwise D(t) for the clicked track (the POOLED per-localizatio
               % it measured the same thing, and the left column is for per-TRACK quantities now)
 axCSD=[]; csdHi=[];       % cumulative-displacement panel + the highlight of the clicked track
 spnLenMin=[]; ddDistCh=[]; spnDistMax=[]; lblQcSel=[]; qcKeep=[];   % QC track selection (length / near a channel)
+trkEx=[]; bQcRej=[];      % hand-rejected tracks (cs_track_exclusions) + the reject/restore button
 ddHi=[];                  % where the CLICKED track sits in the pooled D histogram
 % Confinement / state-change is not part of the pipeline right now: the build stores only the
 % rolling D, and Tool 3's picker has no diffusion-state density channels. The criterion and all four
@@ -381,8 +382,8 @@ end
         % EXPLICIT Layout.Row on every child of lp. Auto-placement put this row fourth — under the
         % D distribution, overlapping its axis — even though it is created second, and a crushed
         % control row is the kind of thing only a render catches.
-        qs = uigridlayout(lp,[1 7],'ColumnWidth',{44,54, 116,64, '1x',82,100}, ...
-            'Padding',[0 0 0 0],'ColumnSpacing',5);
+        qs = uigridlayout(lp,[1 8],'ColumnWidth',{40,50, 108,58, '1x',92,76,92}, ...
+            'Padding',[0 0 0 0],'ColumnSpacing',4);
         uilabel(qs,'Text','len ≥','HorizontalAlignment','right');
         spnLenMin = uispinner(qs,'Limits',[0 1e5],'Value',0,'Step',5,'FontSize',9, ...
             'Tooltip','Keep tracks with at least this many localizations. 0 keeps everything.', ...
@@ -405,6 +406,12 @@ end
                        'narrowed by the two filters on the left. Wide for a Prism Column table, and ' ...
                        'long with the identifiers plus the fit window each track used.'], ...
             'ButtonPushedFcn',@(~,~) onExportQcD(false));
+        bQcRej = uibutton(qs,'Text','✖ Reject track','FontSize',9, ...
+            'Tooltip',['Reject the track selected in the map — it is dropped from the pooled panels, ' ...
+                       'the exports AND the Engagement ratio, and the decision is written to ' ...
+                       'analysis/track_exclusions.csv so every tool honours it. Click again to ' ...
+                       'restore. Rejecting does NOT rebuild: nothing else about the build changes.'], ...
+            'ButtonPushedFcn',@(~,~) onQcReject());
         uibutton(qs,'Text','Export ALL cells','FontSize',9,'FontWeight','bold', ...
             'Tooltip',['The same export over EVERY cell in the build, whichever one the QC dropdown ' ...
                        'is showing. The length and mito filters still apply — they are the point of ' ...
@@ -2107,7 +2114,13 @@ end
         if ~ensureTracksLoaded()
             engLbl.Text = 'No built TrackStruct for this project — build it in Tool 2 first.'; return;
         end
-        T = buildTracks;
+        % HAND-REJECTED TRACKS ARE DROPPED BEFORE THE RATIO IS COMPUTED. That is the whole point of
+        % curating: look at a track, decide it is not real, and have the number change. Re-read from
+        % disk each time so a rejection made in Tool 2 (a separate app on the same project) is
+        % honoured here without reopening.
+        try, trkEx = cs_track_exclusions('load', projectDir); catch, trkEx = []; end
+        T = cs_track_exclusions('apply', trkEx, buildTracks);
+        nEx = cs_track_exclusions('count', trkEx);
         dl = linspace(engD0.Value, engD1.Value, round(engN.Value));
         o = struct('dUm',dl, 'key',engKey.Value, 'sigmaUm',engSig.Value/1000, 'minSteps',engMin.Value);
         try
@@ -2116,6 +2129,7 @@ end
             engLbl.Text = ['Engagement failed: ' ME.message]; return;
         end
         engLast = E;
+        engExN = nEx;
         cond = engageConditions({E(:,1).file});
         try
             [selEx, ~, dEx] = engageExampleSel();
@@ -2173,10 +2187,16 @@ end
         title(engAxScan,'D ratio vs engagement distance');
 
         nOK = sum(arrayfun(@(e) e.ok, E(:)));
+        % Name the curation on the status line. A ratio computed after rejecting tracks is a
+        % different measurement from one computed before, and the difference must not be invisible.
+        exTxt = '';
+        if engExN > 0
+            exTxt = sprintf('  ·  %d hand-rejected track(s) EXCLUDED (analysis/track_exclusions.csv)', engExN);
+        end
         engLbl.Text = sprintf(['%d cell(s) x %d distance(s) · %d answered · %s within %.3g–%.3g µm · ' ...
             'precision %g nm · min %d steps per class. A ratio below 1 means slowed at the interface; ' ...
-            '1 means no contrast.'], size(E,1), size(E,2), nOK, engKey.Value, dl(1), dl(end), ...
-            engSig.Value, round(engMin.Value));
+            '1 means no contrast.%s'], size(E,1), size(E,2), nOK, engKey.Value, dl(1), dl(end), ...
+            engSig.Value, round(engMin.Value), exTxt);
     end
 
     function c = engageConditions(files)
@@ -2205,7 +2225,11 @@ end
         if ~ensureTracksLoaded() || isempty(buildTracks), return; end
         dl = linspace(engD0.Value, engD1.Value, round(engN.Value));
         dEx = dl(max(1, round(numel(dl)/2)));
-        [selE, TsubE] = cs_engage_examples(buildTracks, struct('dUm',dEx,'key',engKey.Value));
+        % The SAME curated set the ratio was computed on — otherwise the gallery would show, and the
+        % export would hand to Tool 2, tracks the number no longer counts.
+        try, trkEx = cs_track_exclusions('load', projectDir); catch, trkEx = []; end
+        Tcur = cs_track_exclusions('apply', trkEx, buildTracks);
+        [selE, TsubE] = cs_engage_examples(Tcur, struct('dUm',dEx,'key',engKey.Value));
     end
 
     function drawEngageExamples(selE, dEx)
@@ -3124,6 +3148,45 @@ end
 
     function v = gs(s2,f), v = ''; if isstruct(s2)&&isfield(s2,f)&&(ischar(s2.(f))||isstring(s2.(f))), v = char(s2.(f)); end, end
 
+    function onQcReject()
+        % Reject (or restore) the track selected in the map. The decision is keyed on the ORIGINAL
+        % build column, resolved through srcCols, so the same click means the same track whether you
+        % are looking at the full build or at an examples subset.
+        if qcSelIdx < 1 || qcSelIdx > numel(qcTracks)
+            setBuild('Click a track in the map first, then reject it.',[0.6 0.4 0.1]); return;
+        end
+        s = qcTracks{qcSelIdx};
+        src = s.col;
+        T = buildTracks(s.cellIdx);
+        if isfield(T,'srcCols') && numel(T.srcCols) >= s.col, src = T.srcCols(s.col); end
+        was = cs_track_exclusions('has', trkEx, s.base, src);
+        trkEx = cs_track_exclusions('toggle', trkEx, s.base, src, '');
+        cs_track_exclusions('save', projectDir, trkEx);
+        n = cs_track_exclusions('count', trkEx);
+        if was, verb = 'restored'; else, verb = 'rejected'; end
+        msg = sprintf('%s %s track %d — %d rejected in this project (analysis/track_exclusions.csv)', ...
+            verb, s.base, src, n);
+        setBuild(msg, [0.1 0.5 0.2]); logBuild(msg);
+        drawQC(ddQCcell.Value);                       % the pooled panels must stop counting it now
+        % Re-select the SAME track. drawQC rebuilds the list and clears the selection, and without
+        % this the button springs back to "Reject" on a track that is already rejected — leaving no
+        % way to undo it from the UI.
+        for i = 1:numel(qcTracks)
+            if qcTracks{i}.cellIdx == s.cellIdx && qcTracks{i}.col == s.col, drawSelected(i); break; end
+        end
+    end
+
+    function refreshRejectBtn()
+        % The button says what the click will DO, which is the only way a toggle is legible.
+        if isempty(bQcRej) || ~isgraphics(bQcRej), return; end
+        if qcSelIdx < 1 || qcSelIdx > numel(qcTracks), bQcRej.Text = '✖ Reject track'; return; end
+        s = qcTracks{qcSelIdx};
+        src = s.col; T = buildTracks(s.cellIdx);
+        if isfield(T,'srcCols') && numel(T.srcCols) >= s.col, src = T.srcCols(s.col); end
+        if cs_track_exclusions('has', trkEx, s.base, src), bQcRej.Text = '↺ Restore track';
+        else,                                              bQcRej.Text = '✖ Reject track'; end
+    end
+
     function [recs, ER, MI, L] = qcRecords(ks)
         % One record per track over the given cells. Factored out of drawQC so the ALL-CELLS export
         % measures every track exactly the way the on-screen panels measure the shown ones — same
@@ -3134,11 +3197,20 @@ end
             dtk = trackDt(k);
             msdT = fieldOr(T,'MSD');                                                    % may be absent (old struct)
             [~, erT] = cs_channel_has(T,'er');   [~, miT] = cs_channel_has(T,'mito');   % [] when not imaged
+            % Rejected tracks stay IN the list, flagged. Dropping them here removed them from the
+            % map too, and a track you cannot click is a track you cannot un-reject — the toggle
+            % became one-way. They are excluded from the statistics by qcSelectionOf instead, and
+            % drawn in red so a rejection is visible in context rather than only as a count.
+            keepK = true(1, size(M,2));
+            if ~isempty(trkEx)
+                km = cs_track_exclusions('mask', trkEx, T); keepK = km{1};
+            end
             for c = 1:size(M,2)
                 X = M(:,c,2); Y = M(:,c,3); F = M(:,c,1); ok = isfinite(X) & isfinite(Y);
                 if nnz(ok) < 2, continue; end
                 rr = spt_fit_msd(colOr(msdT,c), dtk, fitSpec());        % per-track D at the current fit mode/window
-                s = struct('cellIdx',k,'col',c,'base',char(T.file),'X',X(ok),'Y',Y(ok),'F',F(ok),'len',nnz(ok), ...
+                s = struct('cellIdx',k,'col',c,'base',char(T.file),'rejected',~keepK(c), ...
+                    'X',X(ok),'Y',Y(ok),'F',F(ok),'len',nnz(ok), ...
                     'MSD', colOr(msdT,c), 'ER', finiteCol(erT,c), 'MI', finiteCol(miT,c), 'D', rr.D, 'sigLoc', rr.sigLocUm, 'fracUsed', rr.fracUsed, ...
                     'dt', dtk, ...                                       % stepwise (per-localization) diffusion, aligned to X/Y/F:
                     'Dt',   maskCol(fieldOr(T,'Dt'),          c, ok), ...
@@ -3241,6 +3313,7 @@ end
     function drawSelected(i)
         if i < 1 || i > numel(qcTracks), return; end
         qcSelIdx = i; s = qcTracks{i};
+        refreshRejectBtn();
         % highlight in the tracks panel
         if ~isempty(qcHi) && isgraphics(qcHi), delete(qcHi); end
         hold(axCov,'on'); qcHi = plot(axCov, s.X, s.Y, '-','Color',[1 0.55 0],'LineWidth',2,'HitTest','off'); hold(axCov,'off');
@@ -3411,6 +3484,7 @@ end
         %             ever brushed a mitochondrion, which is a different and much weaker claim.
         keep = true(1, numel(recs));
         if isempty(recs), return; end
+        keep = keep & ~cellfun(@(x) isfield(x,'rejected') && x.rejected, recs);   % hand-rejected
         if ~isempty(spnLenMin) && isgraphics(spnLenMin) && spnLenMin.Value > 0
             keep = keep & cellfun(@(x) x.len >= spnLenMin.Value, recs);
         end
@@ -3467,19 +3541,27 @@ end
         nAll = numel(qcTracks);
 
         if ~isempty(lblQcSel) && isgraphics(lblQcSel)
+            lblQcSel.FontColor = [0.2 0.4 0.5]; lblQcSel.FontWeight = 'normal';
+        end
+        nRej = sum(cellfun(@(x) isfield(x,'rejected') && x.rejected, qcTracks));
+        rejTxt = ''; if nRej > 0, rejTxt = sprintf('  ·  %d rejected', nRej); end
+        if ~isempty(lblQcSel) && isgraphics(lblQcSel)
             if numel(sel) == nAll
-                lblQcSel.Text = sprintf('all %d tracks', nAll);
+                lblQcSel.Text = sprintf('all %d tracks%s', nAll, rejTxt);
             else
-                lblQcSel.Text = sprintf('%d of %d tracks selected', numel(sel), nAll);
+                lblQcSel.Text = sprintf('%d of %d tracks selected%s', numel(sel), nAll, rejTxt);
             end
         end
 
         % the track map: unselected faint, selected solid, so the cut is visible where the tracks are
         if ~isempty(axCov) && isgraphics(axCov)
             cla(axCov); hold(axCov,'on');
-            [Xo,Yo] = catXY(qcTracks(~qcKeep)); [Xs,Ys] = catXY(sel);
+            isRej = cellfun(@(x) isfield(x,'rejected') && x.rejected, qcTracks);
+            [Xo,Yo] = catXY(qcTracks(~qcKeep & ~isRej)); [Xs,Ys] = catXY(sel);
+            [Xr,Yr] = catXY(qcTracks(isRej));
             if ~isempty(Xo), plot(axCov, Xo, Yo, '-','Color',[0.80 0.82 0.88],'LineWidth',0.4,'HitTest','off'); end
             if ~isempty(Xs), plot(axCov, Xs, Ys, '-','Color',[0.35 0.42 0.62],'LineWidth',0.5,'HitTest','off'); end
+            if ~isempty(Xr), plot(axCov, Xr, Yr, '-','Color',[0.85 0.25 0.20],'LineWidth',0.9,'HitTest','off'); end
             hold(axCov,'off');
             axis(axCov,'equal'); set(axCov,'YDir','reverse');
             xlabel(axCov,'x (µm)'); ylabel(axCov,'y (µm)');
@@ -3606,18 +3688,12 @@ end
 
     function flashQcSel(txt)
         % Confirm where the user is looking — the selection label sits between the filters and the
-        % Export buttons. Green for two seconds, then the label goes back to reporting the count.
+        % Export buttons. It STAYS until the next redraw (any filter change, any reject, any
+        % rebuild), rather than fading on a timer: a confirmation that vanishes after two seconds
+        % can be missed, which was the original complaint, and a timer outliving the app fired
+        % into a deleted figure.
         if isempty(lblQcSel) || ~isgraphics(lblQcSel), return; end
         lblQcSel.Text = txt; lblQcSel.FontColor = [0.10 0.50 0.20]; lblQcSel.FontWeight = 'bold';
-        t = timer('StartDelay',2.2,'TimerFcn',@(tt,~) restore(tt));
-        start(t);
-        function restore(tt)
-            try, stop(tt); delete(tt); catch, end
-            % The panel may have been rebuilt or the app closed while the timer ran.
-            if isempty(lblQcSel) || ~isgraphics(lblQcSel), return; end
-            lblQcSel.FontColor = [0.2 0.4 0.5]; lblQcSel.FontWeight = 'normal';
-            try, redrawQcPooled(); catch, end
-        end
     end
 
     function v = medOr(x, f)
@@ -3777,6 +3853,7 @@ end
         if nargin < 1, quiet = false; end
         if isempty(projectDir) || ~isfolder(projectDir), return; end
         if exist('spt_project_calib','file')~=2, return; end
+        try, trkEx = cs_track_exclusions('load', projectDir); catch, trkEx = []; end
         try, pc = spt_project_calib(projectDir); catch, return; end
         IMW = pc.width; IMH = pc.height;
         % 'edited' is the resolver's own label for a value read back out of the manifest, so the

@@ -469,6 +469,39 @@ Any new legend in a gridded tab will do the same thing.
 
 ---
 
+## 9e. Hand curation, shared by Tool 2 and the Engagement ratio
+
+**`cs_track_exclusions.m`** — a persisted, identity-keyed list of tracks the user rejected, written
+to `analysis/track_exclusions.csv` (plain text, with a **reason** column, so a rejection can be read,
+diffed, edited in a spreadsheet and defended later). A rejection is a judgement about ONE track, so
+it is recorded as one and applied at the moment of measurement; rebuilding to drop a track would
+discard every other decision and take minutes on 93 cells.
+
+**Identity is (cell file, ORIGINAL track column)** — never the column of whatever struct is on
+screen. A subset renumbers its tracks from 1, so track 30 of an examples file is not track 30 of the
+build. `cs_track_slice` (extracted from `cs_engage_examples`, now shared) records `.srcCols` on every
+slice and composes across repeated slicing; `cs_track_exclusions` resolves through it. Getting this
+wrong would silently reject a different track, which is why `spt_curate_engage_smoke` asserts it
+directly on a deliberately offset subset.
+
+Wired into: **Tool 2's Build & QC** (`✖ Reject track` / `↺ Restore track` on the selected track —
+the pooled panels, both D exports and the count label all stop counting it) and **Tool 3's
+Engagement** (Compute re-reads the file and drops them before `cs_mito_engage` sees them, so a
+rejection made in Tool 2 changes the ratio without reopening; the status line says
+`N hand-rejected track(s) EXCLUDED`, because a curated ratio must not look identical to an
+uncurated one). The gallery and the examples export use the same curated set.
+
+**Rejected tracks stay VISIBLE in the map, drawn red.** The first version dropped them from the
+track list, which also dropped them from the map — and a track you cannot click is a track you
+cannot un-reject. The toggle was one-way until the test caught it. They are excluded in
+`qcSelectionOf` instead.
+
+Also removed here: the 2-second timer on the export confirmation. It fired into a deleted figure
+after the app closed, and a confirmation that vanishes was the original complaint anyway — the ✓ now
+stays until the next redraw.
+
+---
+
 ## 10. Open threads
 
 1. **`_ch24` may itself be interleaved.** `_spt12` was ch1+ch3 alternating. If `_ch24` is ch2+ch4 the
