@@ -75,7 +75,7 @@ function T = sliceCell(T, cols)
 % would silently drop whichever field someone adds next, leaving a struct whose columns no longer
 % correspond — which is worse than an error.
 if ~isfield(T,'matrix') || isempty(T.matrix), return; end
-nT = size(T.matrix,2);
+nT = size(T.matrix,2); nF = size(T.matrix,1);
 cols = cols(:)';
 
 T.matrix = T.matrix(:, cols, :);
@@ -85,17 +85,40 @@ for i = 1:numel(fn)
     if strcmp(f,'matrix'), continue; end
     v = T.(f);
     if isnumeric(v) || islogical(v)
-        if ~isempty(v) && size(v,2) == nT, T.(f) = v(:, cols, :); end
+        T.(f) = sliceField(v, cols, nT, nF, f);
     elseif isstruct(v) && isscalar(v)
         sf = fieldnames(v);                                   % .dist.<key>, and anything shaped like it
         for q = 1:numel(sf)
-            w = v.(sf{q});
-            if (isnumeric(w) || islogical(w)) && ~isempty(w) && size(w,2) == nT
-                v.(sf{q}) = w(:, cols, :);
-            end
+            v.(sf{q}) = sliceField(v.(sf{q}), cols, nT, nF, [f '.' sf{q}]);
         end
         T.(f) = v;
     end
+end
+end
+
+function v = sliceField(v, cols, nT, nF, name)
+% Slice one field to the kept tracks. TWO layouts occur in a real TrackStruct and both must be
+% handled:
+%   [* x nT (x k)]  the dominant one — matrix, MSD, Dt, CSD, steps, the channel distances
+%   [nT x 1]        per-track COLUMN vectors — `lengths` and `trackIDs`
+% Only the first was handled at first, so lengths and trackIDs stayed at full width while everything
+% else was cut: lengths(j) then described a different track from matrix(:,j,:). Nothing errors on
+% that, which is why it is worth being explicit here rather than trusting one shape rule.
+if ~(isnumeric(v) || islogical(v)) || isempty(v), return; end
+if size(v,2) == nT
+    v = v(:, cols, :); return
+end
+if isvector(v) && numel(v) == nT
+    % nF == nT would make a per-frame column indistinguishable from a per-track one. Refuse rather
+    % than guess: a wrongly sliced field is a silent mis-association, and the caller is better off
+    % told than handed one.
+    if nF == nT
+        warning('cs_engage_examples:ambiguousField', ...
+            ['%s is %d long and this cell has %d frames AND %d tracks, so it cannot be told whether ' ...
+             'it is per-frame or per-track. Left unsliced.'], name, numel(v), nF, nT);
+        return
+    end
+    if size(v,1) == nT, v = v(cols, :); else, v = v(:, cols); end
 end
 end
 

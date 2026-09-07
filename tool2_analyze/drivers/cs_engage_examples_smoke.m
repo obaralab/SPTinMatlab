@@ -70,6 +70,14 @@ assert(size(Tsub(1).dist.mito,2) == numel(c), ...
     'dist.mito was not sliced — the distances would belong to different tracks than the coordinates');
 assert(isequal(Tsub(1).dist.mito, T(1).dist.mito(:,c)), 'dist.mito was sliced to the wrong columns');
 assert(Tsub(1).frameInterval == T(1).frameInterval, 'a scalar field was sliced as though it were per track');
+for f = {'lengths','trackIDs'}
+    got = Tsub(1).(f{1});
+    assert(numel(got) == numel(c), ...
+        ['%s is %d long after keeping %d tracks — a [nT x 1] per-track column was left at full ' ...
+         'width, so %s(j) now describes a different track from matrix(:,j,:). Nothing errors on ' ...
+         'that; it is a silent mis-association.'], f{1}, numel(got), numel(c), f{1});
+    assert(isequal(got(:), T(1).(f{1})(c)), '%s was sliced to the wrong entries', f{1});
+end
 
 %% (4) an empty cell survives ---------------------------------------------------------------------------
 assert(numel(Tsub) == numel(T), 'the slice dropped a cell: %d in, %d out', numel(T), numel(Tsub));
@@ -111,4 +119,10 @@ T.dist = struct('mito', abs(X - 5));
 T.MSD  = rand(8, nT);            % shapes only: the test cares that they FOLLOW their tracks
 T.Dt   = rand(nF, nT);
 T.CSD  = rand(nF-1, nT);
+% PER-TRACK COLUMN VECTORS. A real TrackStruct has these — `lengths` and `trackIDs` are [nT x 1] —
+% and the first version of the slicer only handled the [* x nT] layout, so they stayed at full width
+% while the matrix was cut. Nothing errors on that; lengths(j) simply starts describing a different
+% track. The fixture carries them so the test does.
+T.lengths  = (1:nT)' * 10;
+T.trackIDs = (1:nT)';
 end

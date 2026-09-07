@@ -475,6 +475,12 @@ end
         d = dir(fullfile(anaDir,'*.mat'));
         for k = 1:numel(d)
             if any(strcmpi(d(k).name, skip)), continue; end
+            % examples_*.mat IS a valid TrackStruct — the Engagement tab's subset of tracks that
+            % touch the organelle — but it is not a BUILD. Offering it here would let it be made the
+            % active build, and every downstream stage would then quietly analyse a subset. It stays
+            % out of this list and remains reachable from Load TrackStruct…, whose own count does
+            % include it, so the picker still opens.
+            if strncmpi(d(k).name, 'examples_', 9), continue; end
             try
                 w = whos('-file', fullfile(anaDir,d(k).name));
                 if any(strcmp({w.name},'Tracks')), names{end+1} = d(k).name; end %#ok<AGROW>
@@ -2309,9 +2315,12 @@ end
         try, save(f, 'Tracks', '-v7.3');
         catch ME, engLbl.Text = ['Could not write the examples: ' ME.message]; return; end
         nC = sum(arrayfun(@(x) ~isempty(x.cols), selE));
+        [~, fb, fe] = fileparts(f);
         engLbl.Text = sprintf(['Wrote %d track(s) from %d cell(s) touching %s within %.3g µm -> %s   ' ...
-            '·  open it in Tool 2 with "Load TrackStruct…" for the player, MSD, stepwise D(t), CSD ' ...
-            'and the per-track D export on exactly these tracks.'], nTr, nC, engKey.Value, dEx, f);
+            '·  In TOOL 2, hit "Load TrackStruct…" and pick %s%s for the interactive player over the ' ...
+            'raw movie with the ER/mito overlay, plus MSD, stepwise D(t), CSD and the per-track D ' ...
+            'export — on exactly these tracks. It is deliberately NOT offered in the Build selector: ' ...
+            'it is a subset, not a build.'], nTr, nC, engKey.Value, dEx, f, fb, fe);
         logBuild(sprintf('Engagement examples: %d track(s), %d cell(s) -> %s', nTr, nC, f));
     end
 
