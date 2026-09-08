@@ -883,6 +883,20 @@ New tab app `spt_analyze_app.m`; built on the `drivers/` layer. Build order:
    n_free, n_crossing, occupancy, condition` — so a compound can be scored from the file without re-running.
    `n_crossing` (steps that left the zone, counted where they started) is what sets the dilution: a large
    share means much of the bound pool is molecules on their way out.
+   **Binding kinetics at the interface** (`cs_zone_kinetics.m`): `k_off` = bound episodes seen to
+   END ÷ total time bound, `k_on` = binding events ÷ total time FREE. Events over exposure, not
+   `1/mean(duration)` — an episode still bound when its track stops is right-censored, and this form
+   gives it exposure but no event, which is exactly correct and is the MLE for a constant hazard
+   with censoring. The naive mean treats every truncation as an unbinding: on the smoke's fixture
+   (planted `k_off` 4.0, observation window 300 ms) events/exposure returns **4.03** and
+   `1/mean(observed)` returns **5.73**. That matters here because tracks end on the same timescale
+   as the binding — a median track is ~60 frames. Time accumulates per step as `tau = frame span x
+   dt` and each step is credited to the class it STARTS in, the same partition `D_bound`/`D_free`
+   uses, so gap-closed steps carry their real duration. Assumes ONE exponential: with a fast pool
+   and a stable one, `k_off` is their exposure-weighted average, which is why `perTrack` is returned.
+   `k_on` is pseudo-first-order (no concentration term). Read `nEnd`/`nCensored`: a rate from three
+   completed episodes is not a rate. Regression: `cs_zone_kinetics_smoke`.
+
    **The distance is SIGNED and negative means inside.** The zone test is `dist <= d` everywhere
    (`cs_mito_engage`, `cs_engage_examples`, `cs_track_occupancy`), so a positive `d` already
    includes every localization inside the mask plus a shell of width `d` outside it — on the user's

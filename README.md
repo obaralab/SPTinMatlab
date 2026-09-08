@@ -193,6 +193,7 @@ spt_qc_select_smoke         % QC selects tracks by length and mito, and every pa
 cs_engage_examples_smoke    % the example tracks ARE the population D_bound is built from
 spt_curate_engage_smoke     % rejecting a track by hand moves the engagement number, and persists (and a subset never becomes the build)
 cs_track_occupancy_smoke    % occupancy per MOLECULE, and the pooled number it corrects
+cs_zone_kinetics_smoke      % k_off/k_on as events over exposure, so censoring cannot inflate them
 spt_compare_group_smoke     % Compare: crossing, the site/dw%/cell filters, and the per-point export
 spt_precision_smoke         % sigma_loc = sqrt(b)/2 recovers a known injected precision
 ```
