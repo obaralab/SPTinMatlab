@@ -883,6 +883,18 @@ New tab app `spt_analyze_app.m`; built on the `drivers/` layer. Build order:
    n_free, n_crossing, occupancy, condition` — so a compound can be scored from the file without re-running.
    `n_crossing` (steps that left the zone, counted where they started) is what sets the dilution: a large
    share means much of the bound pool is molecules on their way out.
+
+   **The examples export keeps whole TRACKS, not the localizations inside the zone.** A track
+   qualifies on one step starting inside and is then exported in full, so most of its localizations
+   can be far away — on the user's plate at d = 0.15 µm all 3194 exported tracks have a closest
+   approach within 0.15, only **35 %** of their localizations are, and only **6 %** of tracks are
+   entirely inside. That is deliberate: the point of an example is to see how a molecule arrives,
+   dwells and leaves, which a clipped trajectory cannot show. It does mean Tool 2 shows plenty of
+   distance above the threshold. Note there are three different criteria in play and they answer
+   different questions: the D ratio classifies STEPS by where they start, the examples export keeps
+   a TRACK on one qualifying step, and the QC's `near mito ≤` filter cuts on a track's MEDIAN
+   distance.
+
    **Two exclusions, both honoured.** Per-TRACK rejections come from `analysis/curation/
    track_exclusions.csv` (the `✖ Reject` button in Tool 2's QC); per-CELL exclusions come from the
    **Experiment tab's `exclude` flag**, the durable judgement `cs_experiment_aggregate` has always
