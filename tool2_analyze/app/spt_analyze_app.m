@@ -53,7 +53,7 @@ CALEDIT = {};           % which top-bar numbers are HAND EDITS ('pixSizeUm','fov
 tg=[]; tImport=[]; tBuild=[]; tCS=[];                                 % tabs
 tRefine=[]; tSites=[]; tDwell=[]; tExpt=[]; tEngage=[]; tCompare=[];   % downstream tabs
 % Engagement tab handles
-engExN=0; engDd=[]; engKey=[]; engD0=[]; engD1=[]; engN=[]; engSig=[]; engMin=[]; engTbl=[]; engLbl=[]; engAxEx=[]; engNEx=[];
+engExN=0; engOccT=[]; engEngF=[]; engDd=[]; engKey=[]; engD0=[]; engD1=[]; engN=[]; engSig=[]; engMin=[]; engTbl=[]; engLbl=[]; engAxEx=[]; engNEx=[];
 engAxCell=[]; engAxScan=[]; engLast=[];
 ddTimeUnit=[]; lblBuild=[]; tblBuild=[]; txtBuild=[];                 % Build handles
 buildChanKeys = {};   % the channel columns tblBuild was BUILT with — onCalEdit derives its column
@@ -2063,8 +2063,8 @@ end
     % already carries. That makes it usable on a plate of cells that were never picked or mapped.
     function buildEngageTab(parent)
         g = uigridlayout(parent,[3 1],'RowHeight',{34,26,'1x'},'Padding',[10 10 10 10],'RowSpacing',6);
-        r = uigridlayout(g,[1 16],'ColumnWidth',{40,132, 40,72, 62,52,52,40, 68,56, 56,52, 82, 84, 46, 118}, ...
-            'Padding',[0 0 0 0],'ColumnSpacing',6);
+        r = uigridlayout(g,[1 18],'ColumnWidth',{36,120, 36,64, 56,48,48,36, 62,50, 52,48, 62,50, 78, 78, 42, 112}, ...
+            'Padding',[0 0 0 0],'ColumnSpacing',5);
         uilabel(r,'Text','data','HorizontalAlignment','right');
         engDd = uidropdown(r,'Items',{'current project','experiment (all folders)'},'Value','current project', ...
             'Tooltip','This project''s active build, or every folder in the Experiment tab (each folder''s own build).');
@@ -2085,6 +2085,12 @@ end
         uilabel(r,'Text','min steps','HorizontalAlignment','right', ...
             'Tooltip','A cell needs this many steps in BOTH classes before a ratio is reported. Below it the cell says why instead.');
         engMin = uispinner(r,'Limits',[5 5000],'Value',100,'Step',25);
+        uilabel(r,'Text','engaged ≥','HorizontalAlignment','right', ...
+            'Tooltip',['A TRACK counts as engaged when at least this fraction of its own ' ...
+                       'localizations lie inside the zone. 0.5 = "spends more than half its time ' ...
+                       'at the organelle". This sets the "eng %" column, which is the share of ' ...
+                       'MOLECULES engaged — not the share of time, and not weighted by track length.']);
+        engEngF = uispinner(r,'Limits',[0.05 1],'Value',0.5,'Step',0.05,'ValueDisplayFormat','%.2f');
         uibutton(r,'Text','▶ Compute','FontWeight','bold','BackgroundColor',[0.18 0.45 0.70],'FontColor','w', ...
             'ButtonPushedFcn',@(s,e) onEngageCompute());
         uibutton(r,'Text','Export CSV','ButtonPushedFcn',@(s,e) onEngageExport(), ...
@@ -2099,8 +2105,9 @@ end
         engLbl = uilabel(g,'Text','Needs a built TrackStruct with a mito/ER distance. Set the project, then Compute.', ...
             'FontColor',[0.2 0.4 0.5],'WordWrap','on');
         mn = uigridlayout(g,[1 2],'ColumnWidth',{'1.15x','0.85x'},'Padding',[0 0 0 0],'ColumnSpacing',8);
-        engTbl = uitable(mn,'ColumnName',{'cell','condition','d µm','D bound','D free','ratio','n bound','n free','note'}, ...
-            'ColumnWidth',{'1x',90,48,64,64,54,58,58,150});
+        engTbl = uitable(mn,'ColumnName',{'cell','condition','d µm','D bound','D free','ratio', ...
+                                          'occ med','eng %','n bound','n free','note'}, ...
+            'ColumnWidth',{'1x',88,44,58,58,50,56,50,54,54,130});
         rc = uigridlayout(mn,[3 1],'RowHeight',{'1x','1x','1.1x'},'Padding',[0 0 0 0],'RowSpacing',6);
         engAxCell = uiaxes(rc); title(engAxCell,'D ratio per cell (at the chosen distance)');
         engAxScan = uiaxes(rc); title(engAxScan,'D ratio vs engagement distance');
@@ -2137,6 +2144,22 @@ end
         end
         engLast = E;
         engExN = nEx;
+
+        % PER-TRACK OCCUPANCY, at every distance in the scan. Cheap (it is a count), and per
+        % distance because the table is per cell x distance and occupancy varies with d exactly as
+        % the ratio does. Computed on the SAME curated T, so the two columns of a row describe the
+        % same set of molecules.
+        engOccT = struct('med',nan(size(E)), 'eng',nan(size(E)), 'n',zeros(size(E)), 'perTrack',{{}});
+        for q = 1:numel(dl)
+            [ptq, pcq] = cs_track_occupancy(T, struct('dUm',dl(q), 'key',engKey.Value, ...
+                'minLoc',5, 'engFrac',engEngF.Value));
+            for k = 1:numel(pcq)
+                engOccT.med(k,q) = pcq(k).occMedian;
+                engOccT.eng(k,q) = pcq(k).engagedFrac;
+                engOccT.n(k,q)   = pcq(k).nScored;
+            end
+            engOccT.perTrack{q} = ptq;
+        end
         cond = engageConditions({E(:,1).file});
         try
             [selEx, ~, dEx] = engageExampleSel();
@@ -2147,12 +2170,13 @@ end
 
         % Table: every cell at every distance, so a cell that only engages at one radius is visible
         % rather than hidden behind a single chosen number.
-        D = cell(numel(E), 9); rr = 0;
+        D = cell(numel(E), 11); rr = 0;
         for k = 1:size(E,1)
             for q = 1:size(E,2)
                 rr = rr + 1; e = E(k,q);
                 D(rr,:) = {e.file, cond{k}, sprintf('%.3g',e.dUm), ...
                     numOrDash(e.Dbound), numOrDash(e.Dfree), numOrDash(e.Dratio), ...
+                    numOrDash(engOccT.med(k,q)), pctOrDash(engOccT.eng(k,q)), ...
                     sprintf('%d',e.nBound), sprintf('%d',e.nFree), tern(e.ok,'',e.why)};
             end
         end
@@ -2204,6 +2228,14 @@ end
             'precision %g nm · min %d steps per class. A ratio below 1 means slowed at the interface; ' ...
             '1 means no contrast.%s%s'], size(E,1), size(E,2), nOK, engKey.Value, dl(1), dl(end), ...
             engSig.Value, round(engMin.Value), exTxt, engScopeNote);
+    end
+
+    function closeIfOpen(fid)
+        try, if ~isempty(fid) && fid > 2 && ~isempty(fopen(fid)), fclose(fid); end, catch, end
+    end
+
+    function t = pctOrDash(v)
+        if isscalar(v) && isfinite(v), t = sprintf('%.0f%%', 100*v); else, t = '—'; end
     end
 
     function c = engageConditions(files)
@@ -2361,18 +2393,44 @@ end
         fn = fullfile(anaDir, sprintf('cs_engagement_%s.csv', regexprep(engKey.Value,'\W','_')));
         try
             fid = fopen(fn,'w');
-            c = onCleanup(@() fclose(fid)); %#ok<NASGU>
-            fprintf(fid,'cell,condition,d_um,D_bound,D_free,D_ratio,n_bound,n_free,n_crossing,occupancy,ok,note\n');
+            % Guarded: the per-cell file is closed explicitly below (before the per-track file is
+            % written), so an unconditional fclose in the cleanup would close it twice.
+            c = onCleanup(@() closeIfOpen(fid)); %#ok<NASGU>
+            fprintf(fid,['cell,condition,d_um,D_bound,D_free,D_ratio,n_bound,n_free,n_crossing,' ...
+                         'occupancy_pooled,occ_median_per_track,engaged_frac,n_tracks_scored,ok,note\n']);
             cond = engageConditions({engLast(:,1).file});
             for k = 1:size(engLast,1)
                 for q = 1:size(engLast,2)
                     e = engLast(k,q);
-                    fprintf(fid,'%s,%s,%.4g,%.6g,%.6g,%.6g,%d,%d,%d,%.4g,%d,%s\n', ...
+                    om = NaN; ef = NaN; ns = 0;
+                    if ~isempty(engOccT) && k <= size(engOccT.med,1) && q <= size(engOccT.med,2)
+                        om = engOccT.med(k,q); ef = engOccT.eng(k,q); ns = engOccT.n(k,q);
+                    end
+                    fprintf(fid,'%s,%s,%.4g,%.6g,%.6g,%.6g,%d,%d,%d,%.4g,%.4g,%.4g,%d,%d,%s\n', ...
                         csvq(e.file), csvq(cond{k}), e.dUm, e.Dbound, e.Dfree, e.Dratio, ...
-                        e.nBound, e.nFree, e.nStraddle, e.occupancy, e.ok, csvq(e.why));
+                        e.nBound, e.nFree, e.nStraddle, e.occupancy, om, ef, ns, e.ok, csvq(e.why));
                 end
             end
-            engLbl.Text = ['Exported ' fn];
+            fclose(fid); fid = -1;
+
+            % PER-TRACK file as well. The per-cell rows are summaries; this is the distribution they
+            % summarise — one row per molecule — which is what a Prism column plot needs and what
+            % shows whether a cell is bimodal rather than merely intermediate.
+            fn2 = strrep(fn,'.csv','_pertrack.csv');
+            fid2 = fopen(fn2,'w');
+            fprintf(fid2,'cell,condition,d_um,track_col,n_loc,n_inside,occupancy,engaged\n');
+            for q = 1:numel(engOccT.perTrack)
+                ptq = engOccT.perTrack{q};
+                dq = engLast(1,q).dUm;
+                for i = 1:numel(ptq)
+                    ci = ptq(i).cellIndex;
+                    cn = ''; if ci >= 1 && ci <= numel(cond), cn = cond{ci}; end
+                    fprintf(fid2,'%s,%s,%.4g,%d,%d,%d,%.6g,%d\n', csvq(ptq(i).file), csvq(cn), ...
+                        dq, ptq(i).srcCol, ptq(i).nLoc, ptq(i).nIn, ptq(i).occ, ptq(i).engaged);
+                end
+            end
+            fclose(fid2);
+            engLbl.Text = sprintf('Exported %s  +  %s (one row per molecule)', fn, fn2);
         catch ME
             engLbl.Text = ['Export failed: ' ME.message];
         end

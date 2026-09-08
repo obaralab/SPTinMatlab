@@ -48,6 +48,9 @@ drawnow;
 sp  = findobj(f,'Type','uispinner');
 tbl = pick(findobj(f,'Type','uitable'), ...
     @(x) numel(x.ColumnName)>=6 && strcmp(x.ColumnName{6},'ratio'), 'Engagement table');
+assert(any(strcmp(tbl.ColumnName,'occ med')) && any(strcmp(tbl.ColumnName,'eng %')), ...
+    ['the table has no per-track occupancy columns: %s. This is SPT — the molecule is the unit, and ' ...
+     'a pooled per-localization occupancy lets one long resident carry a cell.'], strjoin(tbl.ColumnName',', '));
 sig = pick(sp, @(x) isequal(x.Limits,[0 500]),   'precision spinner');
 mn  = pick(sp, @(x) isequal(x.Limits,[5 5000]),  'min-steps spinner');
 nsc = pick(sp, @(x) isequal(x.Limits,[1 20]),    'scan-count spinner');
@@ -96,7 +99,7 @@ sig.Value = 30; cb(bC, struct()); drawnow;
 mn.Value = 5000;                                     % more steps than the fixture has
 cb(bC, struct()); drawnow;
 D2 = tbl.Data;
-noteCol = D2(:,9); ratioCol = D2(:,6);
+noteCol = D2(:,11); ratioCol = D2(:,6);
 assert(all(strcmp(ratioCol,'—')), 'a refused cell printed a number instead of a dash');
 assert(all(contains(noteCol,'too few')), 'a refused cell did not say why: "%s"', noteCol{1});
 fprintf('refusal shown as a dash with a reason: %s\n', noteCol{1});
@@ -110,10 +113,30 @@ assert(isfile(csv), 'no engagement CSV at %s', csv);
 L = strsplit(strtrim(fileread(csv)), newline);
 assert(numel(L) == 7, 'CSV has %d lines, wanted a header + 6 rows', numel(L));
 hdr = L{1};
-for want = {'D_ratio','n_bound','n_free','n_crossing','condition'}
+for want = {'D_ratio','n_bound','n_free','n_crossing','condition', ...
+            'occ_median_per_track','engaged_frac','n_tracks_scored'}
     assert(contains(hdr, want{1}), 'CSV header is missing %s: %s', want{1}, hdr);
 end
 fprintf('exported %d rows with the step counts\n', numel(L)-1);
+
+%% (6) the PER-TRACK file — the distribution the per-cell rows summarise ---------------------------
+pt = strrep(csv,'.csv','_pertrack.csv');
+assert(isfile(pt), ...
+    ['no per-track CSV. The per-cell rows are summaries; without the distribution behind them a ' ...
+     'bimodal cell (a bound population plus a free one) is indistinguishable from an intermediate one.']);
+PL = strsplit(strtrim(fileread(pt)), newline);
+assert(numel(PL) > 2, 'the per-track CSV holds %d rows', numel(PL)-1);
+ph = PL{1};
+for want = {'track_col','n_loc','n_inside','occupancy','engaged'}
+    assert(contains(ph, want{1}), 'per-track header is missing %s: %s', want{1}, ph);
+end
+% every occupancy must be a fraction — a count that escaped normalisation would show up here
+v = [];
+for i = 2:numel(PL)
+    p = strsplit(PL{i}, ','); v(end+1) = str2double(p{7}); %#ok<AGROW>
+end
+assert(all(v >= 0 & v <= 1), 'a per-track occupancy is outside [0,1]: min %.3g max %.3g', min(v), max(v));
+fprintf('per-track file: %d molecules, occupancy in [%.2f, %.2f]\n', numel(PL)-1, min(v), max(v));
 
 fprintf('\nENGAGEMENT-TAB SMOKE PASSED.\n');
 end
