@@ -854,6 +854,26 @@ New tab app `spt_analyze_app.m`; built on the `drivers/` layer. Build order:
    n_free, n_crossing, occupancy, condition` — so a compound can be scored from the file without re-running.
    `n_crossing` (steps that left the zone, counted where they started) is what sets the dilution: a large
    share means much of the bound pool is molecules on their way out.
+   **Occupancy is per TRACK, not per localization** (`cs_track_occupancy.m`). This is SPT: the unit
+   of observation is a molecule. Pooling every localization in a cell weights a 400-frame track 100x
+   more than a 4-frame one, so a handful of long residents carry the number — and it collapses the
+   thing most worth seeing, because a bound population plus a free one gives a BIMODAL per-track
+   distribution and an unremarkable pooled mean. On the smoke's fixture (one 200-frame resident
+   among nine 20-frame free molecules) the pooled occupancy is **0.53** and the per-track median is
+   **0.00**: the two tell opposite stories. Per track it is that track's own fraction inside; the
+   cell is summarised by the median plus the **engaged fraction** — the share of tracks at or above
+   `engaged ≥` (default 0.5), which states a result in words: *"38 % of molecules spend at least
+   half their time at mitochondria"*. Tracks under `minLoc` (5) are refused: 3 localizations can only
+   score 0, ⅓, ⅔ or 1. Computed at **every** scan distance, on the same curated set as the ratio,
+   and reported even where the D ratio refuses a cell — counting localizations needs no step
+   statistics, so a sparse cell gets a weaker answer rather than none. Exported both per cell
+   (`occ_median_per_track`, `engaged_frac`, `n_tracks_scored`) and per molecule
+   (`*_pertrack.csv`), the latter being what a Prism column plot and a bimodality check need.
+   Regression: `cs_track_occupancy_smoke`.
+   NB the median over ALL tracks lands *between* the populations on a bimodal cell (five tracks at
+   0.6 and five at 0 give 0.3, where nothing actually sits) — the engaged fraction is the summary
+   that survives bimodality.
+
    **Seeing the tracks behind the number.** `cs_engage_examples.m` keeps every track with at least
    one step STARTING in the zone — the same rule that builds `D_bound`, so the examples are drawn
    from exactly the population the ratio is computed over. Deliberately not a ranking: selecting the
