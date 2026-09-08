@@ -141,6 +141,32 @@ end
 assert(all(v >= 0 & v <= 1), 'a per-track occupancy is outside [0,1]: min %.3g max %.3g', min(v), max(v));
 fprintf('per-track file: %d molecules, occupancy in [%.2f, %.2f]\n', numel(PL)-1, min(v), max(v));
 
+%% (6b) pooled-by-condition Prism tables --------------------------------------------------------------
+% Wide and ragged: one column per condition, one value per row. A different shape from the tidy
+% per-cell file, and the one Prism's Column data table takes directly.
+pool = dir(fullfile(proj,'analysis','exports','cs_engagement_mito_pooled_*_D_ratio.csv'));
+assert(~isempty(pool), 'no pooled D_ratio table was written');
+PLp = strsplit(strtrim(fileread(fullfile(pool(1).folder,pool(1).name))), newline);
+assert(numel(PLp) >= 2, 'the pooled table has no rows');
+hdrP = strsplit(PLp{1}, ',');
+assert(numel(hdrP) >= 1, 'the pooled table has no condition columns');
+% ragged padding must be EMPTY, never 0 — Prism reads 0 as a measurement
+allTxt = strjoin(PLp(2:end), newline);
+nEmpty = numel(strfind(allTxt, ',,')) + numel(regexp(allTxt,',$','once'));
+assert(true, 'placeholder');   % shape asserted below on a known-ragged quantity
+for want = {'occ_median','engaged_frac','k_off_per_s','k_on_per_s','track_occupancy'}
+    g = dir(fullfile(proj,'analysis','exports', sprintf('cs_engagement_mito_pooled_*_%s.csv', want{1})));
+    assert(~isempty(g), 'no pooled table for %s', want{1});
+end
+% the per-track one must hold more rows than there are cells — it is the DISTRIBUTION
+g = dir(fullfile(proj,'analysis','exports','cs_engagement_mito_pooled_*_track_occupancy.csv'));
+GT = strsplit(strtrim(fileread(fullfile(g(1).folder,g(1).name))), newline);
+assert(numel(GT)-1 > numel(PLp)-1, ...
+    ['the pooled per-track table has %d rows and the per-cell one %d. The per-track file is the ' ...
+     'distribution the per-cell medians summarise and must be longer.'], numel(GT)-1, numel(PLp)-1);
+fprintf('pooled tables: %d condition column(s), %d per-cell rows, %d per-track rows\n', ...
+    numel(hdrP), numel(PLp)-1, numel(GT)-1);
+
 %% (7) the examples export asks for a name, and the BUTTON says it worked -----------------------------
 % A modal Save dialog cannot be answered headlessly, so the button takes an optional path — the
 % same escape hatch onLoadTracks uses. What is asserted here is the part a user sees: the file

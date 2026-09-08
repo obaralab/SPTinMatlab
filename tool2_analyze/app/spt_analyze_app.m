@@ -2317,6 +2317,25 @@ end
         try, if ~isempty(fid) && fid > 2 && ~isempty(fopen(fid)), fclose(fid); end, catch, end
     end
 
+    function writeWideCsv(fp, colNames, cols)
+        % One column per group, ragged — the shape a Prism Column data table expects. Short columns
+        % are padded with EMPTY fields, not zeros or NaN: Prism reads an empty cell as "no value"
+        % and a 0 as a measurement of zero, which would drag every mean it computes.
+        n = max([0, cellfun(@numel, cols)]);
+        fid3 = fopen(fp,'w');
+        if fid3 < 0, return; end
+        hdr = cellfun(@(c) csvq(char(c)), colNames(:)', 'uni', 0);
+        fprintf(fid3,'%s\n', strjoin(hdr,','));
+        for r = 1:n
+            cells_ = cell(1,numel(cols));
+            for c = 1:numel(cols)
+                if r <= numel(cols{c}), cells_{c} = sprintf('%.6g', cols{c}(r)); else, cells_{c} = ''; end
+            end
+            fprintf(fid3,'%s\n', strjoin(cells_,','));
+        end
+        fclose(fid3);
+    end
+
     function t = kOrDash(v, nEnd)
         % A k_off of 0 is not a rate — it is "no episode was seen to end here", which happens when
         % every episode is still running when its track stops. Showing 0 would read as "never
@@ -2589,7 +2608,49 @@ end
                 end
             end
             fclose(fid2);
-            engLbl.Text = sprintf('Exported %s  +  %s (one row per molecule)', fn, fn2);
+
+            % POOLED BY CONDITION, wide — a Prism Column table per quantity. Prism wants one column
+            % per group and one value per row, ragged, which is a different shape from the tidy
+            % per-cell file above; one file per quantity rather than one wide file with blocks is
+            % what lets each be pasted straight into its own graph.
+            qMidX = max(1, round(size(engLast,2)/2));
+            dPool = engLast(1,qMidX).dUm;
+            tagP  = sprintf('%.0fnm', dPool*1000);
+            perCellQ = { 'D_ratio',      arrayfun(@(e) e.Dratio, engLast(:,qMidX)) ; ...
+                         'occ_median',   engOccT.med(:,qMidX) ; ...
+                         'engaged_frac', engOccT.eng(:,qMidX) ; ...
+                         'k_off_per_s',  engOccT.kOff(:,qMidX) ; ...
+                         'k_on_per_s',   engOccT.kOn(:,qMidX) };
+            [ugP,~,giP] = unique(cond(:),'stable');
+            written = {};
+            for qi = 1:size(perCellQ,1)
+                v = perCellQ{qi,2};
+                cols = cell(1,numel(ugP));
+                for j = 1:numel(ugP)
+                    x = v(giP==j); cols{j} = x(isfinite(x));
+                end
+                fp = strrep(fn,'.csv', sprintf('_pooled_%s_%s.csv', tagP, perCellQ{qi,1}));
+                writeWideCsv(fp, ugP, cols); written{end+1} = perCellQ{qi,1}; %#ok<AGROW>
+            end
+            % ...and the per-TRACK occupancy, the distribution the per-cell medians summarise
+            ptP = engOccT.perTrack{qMidX};
+            if ~isempty(ptP)
+                cols = cell(1,numel(ugP));
+                for j = 1:numel(ugP)
+                    keepJ = false(1,numel(ptP));
+                    for ii = 1:numel(ptP)
+                        ci = ptP(ii).cellIndex;
+                        keepJ(ii) = ci >= 1 && ci <= numel(giP) && giP(ci) == j;
+                    end
+                    cols{j} = arrayfun(@(x) x.occ, ptP(keepJ));
+                end
+                fp = strrep(fn,'.csv', sprintf('_pooled_%s_track_occupancy.csv', tagP));
+                writeWideCsv(fp, ugP, cols); written{end+1} = 'track_occupancy';
+            end
+
+            engLbl.Text = sprintf(['Exported %s  +  %s (one row per molecule)  +  %d pooled ' ...
+                'Prism tables at d = %.3g µm (%s), one column per condition.'], ...
+                fn, fn2, numel(written), dPool, strjoin(written,', '));
         catch ME
             engLbl.Text = ['Export failed: ' ME.message];
         end
