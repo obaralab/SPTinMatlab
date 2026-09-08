@@ -349,7 +349,7 @@ end
         % below), and so is the pooled stepwise-D histogram: that is the same measurement as the
         % stepwise D(t) already on the right, and one of the two had to go. What remains gets more
         % height each, which the column badly needed.
-        lp = uigridlayout(mn,[5 1],'RowHeight',{92,32,'1x','1x','1x'},'Padding',[0 0 0 0],'RowSpacing',6);
+        lp = uigridlayout(mn,[5 1],'RowHeight',{92,50,'1x','1x','1x'},'Padding',[0 0 0 0],'RowSpacing',6);
         % Calibration is PER CELL, and it lives here because this is the per-cell inventory of the
         % build. Each cell is stamped at import from its own file metadata where the acquisition chain
         % kept it, and from the Calibration panel otherwise; a ° marks a value inherited from the panel
@@ -382,42 +382,59 @@ end
         % EXPLICIT Layout.Row on every child of lp. Auto-placement put this row fourth — under the
         % D distribution, overlapping its axis — even though it is created second, and a crushed
         % control row is the kind of thing only a render catches.
-        qs = uigridlayout(lp,[1 8],'ColumnWidth',{40,50, 108,58, '1x',92,76,92}, ...
-            'Padding',[0 0 0 0],'ColumnSpacing',4);
-        uilabel(qs,'Text','len ≥','HorizontalAlignment','right');
-        spnLenMin = uispinner(qs,'Limits',[0 1e5],'Value',0,'Step',5,'FontSize',9, ...
+        % TWO rows. One row wanted 516 px of fixed-width controls in a column that is ~331 px wide,
+        % so the last buttons were simply cut off the right edge — invisible rather than cramped.
+        % Every child gets an explicit Layout, because auto-placement in a nested grid has already
+        % surprised this file once.
+        % TWO rows with INDEPENDENT columns. One row wanted 516 px of fixed-width controls in a
+        % column that is ~331 px wide, so the last buttons were cut off the right edge — invisible
+        % rather than merely cramped. A single 2x4 grid does not work either: one column cannot be
+        % both a 50 px spinner and an 86 px button, so each row gets its own grid.
+        qs  = uigridlayout(lp,[2 1],'RowHeight',{22,22},'Padding',[0 0 0 0],'RowSpacing',3);
+        qsA = uigridlayout(qs,[1 4],'ColumnWidth',{36,50,'1x',58},'Padding',[0 0 0 0],'ColumnSpacing',4);
+        qsB = uigridlayout(qs,[1 4],'ColumnWidth',{'1x',86,72,74},'Padding',[0 0 0 0],'ColumnSpacing',4);
+        qsA.Layout.Row = 1; qsB.Layout.Row = 2;
+        lblLen = uilabel(qsA,'Text','len ≥','HorizontalAlignment','right');
+        spnLenMin = uispinner(qsA,'Limits',[0 1e5],'Value',0,'Step',5,'FontSize',9, ...
             'Tooltip','Keep tracks with at least this many localizations. 0 keeps everything.', ...
             'ValueChangedFcn',@(~,~) redrawQcPooled());
         % Which channel the distance cut is against. A dropdown rather than a mito-only checkbox:
         % the rest of the pipeline is channel-generic, and a project with ER segmentation has the
         % same question to ask of it. Items are rebuilt per build from the channels that actually
         % carry data, so a project with no ER is never offered a filter that would select nothing.
-        ddDistCh = uidropdown(qs,'Items',{'any distance'},'ItemsData',{''},'Value','','FontSize',9, ...
+        ddDistCh = uidropdown(qsA,'Items',{'any distance'},'ItemsData',{''},'Value','','FontSize',9, ...
             'Tooltip',['Keep only tracks whose MEDIAN signed distance to this channel is under the ' ...
                        'value on the right. Median over the track, so one excursion neither includes ' ...
                        'nor excludes it. Negative is inside the mask, so 0 means "more than half the ' ...
                        'track sits on the organelle".'], ...
             'ValueChangedFcn',@(~,~) redrawQcPooled());
-        spnDistMax = uispinner(qs,'Limits',[-5 5],'Value',0.2,'Step',0.05,'FontSize',9, ...
+        spnDistMax = uispinner(qsA,'Limits',[-5 5],'Value',0.2,'Step',0.05,'FontSize',9, ...
             'ValueDisplayFormat','%.2f µm','ValueChangedFcn',@(~,~) redrawQcPooled());
-        lblQcSel = uilabel(qs,'Text','','FontSize',9,'FontColor',[0.2 0.4 0.5]);
-        uibutton(qs,'Text','Export shown','FontSize',9, ...
+        lblQcSel = uilabel(qsB,'Text','','FontSize',9,'FontColor',[0.2 0.4 0.5]);
+        bExpShown = uibutton(qsB,'Text','Export shown','FontSize',9, ...
             'Tooltip',['Write the per-track D of the tracks currently selected — the QC cell above, ' ...
                        'narrowed by the two filters on the left. Wide for a Prism Column table, and ' ...
                        'long with the identifiers plus the fit window each track used.'], ...
             'ButtonPushedFcn',@(~,~) onExportQcD(false));
-        bQcRej = uibutton(qs,'Text','✖ Reject track','FontSize',9, ...
+        bQcRej = uibutton(qsB,'Text','✖ Reject','FontSize',9, ...
             'Tooltip',['Reject the track selected in the map — it is dropped from the pooled panels, ' ...
                        'the exports AND the Engagement ratio, and the decision is written to ' ...
                        'analysis/track_exclusions.csv so every tool honours it. Click again to ' ...
                        'restore. Rejecting does NOT rebuild: nothing else about the build changes.'], ...
             'ButtonPushedFcn',@(~,~) onQcReject());
-        uibutton(qs,'Text','Export ALL cells','FontSize',9,'FontWeight','bold', ...
+        bExpAll = uibutton(qsB,'Text','Export ALL','FontSize',9,'FontWeight','bold', ...
             'Tooltip',['The same export over EVERY cell in the build, whichever one the QC dropdown ' ...
                        'is showing. The length and mito filters still apply — they are the point of ' ...
                        'the export — and the long file names the cell on every row, so 93 cells come ' ...
                        'out as one file you can pivot rather than 93 you have to concatenate.'], ...
             'ButtonPushedFcn',@(~,~) onExportQcD(true));
+
+        % Explicit columns within each row — auto-placement in a nested grid has surprised this
+        % file before, and a control silently placed in the wrong cell reads as a layout bug.
+        lblLen.Layout.Column = 1; spnLenMin.Layout.Column = 2;
+        ddDistCh.Layout.Column = 3; spnDistMax.Layout.Column = 4;
+        lblQcSel.Layout.Column = 1; bExpShown.Layout.Column = 2;
+        bQcRej.Layout.Column = 3;   bExpAll.Layout.Column = 4;
 
         axDist  = uiaxes(lp); title(axDist,'ER / mito distance');
         axDdist = uiaxes(lp); title(axDdist,'D distribution');
@@ -3147,7 +3164,19 @@ end
             % here — inspecting it in the player is the whole point — but the project's active
             % build is left alone.
             isSubset = startsWith(stem, 'examples_');
-            if ~isSubset, setActiveTs(aDir, [stem ext]); end
+            if ~isSubset
+                setActiveTs(aDir, [stem ext]);
+            else
+                % setActiveTs is what normally updates the Name box, and it is deliberately skipped
+                % here — so the box kept whatever it last held and pointed at a file that is not the
+                % one on screen. It must still CHANGE, and it must not change to the subset's name:
+                % the box answers "what will Build write?", and writing a build over the examples
+                % file is exactly the confusion the subset guard exists to prevent. Snap it back to
+                % the ACTIVE build, which is what Build would actually produce.
+                if ~isempty(eTsName) && isgraphics(eTsName) && ~isempty(tsName)
+                    [~, actStem] = fileparts(tsName); eTsName.Value = actStem;
+                end
+            end
             dst = fullfile(aDir, tsName);
             if ~isSubset
                 try, save(dst,'Tracks','-v7.3'); catch, end   % persist (may have just added diffusion fields)
@@ -3284,12 +3313,12 @@ end
     function refreshRejectBtn()
         % The button says what the click will DO, which is the only way a toggle is legible.
         if isempty(bQcRej) || ~isgraphics(bQcRej), return; end
-        if qcSelIdx < 1 || qcSelIdx > numel(qcTracks), bQcRej.Text = '✖ Reject track'; return; end
+        if qcSelIdx < 1 || qcSelIdx > numel(qcTracks), bQcRej.Text = '✖ Reject'; return; end
         s = qcTracks{qcSelIdx};
         src = s.col; T = buildTracks(s.cellIdx);
         if isfield(T,'srcCols') && numel(T.srcCols) >= s.col, src = T.srcCols(s.col); end
-        if cs_track_exclusions('has', trkEx, s.base, src), bQcRej.Text = '↺ Restore track';
-        else,                                              bQcRej.Text = '✖ Reject track'; end
+        if cs_track_exclusions('has', trkEx, s.base, src), bQcRej.Text = '↺ Restore';
+        else,                                              bQcRej.Text = '✖ Reject'; end
     end
 
     function [recs, ER, MI, L] = qcRecords(ks)

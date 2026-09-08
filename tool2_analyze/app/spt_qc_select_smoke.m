@@ -74,9 +74,11 @@ for bad = {'track length','stepwise D (per localization)'}
 end
 
 %% (1) the selection row sits under the table, above the plots ----------------------------------------
+% The OUTER container of the two-row selection block. Its Position is in the left column's
+% coordinates, which is what the ordering below compares against; an inner row grid is positioned
+% relative to this one and its y would be a small number that means nothing here.
 qs = pick(findobj(f,'Type','uigridlayout'), ...
-    @(x) numel(x.ColumnWidth)==8 && isequal(x.ColumnWidth{1},40) && isequal(x.ColumnWidth{2},50), ...
-    'QC selection row');
+    @(x) isequal(x.RowHeight,{22,22}) && isscalar(x.ColumnWidth), 'QC selection block');
 tb = pick(findobj(f,'Type','uitable'), @(x) any(strcmp(x.ColumnName,'med len')), 'build cell table');
 axD = pick(findobj(f,'Type','axes'), @(x) contains(string(x.Title.String),'D distribution'), 'D distribution');
 % y is measured from the BOTTOM, so "under the table" is a smaller y, and "above the plots" larger.
@@ -165,7 +167,7 @@ assert(strcmp(dd.Value,'cellB'), ...
 %% (8) export ALL cells, under the same filters ---------------------------------------------------------
 setv(lenS, 0); setv(ddD, '');
 assert(selCount(f) == 2, 'cellB alone should show its 2 tracks, showing %d', selCount(f));
-press(f, 'Export ALL cells');
+press(f, 'Export ALL');
 A = dir(fullfile(proj,'analysis','qc_trackD_*allcells*_long.csv'));
 assert(~isempty(A), 'no all-cells CSV was written');
 at = strsplit(strtrim(fileread(fullfile(A(1).folder, A(1).name))), newline);
@@ -177,7 +179,7 @@ assert(any(contains(at,'cellA')) && any(contains(at,'cellB')), ...
 
 % ...and the filters still apply to it
 setv(lenS, 30);
-press(f, 'Export ALL cells');
+press(f, 'Export ALL');
 A2 = dir(fullfile(proj,'analysis','qc_trackD_*len30*allcells*_long.csv'));
 assert(~isempty(A2), 'the all-cells export ignored the length filter (no len30 file)');
 a2 = strsplit(strtrim(fileread(fullfile(A2(1).folder, A2(1).name))), newline);

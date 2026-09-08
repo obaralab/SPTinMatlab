@@ -78,7 +78,7 @@ cov = pick(ax, @(a) contains(string(a.Title.String),'tracks (click one)'), 'trac
 tr = f.UserData.tracks();
 x = tr(1).matrix(:,4,2); y = tr(1).matrix(:,4,3); x = x(isfinite(x)); y = y(isfinite(y));
 cbd = cov.ButtonDownFcn; cbd(cov, struct('IntersectionPoint',[x(1) y(1) 0])); drawnow;
-rej = pick(findobj(f,'Type','uibutton'), @(b) contains(string(b.Text),'Reject track'), 'reject button');
+rej = pick(findobj(f,'Type','uibutton'), @(b) contains(string(b.Text),'Reject'), 'reject button');
 cb = rej.ButtonPushedFcn; cb(rej, struct()); drawnow;
 assert(selCount(f) == 9, ...
     ['after rejecting one track the QC still counts %d of 10. The pooled panels and the export are ' ...
@@ -129,6 +129,28 @@ assert(strcmp(strtrim(act0), strtrim(act1)), ...
     ['loading examples_mito_100nm.mat changed the active build from "%s" to "%s". A subset is ' ...
      'pre-selected for touching the organelle, so measuring on it computes D_free from a depleted ' ...
      'pool and pulls every ratio toward 1.'], strtrim(act0), strtrim(act1));
+
+%% (6c) loading a subset must MOVE the Name box, and not to the subset ---------------------------------
+% The Name box answers "what will Build write?". setActiveTs is what normally updates it and is
+% deliberately skipped for a subset, so the box kept a stale name and pointed at a file that was not
+% the one on screen. It must change — and NOT to the subset's name, or Build would write over the
+% examples file, which is the confusion the subset guard exists to prevent.
+eNm = pick(findobj(f,'Type','uieditfield'), ...
+    @(x) ischar(x.Value) && strcmp(x.Value,'TrackStruct'), 'build Name field');
+eNm.Value = 'something_stale';
+subFile = fullfile(proj,'analysis','examples_mito_999nm.mat');
+Tracks = cs_track_slice(S.Tracks(1), [1 2]); %#ok<NASGU>
+save(subFile,'Tracks','-v7.3');
+f.UserData.loadTracks(subFile); drawnow;
+assert(~strcmp(eNm.Value,'something_stale'), ...
+    ['the Name box still reads "something_stale" after loading a different file, so it names a ' ...
+     'build that is not the one on screen.']);
+assert(~contains(eNm.Value,'examples_'), ...
+    ['the Name box became "%s". Build would then write over the examples subset — exactly what the ' ...
+     'subset guard exists to prevent.'], eNm.Value);
+assert(strcmp(eNm.Value,'TrackStruct'), ...
+    'the Name box reads "%s"; it should snap back to the ACTIVE build, which is what Build writes', eNm.Value);
+fprintf('Name box after loading a subset: "%s" (the active build, not the subset)\n', eNm.Value);
 
 %% (2) Engagement applies it, and says so -------------------------------------------------------------------
 f2 = spt_analyze_app('analyze'); f2.Visible = 'off';

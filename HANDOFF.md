@@ -531,6 +531,24 @@ Open threads.
 
 ---
 
+## 9f. Two UI defects worth remembering the shape of
+
+**The QC selection row was 516 px of fixed-width controls in a 331 px column**, so the last buttons
+were not cramped — they were off the edge and invisible. It is now TWO rows with INDEPENDENT column
+sets (`qsA` filters, `qsB` count + actions), because one shared column cannot be both a 50 px
+spinner and an 86 px button. Verified by POSITION, not by a render: every child's right edge is
+measured against the parent width. `exportapp` still mis-paints this nested grid (see 9d), so a
+screenshot cannot answer the question the check answers.
+
+**The build Name box went stale when a subset was loaded.** `setActiveTs` is what updates it, and it
+is deliberately skipped for an `examples_*` file so the subset cannot become the active build — so
+the box kept its previous value and named a file that was not on screen. It now snaps back to the
+ACTIVE build's name. Not to the subset's: the box answers "what will Build write?", and writing a
+build over the examples file is exactly the confusion the subset guard exists to prevent.
+`spt_curate_engage_smoke` (6c) asserts all three: it changed, it is not the subset, it is the build.
+
+---
+
 ## 10. Open threads
 
 1. **`_ch24` may itself be interleaved.** `_spt12` was ch1+ch3 alternating. If `_ch24` is ch2+ch4 the
