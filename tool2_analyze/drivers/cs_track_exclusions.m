@@ -125,9 +125,14 @@ keep = doMask(ex, Tracks);
 if all(cellfun(@(m) all(m), keep)), return; end     % nothing excluded here: hand back the input
 % Slice EVERY cell, even untouched ones, so the array is uniform — cs_track_slice adds .srcCols and
 % a mixed array (some with it, some without) cannot be concatenated.
+% EVERY cell goes through cs_track_slice, including trackless ones. The early-out here used to
+% hand back Tracks(k) untouched — without .srcCols, which cs_track_slice adds — so on a real plate
+% (which has cells where nothing linked) the array mixed two field sets and vertcat threw
+% "the number of fields in structure arrays being concatenated do not match", from a line several
+% frames from the cause. cs_track_slice was fixed for exactly this; the fix does not help a caller
+% that routes around it.
 Tc = cell(numel(Tracks),1);
 for k = 1:numel(Tracks)
-    if isempty(keep{k}), Tc{k} = Tracks(k); continue; end
     Tc{k} = cs_track_slice(Tracks(k), find(keep{k}));
 end
 Tsub = vertcat(Tc{:})';

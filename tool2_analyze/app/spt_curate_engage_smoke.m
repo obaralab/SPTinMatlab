@@ -130,6 +130,23 @@ assert(strcmp(strtrim(act0), strtrim(act1)), ...
      'pre-selected for touching the organelle, so measuring on it computes D_free from a depleted ' ...
      'pool and pulls every ratio toward 1.'], strtrim(act0), strtrim(act1));
 
+%% (6d) apply must survive a TRACKLESS cell -------------------------------------------------------------
+% A real 93-cell plate has fields where nothing linked. doApply had its own early-out for those that
+% handed the cell back WITHOUT .srcCols, while every other cell went through cs_track_slice and got
+% it — so the array mixed two field sets and vertcat threw, several frames from the cause. No
+% fixture had a trackless cell, so it only surfaced on the user's data.
+Tempty = S.Tracks(1); Tempty.file = 'cellNone';
+Tempty.matrix = Tempty.matrix(:, [], :);
+Tmix = [S.Tracks(1), Tempty];
+try
+    Tap = cs_track_exclusions('apply', cs_track_exclusions('toggle', [], 'cellA', 4, ''), Tmix);
+catch ME
+    error(['cs_track_exclusions(''apply'') threw on an array containing a trackless cell: %s\n' ...
+           'Every cell must go through cs_track_slice so the field sets match.'], ME.message);
+end
+assert(numel(Tap) == 2, 'apply returned %d cells for 2 in', numel(Tap));
+assert(size(Tap(2).matrix,2) == 0, 'the trackless cell gained %d tracks', size(Tap(2).matrix,2));
+
 %% (6c) loading a subset must MOVE the Name box, and not to the subset ---------------------------------
 % The Name box answers "what will Build write?". setActiveTs is what normally updates it and is
 % deliberately skipped for a subset, so the box kept a stale name and pointed at a file that was not
