@@ -894,6 +894,13 @@ New tab app `spt_analyze_app.m`; built on the `drivers/` layer. Build order:
    the file NAME, the same key `engageConditions` uses, so a cell cannot be excluded under one
    identity and grouped under another. Regression: `spt_curate_engage_smoke` (7).
 
+   Surfaced on the tab as **`k_off /s`** and **`k_on /s`**, computed at every scan distance on the
+   same curated set as the ratio and the occupancy, so every column of a row describes one partition
+   of one set of molecules. `k_off` shows a **dash when no episode was seen to end** — a zero there
+   would read as "never unbinds", the opposite of "unmeasured" — and the CSV carries `n_ended`,
+   `n_censored`, `t_bound_s`, `t_free_s` beside the rates so a number from three episodes is
+   visible as one.
+
    **Binding kinetics at the interface** (`cs_zone_kinetics.m`): `k_off` = bound episodes seen to
    END ÷ total time bound, `k_on` = binding events ÷ total time FREE. Events over exposure, not
    `1/mean(duration)` — an episode still bound when its track stops is right-censored, and this form

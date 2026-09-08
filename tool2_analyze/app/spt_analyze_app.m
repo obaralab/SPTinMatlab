@@ -2162,8 +2162,8 @@ end
             'FontColor',[0.2 0.4 0.5],'WordWrap','on');
         mn = uigridlayout(g,[1 2],'ColumnWidth',{'1.15x','0.85x'},'Padding',[0 0 0 0],'ColumnSpacing',8);
         engTbl = uitable(mn,'ColumnName',{'cell','condition','d µm','D bound','D free','ratio', ...
-                                          'occ med','eng %','n bound','n free','note'}, ...
-            'ColumnWidth',{'1x',88,44,58,58,50,56,50,54,54,130});
+                                          'occ med','eng %','k_off /s','k_on /s','n bound','n free','note'}, ...
+            'ColumnWidth',{'1x',80,42,54,54,48,50,44,54,50,50,50,120});
         rc = uigridlayout(mn,[3 1],'RowHeight',{'1x','1x','1.1x'},'Padding',[0 0 0 0],'RowSpacing',6);
         engAxCell = uiaxes(rc); title(engAxCell,'D ratio per cell (at the chosen distance)');
         engAxScan = uiaxes(rc); title(engAxScan,'D ratio vs engagement distance');
@@ -2219,14 +2219,23 @@ end
         % distance because the table is per cell x distance and occupancy varies with d exactly as
         % the ratio does. Computed on the SAME curated T, so the two columns of a row describe the
         % same set of molecules.
-        engOccT = struct('med',nan(size(E)), 'eng',nan(size(E)), 'n',zeros(size(E)), 'perTrack',{{}});
+        engOccT = struct('med',nan(size(E)), 'eng',nan(size(E)), 'n',zeros(size(E)), ...
+                         'kOff',nan(size(E)), 'kOn',nan(size(E)), ...
+                         'nEnd',zeros(size(E)), 'nCens',zeros(size(E)), ...
+                         'tB',zeros(size(E)), 'tF',zeros(size(E)), 'perTrack',{{}});
         for q = 1:numel(dl)
             [ptq, pcq] = cs_track_occupancy(T, struct('dUm',dl(q), 'key',engKey.Value, ...
                 'minLoc',5, 'engFrac',engEngF.Value));
+            % Kinetics at the same distance and on the same curated set, so every column of a table
+            % row describes one partition of one set of molecules.
+            kq = cs_zone_kinetics(T, struct('dUm',dl(q), 'key',engKey.Value, 'minLoc',5));
             for k = 1:numel(pcq)
                 engOccT.med(k,q) = pcq(k).occMedian;
                 engOccT.eng(k,q) = pcq(k).engagedFrac;
                 engOccT.n(k,q)   = pcq(k).nScored;
+                engOccT.kOff(k,q)= kq(k).kOff;   engOccT.kOn(k,q)  = kq(k).kOn;
+                engOccT.nEnd(k,q)= kq(k).nEnd;   engOccT.nCens(k,q)= kq(k).nCensored;
+                engOccT.tB(k,q)  = kq(k).tBound; engOccT.tF(k,q)   = kq(k).tFree;
             end
             engOccT.perTrack{q} = ptq;
         end
@@ -2240,13 +2249,14 @@ end
 
         % Table: every cell at every distance, so a cell that only engages at one radius is visible
         % rather than hidden behind a single chosen number.
-        D = cell(numel(E), 11); rr = 0;
+        D = cell(numel(E), 13); rr = 0;
         for k = 1:size(E,1)
             for q = 1:size(E,2)
                 rr = rr + 1; e = E(k,q);
                 D(rr,:) = {e.file, cond{k}, sprintf('%.3g',e.dUm), ...
                     numOrDash(e.Dbound), numOrDash(e.Dfree), numOrDash(e.Dratio), ...
                     numOrDash(engOccT.med(k,q)), pctOrDash(engOccT.eng(k,q)), ...
+                    kOrDash(engOccT.kOff(k,q), engOccT.nEnd(k,q)), numOrDash(engOccT.kOn(k,q)), ...
                     sprintf('%d',e.nBound), sprintf('%d',e.nFree), tern(e.ok,'',e.why)};
             end
         end
@@ -2305,6 +2315,13 @@ end
 
     function closeIfOpen(fid)
         try, if ~isempty(fid) && fid > 2 && ~isempty(fopen(fid)), fclose(fid); end, catch, end
+    end
+
+    function t = kOrDash(v, nEnd)
+        % A k_off of 0 is not a rate — it is "no episode was seen to end here", which happens when
+        % every episode is still running when its track stops. Showing 0 would read as "never
+        % unbinds", the opposite of "unmeasured", so it shows a dash and the export carries n_ended.
+        if ~(isscalar(v) && isfinite(v)) || nEnd < 1, t = '—'; else, t = sprintf('%.3g', v); end
     end
 
     function t = pctOrDash(v)
@@ -2531,18 +2548,26 @@ end
             % written), so an unconditional fclose in the cleanup would close it twice.
             c = onCleanup(@() closeIfOpen(fid)); %#ok<NASGU>
             fprintf(fid,['cell,condition,d_um,D_bound,D_free,D_ratio,n_bound,n_free,n_crossing,' ...
-                         'occupancy_pooled,occ_median_per_track,engaged_frac,n_tracks_scored,ok,note\n']);
+                         'occupancy_pooled,occ_median_per_track,engaged_frac,n_tracks_scored,' ...
+                         'k_off_per_s,k_on_per_s,n_ended,n_censored,t_bound_s,t_free_s,ok,note\n']);
             cond = engageConditions({engLast(:,1).file});
             for k = 1:size(engLast,1)
                 for q = 1:size(engLast,2)
                     e = engLast(k,q);
-                    om = NaN; ef = NaN; ns = 0;
+                    om = NaN; ef = NaN; ns = 0; kf = NaN; kn = NaN; ne = 0; nc = 0; tb = 0; tf = 0;
                     if ~isempty(engOccT) && k <= size(engOccT.med,1) && q <= size(engOccT.med,2)
-                        om = engOccT.med(k,q); ef = engOccT.eng(k,q); ns = engOccT.n(k,q);
+                        om = engOccT.med(k,q);  ef = engOccT.eng(k,q);  ns = engOccT.n(k,q);
+                        kf = engOccT.kOff(k,q); kn = engOccT.kOn(k,q);
+                        ne = engOccT.nEnd(k,q); nc = engOccT.nCens(k,q);
+                        tb = engOccT.tB(k,q);   tf = engOccT.tF(k,q);
                     end
-                    fprintf(fid,'%s,%s,%.4g,%.6g,%.6g,%.6g,%d,%d,%d,%.4g,%.4g,%.4g,%d,%d,%s\n', ...
+                    % n_ended and n_censored travel with the rates on purpose: a k_off from three
+                    % completed episodes is not a rate, and a cell where most episodes are censored
+                    % is saying its tracks are too short for the binding it contains.
+                    fprintf(fid,'%s,%s,%.4g,%.6g,%.6g,%.6g,%d,%d,%d,%.4g,%.4g,%.4g,%d,%.6g,%.6g,%d,%d,%.6g,%.6g,%d,%s\n', ...
                         csvq(e.file), csvq(cond{k}), e.dUm, e.Dbound, e.Dfree, e.Dratio, ...
-                        e.nBound, e.nFree, e.nStraddle, e.occupancy, om, ef, ns, e.ok, csvq(e.why));
+                        e.nBound, e.nFree, e.nStraddle, e.occupancy, om, ef, ns, ...
+                        kf, kn, ne, nc, tb, tf, e.ok, csvq(e.why));
                 end
             end
             fclose(fid); fid = -1;

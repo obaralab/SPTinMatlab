@@ -48,6 +48,8 @@ drawnow;
 sp  = findobj(f,'Type','uispinner');
 tbl = pick(findobj(f,'Type','uitable'), ...
     @(x) numel(x.ColumnName)>=6 && strcmp(x.ColumnName{6},'ratio'), 'Engagement table');
+assert(any(strcmp(tbl.ColumnName,'k_off /s')) && any(strcmp(tbl.ColumnName,'k_on /s')), ...
+    'the table has no kinetics columns: %s', strjoin(tbl.ColumnName',', '));
 assert(any(strcmp(tbl.ColumnName,'occ med')) && any(strcmp(tbl.ColumnName,'eng %')), ...
     ['the table has no per-track occupancy columns: %s. This is SPT — the molecule is the unit, and ' ...
      'a pooled per-localization occupancy lets one long resident carry a cell.'], strjoin(tbl.ColumnName',', '));
@@ -99,7 +101,7 @@ sig.Value = 30; cb(bC, struct()); drawnow;
 mn.Value = 5000;                                     % more steps than the fixture has
 cb(bC, struct()); drawnow;
 D2 = tbl.Data;
-noteCol = D2(:,11); ratioCol = D2(:,6);
+noteCol = D2(:,13); ratioCol = D2(:,6);
 assert(all(strcmp(ratioCol,'—')), 'a refused cell printed a number instead of a dash');
 assert(all(contains(noteCol,'too few')), 'a refused cell did not say why: "%s"', noteCol{1});
 fprintf('refusal shown as a dash with a reason: %s\n', noteCol{1});
@@ -114,7 +116,8 @@ L = strsplit(strtrim(fileread(csv)), newline);
 assert(numel(L) == 7, 'CSV has %d lines, wanted a header + 6 rows', numel(L));
 hdr = L{1};
 for want = {'D_ratio','n_bound','n_free','n_crossing','condition', ...
-            'occ_median_per_track','engaged_frac','n_tracks_scored'}
+            'occ_median_per_track','engaged_frac','n_tracks_scored', ...
+            'k_off_per_s','k_on_per_s','n_ended','n_censored'}
     assert(contains(hdr, want{1}), 'CSV header is missing %s: %s', want{1}, hdr);
 end
 fprintf('exported %d rows with the step counts\n', numel(L)-1);
