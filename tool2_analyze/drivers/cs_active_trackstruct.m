@@ -25,6 +25,20 @@ ptr = fullfile(anaDir,'active_trackstruct.txt');
 if isfile(ptr)
     try
         s = strtrim(fileread(ptr));
+        % A POINTER NAMING A SUBSET IS IGNORED. examples_*.mat is the Engagement tab's set of tracks
+        % that touch the organelle — a valid TrackStruct but a SELECTION. Loading one for inspection
+        % used to stamp it active, and every downstream stage then measured pre-selected tracks:
+        % D_free computed only from molecules that also touch the organelle is a depleted, biased
+        % pool. The write path is guarded now, but projects already carry pointers written before
+        % that, and a stale pointer is silent — the tool simply reports different numbers. Refusing
+        % it here repairs those projects on the next read rather than waiting to be noticed.
+        if ~isempty(s) && startsWith(s,'examples_')
+            warning('cs_active_trackstruct:subsetPointer', ...
+                ['active_trackstruct.txt names the SUBSET %s. A subset must never be the active ' ...
+                 'build — measuring it biases every downstream stage — so it is being ignored and ' ...
+                 'the real build used instead.'], s);
+            s = '';
+        end
         if ~isempty(s) && isfile(fullfile(anaDir,s)), p = fullfile(anaDir,s); name = s; return; end
     catch
     end
@@ -37,6 +51,7 @@ end
 % .mat files in an analysis folder is cheap; skip the ones we know are not builds.
 skip = {'cs_calib.mat','CSW_final.mat','cs_window_dwell.mat','cs_footprints.mat','experiment_details.mat','experiment_manifest.mat'};
 d = dir(fullfile(anaDir,'*.mat'));
+d = d(~startsWith({d.name}','examples_'));   % never fall back to a subset either
 for k = 1:numel(d)
     if any(strcmpi(d(k).name, skip)), continue; end
     try

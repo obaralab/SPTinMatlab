@@ -549,6 +549,30 @@ build over the examples file is exactly the confusion the subset guard exists to
 
 ---
 
+## 9g. A stale active-build pointer silently biased a whole analysis
+
+The Engagement tab reported Baseline 1.038 / Compound 314 **0.707** on the user's plate. Both wrong:
+`analysis/active_trackstruct.txt` named **`examples_mito_110nm.mat`**, a 3044-track SUBSET, instead
+of `CysteineLigand.mat` (7615 tracks). Recomputed on the real build the same cells give Baseline
+**1.175** and 314 **1.068** — the conclusion reverses.
+
+The bias has a direction worth remembering: an examples subset is *tracks that touch the organelle*,
+so `D_free` is computed only from molecules that ALSO go near mito. That pool is depleted of exactly
+the freely-diffusing molecules that make `D_free` large, so `D_free` falls, and the ratio is dragged
+**down** — toward a false hit.
+
+The write path was guarded earlier (loading a subset no longer stamps it active), but that does not
+repair a pointer already on disk, and a stale pointer is silent: the tool just reports different
+numbers. `cs_active_trackstruct` now **ignores** any pointer naming `examples_*` (with a warning)
+and never falls back to one in its last-resort scan, so an affected project repairs itself on the
+next read. `spt_curate_engage_smoke` (6e) asserts it.
+
+**Lesson for anything similar:** a guard on the WRITE path leaves every project that was already
+written. When adding one, ask what repairs the existing state — and prefer refusing the bad value on
+READ, which fixes past and future in one place.
+
+---
+
 ## 10. Open threads
 
 1. **`_ch24` may itself be interleaved.** `_spt12` was ch1+ch3 alternating. If `_ch24` is ch2+ch4 the

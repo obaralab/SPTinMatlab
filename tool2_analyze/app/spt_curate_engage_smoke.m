@@ -130,6 +130,22 @@ assert(strcmp(strtrim(act0), strtrim(act1)), ...
      'pre-selected for touching the organelle, so measuring on it computes D_free from a depleted ' ...
      'pool and pulls every ratio toward 1.'], strtrim(act0), strtrim(act1));
 
+%% (6e) a STALE pointer naming a subset must be ignored ---------------------------------------------
+% The write path is guarded, but a project can already carry a pointer written before that guard —
+% and it is silent: the tool simply computes different numbers. The user's plate had exactly this,
+% so an engagement run measured 3044 pre-selected tracks instead of 7615 and every ratio was wrong.
+fid = fopen(fullfile(proj,'analysis','active_trackstruct.txt'),'w');
+fprintf(fid,'examples_mito_999nm.mat\n'); fclose(fid);
+w = warning('off','cs_active_trackstruct:subsetPointer'); restoreW = onCleanup(@() warning(w));
+[~, nmAct] = cs_active_trackstruct(fullfile(proj,'analysis'));
+assert(~startsWith(nmAct,'examples_'), ...
+    ['a pointer naming the subset %s was honoured. Every downstream stage would then measure ' ...
+     'pre-selected tracks: D_free from molecules that also touch the organelle is a depleted, ' ...
+     'biased pool.'], nmAct);
+assert(strcmp(nmAct,'TrackStruct.mat'), 'fell back to "%s" instead of the real build', nmAct);
+fid = fopen(fullfile(proj,'analysis','active_trackstruct.txt'),'w');
+fprintf(fid,'TrackStruct.mat\n'); fclose(fid);
+
 %% (6d) apply must survive a TRACKLESS cell -------------------------------------------------------------
 % A real 93-cell plate has fields where nothing linked. doApply had its own early-out for those that
 % handed the cell back WITHOUT .srcCols, while every other cell went through cs_track_slice and got
