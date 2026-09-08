@@ -353,7 +353,7 @@ end
         lp = uigridlayout(mn,[5 1],'RowHeight',{92,50,'1x','1x','1x'},'Padding',[0 0 0 0],'RowSpacing',6);
         % Calibration is PER CELL, and it lives here because this is the per-cell inventory of the
         % build. Each cell is stamped at import from its own file metadata where the acquisition chain
-        % kept it, and from the Calibration panel otherwise; a ° marks a value inherited from the panel
+        % kept it, and from the Calibration panel otherwise; a * marks a value inherited from the panel
         % rather than measured from that cell. The last four columns are editable, so a cell recorded
         % on a different camera or at a different frame rate can be corrected without touching the
         % others — which is what makes a comparison spanning two acquisitions come out in real units.
@@ -366,12 +366,13 @@ end
         for kH = 1:numel(buildChanKeys), chanHdr{kH} = cs_channel_fields(buildChanKeys{kH}).label; end
         tblBuild = uitable(lp, ...
             'ColumnName',[{'cell','tracks','med len'}, chanHdr, {'µm/px','FOV µm','dt s','prec nm','bin nm'}], ...
+            'ColumnFormat',[repmat({'char'},1,3+numel(chanHdr)), repmat({'char'},1,5)], ...
             'ColumnWidth',[{'auto',52,64}, repmat({44},1,numel(chanHdr)), {60,58,60,58,54}], ...
             'ColumnEditable',[false false false, false(1,numel(chanHdr)), true true true true true], ...
             'CellEditCallback',@(s2,e2) onCalEdit(e2), ...
             'SelectionType','row', 'CellSelectionCallback',@(s2,e2) onQcRowPick(e2), ...
             'Tooltip',['Per-cell calibration — edit any of the last four for one cell without disturbing ' ...
-                       'the rest. ° = inherited from the Calibration panel above rather than read from ' ...
+                       'the rest. * = inherited from the Calibration panel above rather than read from ' ...
                        'that cell''s own file. dt comes from each cell''s tracks XML. ' ...
                        'prec nm is this cell''s localization precision (it sets D''s noise floor); ' ...
                        'bin nm is the DENSITY BIN, which sets the grid and so the physical size of ' ...
@@ -3319,11 +3320,22 @@ end
             L = double(Tracks(k).lengths(:)); nt = numel(L); tot = tot + nt;
             marks = cell(1, nCh);
             for kC = 1:nCh
-                hc = cs_channel_has(Tracks(k), buildChanKeys{kC});
+                % THREE states, not two. cs_channel_has answers "is the array there?", and the
+                % importer decides that from the CSV COLUMN NAME alone — so a cell with an
+                % ER_DIST_UM column and no ER segmentation gets a full-NaN matrix, which is present
+                % but carries nothing. A plain ✓ then claimed ER on a cell whose own status line
+                % said "(no ER)", because that line tests for finite values. 'NaN' is the honest
+                % third answer: the column exists and holds no data.
+                [hc, rawc] = cs_channel_has(Tracks(k), buildChanKeys{kC});
                 anyCh(kC) = anyCh(kC) || hc;
-                marks{kC} = tern(hc,'✓','–');
+                if ~hc,                            marks{kC} = '–';
+                elseif ~any(isfinite(rawc(:))),    marks{kC} = 'NaN';
+                else,                              marks{kC} = '✓';
+                end
             end
-            sc = calSrc(k); inh = @(f) tern(strcmp(gs(sc,f),'image')||strcmp(gs(sc,f),'xml'),'','°');
+            % '*' marks a value INHERITED from the Calibration panel. It used to be '°', which in a
+            % column headed "FOV µm" reads as degrees — the marker looked like a unit.
+            sc = calSrc(k); inh = @(f) tern(strcmp(gs(sc,f),'image')||strcmp(gs(sc,f),'xml'),'','*');
             D(k,:) = [{char(Tracks(k).file), nt, round(median(L))}, marks, ...
                      {sprintf('%.5g%s', trackPx(k),   inh('pixSizeUm')), ...
                       sprintf('%.5g%s', trackFov(k),  inh('fovUm')), ...
@@ -3355,7 +3367,9 @@ end
         idx = c - (3 + numel(buildChanKeys));
         if idx < 1 || idx > numel(calFields), return; end
         f = calFields{idx};
-        v = str2double(regexprep(char(string(ev.NewData)), '[^0-9eE.+-]', ''));   % tolerate a pasted '°'
+        % Strip any non-numeric decoration, so a value pasted back with its inherited marker (now '*',
+        % previously '°') parses rather than being rejected.
+        v = str2double(regexprep(char(string(ev.NewData)), '[^0-9eE.+-]', ''));
         if ~(isscalar(v) && isfinite(v) && v > 0)
             setBuild('Calibration must be a positive number — reverting that cell.',[0.7 0.2 0.2]);
             tblBuild.Data{r,c} = ev.PreviousData; return;
