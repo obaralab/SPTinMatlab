@@ -26,7 +26,14 @@ function T = cs_track_slice(T, cols)
 % a warning is issued, because a wrongly sliced field is a silent mis-association and the caller is
 % better off told than handed one.
 
-if ~isfield(T,'matrix') || isempty(T.matrix), return; end
+% A cell with no tracks still gets .srcCols, empty. Returning without it left a struct array in
+% which SOME cells carried the field and some did not, and MATLAB refuses to concatenate those —
+% "the number of fields in structure arrays being concatenated do not match", thrown from the
+% caller's vertcat, several frames away from the cause. A real 93-cell plate has such cells; no
+% fixture did until this was found.
+if ~isfield(T,'matrix') || isempty(T.matrix)
+    T.srcCols = zeros(1,0); return
+end
 nT = size(T.matrix,2); nF = size(T.matrix,1);
 cols = cols(:)';
 

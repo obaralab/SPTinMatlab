@@ -115,7 +115,7 @@ fig.CloseRequestFcn = @(s,e) onAppClose();   % deletes tabs -> track_viewer's pa
 % always report the empty initial state.
 fig.UserData = struct('activeTs',@activeTsNow, 'tracks',@tracksNow, 'loadTracks',@onLoadTracks, ...
     'cmpSetCells',@setCompareCells, 'cmpCellList',@compareCellList, 'cmpLoad',@ensureCompareData, ...
-    'exptCtl',@exptCtlNow, 'calibForBuild',@calibForBuild);
+    'exptCtl',@exptCtlNow, 'calibForBuild',@calibForBuild, 'loadTracksFile',@loadTracksFile);
 gl = uigridlayout(fig,[2 1],'RowHeight',{34,'1x'},'Padding',[8 8 8 8],'RowSpacing',6);
 
 % 16 columns, 16 widths, 16 children — keep the three in step. uigridlayout WRAPS a child it has no
@@ -2121,6 +2121,13 @@ end
         try, trkEx = cs_track_exclusions('load', projectDir); catch, trkEx = []; end
         T = cs_track_exclusions('apply', trkEx, buildTracks);
         nEx = cs_track_exclusions('count', trkEx);
+        % The data dropdown offers 'experiment (all folders)' and this function has only ever
+        % measured the CURRENT project's build. A control that silently does nothing is worse than
+        % one that is absent, so it says which it used rather than letting the label imply the other.
+        engScopeNote = '';
+        if ~isempty(engDd) && isgraphics(engDd) && contains(string(engDd.Value),'experiment')
+            engScopeNote = '  ·  NOTE: measured THIS project''s build only — cross-folder pooling is not implemented here yet.';
+        end
         dl = linspace(engD0.Value, engD1.Value, round(engN.Value));
         o = struct('dUm',dl, 'key',engKey.Value, 'sigmaUm',engSig.Value/1000, 'minSteps',engMin.Value);
         try
@@ -2195,8 +2202,8 @@ end
         end
         engLbl.Text = sprintf(['%d cell(s) x %d distance(s) · %d answered · %s within %.3g–%.3g µm · ' ...
             'precision %g nm · min %d steps per class. A ratio below 1 means slowed at the interface; ' ...
-            '1 means no contrast.%s'], size(E,1), size(E,2), nOK, engKey.Value, dl(1), dl(end), ...
-            engSig.Value, round(engMin.Value), exTxt);
+            '1 means no contrast.%s%s'], size(E,1), size(E,2), nOK, engKey.Value, dl(1), dl(end), ...
+            engSig.Value, round(engMin.Value), exTxt, engScopeNote);
     end
 
     function c = engageConditions(files)
@@ -3006,12 +3013,19 @@ end
         populateBuildSummary(Tracks, src, aDir);
     end
 
-    function onLoadTracks()
+    function loadTracksFile(p2)
+        % Load a NAMED file, skipping the picker. Exposed for tests, which cannot answer a dialog;
+        % onLoadTracks is the interactive wrapper and both share everything after the file is known.
+        onLoadTracks(p2);
+    end
+
+    function onLoadTracks(preset)
         % Load a built TrackStruct and populate the QC WITHOUT recomputing MSD. When the project
         % holds MORE THAN ONE build, always ask which — otherwise the shortcut to the active one
         % made every other named build unreachable, contradicting the button's own tooltip.
         f = '';
-        if ~isempty(projectDir)
+        if nargin >= 1 && ~isempty(preset) && isfile(preset), f = char(preset); end
+        if isempty(f) && ~isempty(projectDir)
             a = fullfile(projectDir,'analysis');
             nBuilds = 0;
             d = dir(fullfile(a,'*.mat'));
@@ -3052,14 +3066,33 @@ end
             % A build picked from outside the project is copied in under that same name and becomes
             % active, so several named builds coexist and the one you loaded is the one in force.
             [~,stem,ext] = fileparts(f); if isempty(ext), ext = '.mat'; end
-            setActiveTs(aDir, [stem ext]);
+            % An examples_* file is a SUBSET — the tracks that touch the organelle — and must never
+            % become the active build. It was: loading one for inspection stamped it active, and
+            % every downstream stage then measured 3044 pre-selected tracks instead of 7615. That
+            % is not merely fewer data, it is BIASED data: D_free is then computed only from steps
+            % of tracks that also touch the organelle, so the free pool is depleted of exactly the
+            % molecules that never go near it and the ratio is dragged toward 1. It still loads
+            % here — inspecting it in the player is the whole point — but the project's active
+            % build is left alone.
+            isSubset = startsWith(stem, 'examples_');
+            if ~isSubset, setActiveTs(aDir, [stem ext]); end
             dst = fullfile(aDir, tsName);
-            try, save(dst,'Tracks','-v7.3'); catch, end   % persist (may have just added diffusion fields)
+            if ~isSubset
+                try, save(dst,'Tracks','-v7.3'); catch, end   % persist (may have just added diffusion fields)
+            end
             cc = fullfile(aDir,'cs_calib.mat'); if isfile(cc), try, calib=load(cc); if isfield(calib,'calib'), applyCalib(calib.calib); end, catch, end, end
         end
         resetDownstream();                                               % new tracks -> invalidate downstream state + caches
         populateBuildSummary(Tracks, 'loaded (no rebuild)', aDir);
         logBuild(sprintf('Loaded TrackStruct.mat (%d cell(s)) from %s — MSD rebuild skipped.', numel(Tracks), f));
+        [~,ldStem] = fileparts(f);
+        if startsWith(ldStem,'examples_')
+            m = sprintf(['Loaded the SUBSET %s for inspection — the active build is unchanged (%s). ' ...
+                'Do not read engagement or dwell numbers off a subset: its tracks were pre-selected ' ...
+                'for touching the organelle, so D_free is computed only from molecules that also go ' ...
+                'near it and the ratio is pulled toward 1.'], ldStem, tsName);
+            setBuild(m, [0.6 0.4 0.1]); logBuild(m);
+        end
     end
 
     function applyCalib(c)

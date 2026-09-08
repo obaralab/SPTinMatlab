@@ -17,6 +17,10 @@ function spt_curate_engage_smoke()
 %   4. IT IS A TOGGLE  — rejecting the same track again restores it and the number comes back.
 %   5. THE QC APPLIES IT — the pooled panels and the per-track D export stop counting it too, so the
 %                        two tools cannot disagree about which tracks exist.
+%   6b. A SUBSET NEVER BECOMES THE ACTIVE BUILD — loading an examples_* file for inspection must
+%      leave the project's active build alone. It did not, and every downstream stage then measured
+%      pre-selected tracks: D_free computed only from molecules that also touch the organelle is a
+%      depleted, biased pool and the ratio is dragged toward 1.
 %   6. IDENTITY SURVIVES SLICING — a decision made while looking at a SUBSET (an examples file,
 %                        whose tracks are renumbered from 1) is recorded against the original build
 %                        column. Getting this wrong would silently reject a different track.
@@ -110,6 +114,21 @@ km = cs_track_exclusions('mask', cs_track_exclusions('toggle', [], 'cellA', 4, '
 assert(isequal(km{1}, [true true false]), ...
     ['masking a SUBSET by original column gave %s, wanted [1 1 0]. Column 3 of this subset is ' ...
      'column 4 of the build; keying on the subset column would reject a different track.'], mat2str(km{1}));
+
+%% (6b) loading a SUBSET must not change the active build ---------------------------------------------
+act0 = fileread(fullfile(proj,'analysis','active_trackstruct.txt'));
+L0 = load(fullfile(proj,'analysis','TrackStruct.mat'));
+% Whole-array assignment: cs_track_slice ADDS .srcCols, and writing that back into an element of a
+% narrower struct array is "Subscripted assignment between dissimilar structures".
+Tracks = cs_track_slice(L0.Tracks(1), [1 2]);                     %#ok<NASGU> a 2-track subset
+save(fullfile(proj,'analysis','examples_mito_100nm.mat'),'Tracks','-v7.3');
+f.UserData.loadTracksFile(fullfile(proj,'analysis','examples_mito_100nm.mat'));
+drawnow;
+act1 = fileread(fullfile(proj,'analysis','active_trackstruct.txt'));
+assert(strcmp(strtrim(act0), strtrim(act1)), ...
+    ['loading examples_mito_100nm.mat changed the active build from "%s" to "%s". A subset is ' ...
+     'pre-selected for touching the organelle, so measuring on it computes D_free from a depleted ' ...
+     'pool and pulls every ratio toward 1.'], strtrim(act0), strtrim(act1));
 
 %% (2) Engagement applies it, and says so -------------------------------------------------------------------
 f2 = spt_analyze_app('analyze'); f2.Visible = 'off';

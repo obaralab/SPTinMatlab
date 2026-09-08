@@ -66,7 +66,21 @@ minSteps= max(1, round(getf_(opts,'minSteps', 30)));
 E = repmat(emptyRec(), numel(Tracks), numel(dList));
 for k = 1:numel(Tracks)
     T = Tracks(k);
-    if ~isfield(T,'matrix') || isempty(T.matrix), continue; end
+    % A cell with no tracks still gets a NAMED record at every distance. Leaving E(k,:) at the
+    % default emptyRec() gave it a blank file, a NaN distance and 'not computed', and the caller
+    % then had an unnamed row it could only label by index — which is where the phantom "cell 65"
+    % rows came from on a 93-cell plate that has no such cell. A cell that cannot be measured is a
+    % real answer about a real cell and must say which cell it is.
+    if ~isfield(T,'matrix') || isempty(T.matrix)
+        for q = 1:numel(dList)
+            rec = emptyRec();
+            if isfield(T,'file'), rec.file = char(T.file); end
+            rec.cellIndex = k; rec.dUm = dList(q);
+            rec.why = 'no tracks in this cell';
+            E(k,q) = rec;
+        end
+        continue
+    end
     M = T.matrix; [nF, nT, ~] = size(M);
     F = M(:,:,1); X = M(:,:,2); Y = M(:,:,3);
     dt = dtDef;

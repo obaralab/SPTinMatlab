@@ -502,6 +502,35 @@ stays until the next redraw.
 
 ---
 
+## 9f. Three defects a real 93-cell plate found that no fixture did
+
+**A subset was becoming the ACTIVE BUILD.** `onLoadTracks` stamps whatever you load as active, so
+loading `examples_mito_110nm.mat` to inspect it made a 3044-track subset the project's build — and
+the user's Engagement screenshot was computed on it. That is not merely fewer data, it is BIASED
+data: the subset's tracks were pre-selected for touching mito, so `D_free` is computed only from
+steps of molecules that also go near mito, the free pool is depleted of exactly the molecules that
+never approach, and every ratio is dragged toward 1. Their Baseline read **1.1**. `examples_*` files
+now load for inspection without touching the active build, and say so in amber.
+
+**A trackless cell had no name.** `cs_mito_engage` skipped a cell with an empty matrix, leaving
+`E(k,:)` at the default `emptyRec()` — blank file, NaN distance — so the app labelled it by index
+and showed `cell 65`, `cell 72`, `cell 73` on a plate that has no such cells. They were the three
+cells of the SUBSET where nothing came within 110 nm. Such a cell now reports its real file name and
+`no tracks in this cell`.
+
+**`cs_track_slice` returned early without `.srcCols`** for a trackless cell, so the caller's
+`vertcat` hit "the number of fields in structure arrays being concatenated do not match" — which
+surfaced as an error painted across the gallery axes, several frames from the cause.
+
+All three needed a cell with ZERO tracks, which no fixture had. Both smokes now carry one.
+
+**Also made honest:** the Engagement `data` dropdown offers *experiment (all folders)* and
+`onEngageCompute` has only ever measured the current project's build. It now says so on the status
+line when that option is chosen. Cross-folder pooling for engagement is still unimplemented — see
+Open threads.
+
+---
+
 ## 10. Open threads
 
 1. **`_ch24` may itself be interleaved.** `_spt12` was ch1+ch3 alternating. If `_ch24` is ch2+ch4 the

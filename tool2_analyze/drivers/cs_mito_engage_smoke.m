@@ -94,6 +94,21 @@ fprintf('distance scan: ');
 for q = 1:3, fprintf('d=%.2f -> ratio %.3f  ', Es(q).dUm, Es(q).Dratio); end
 fprintf('\n');
 
+%% a cell with NO TRACKS must still say WHICH cell ---------------------------------------------------
+% Leaving its record at the default gave it a blank file name, and the app then labelled it by index
+% and showed a cell that does not exist in the experiment.
+Tnone = Tteth; Tnone.file = 'emptyCell'; Tnone.matrix = zeros(0,0,3);
+En = cs_mito_engage([Tteth Tnone], struct('dUm',[0.05 0.10],'sigmaUm',sig,'dt',dt,'minSteps',30));
+assert(isequal(size(En),[2 2]), 'a 2-cell x 2-distance call returned %s', mat2str(size(En)));
+assert(strcmp(En(2,1).file,'emptyCell'), ...
+    ['the trackless cell reported its file as "%s". An unnamed row is one the caller can only label ' ...
+     'by index, which is how a phantom "cell 65" appeared on a plate that has no such cell.'], En(2,1).file);
+assert(isequal([En(2,1).dUm En(2,2).dUm], [0.05 0.10]), ...
+    'the trackless cell reports d = %s, not the distances it was asked about', mat2str([En(2,1).dUm En(2,2).dUm]));
+assert(~En(2,1).ok && contains(En(2,1).why,'no tracks'), ...
+    'the trackless cell says "%s" rather than naming the reason', En(2,1).why);
+fprintf('trackless cell answers by name: %s — %s\n', En(2,1).file, En(2,1).why);
+
 fprintf('\nMITO-ENGAGEMENT SMOKE PASSED.\n');
 end
 

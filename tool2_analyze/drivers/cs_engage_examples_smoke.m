@@ -29,7 +29,13 @@ dt = 0.02; nF = 40;
 % Cell 2: everything far, so it must survive with zero tracks.
 T1 = mkCell('cellA', [4.95 NaN; 5.35 4.85; 8.00 NaN], nF, dt);
 T2 = mkCell('cellB', [9.00 NaN; 9.40 NaN; 9.80 NaN], nF, dt);
-T  = [T1 T2];
+% Cell 3 has NO TRACKS AT ALL. A real plate has these — a field where nothing linked — and no
+% fixture had one, which is how two bugs reached the user: cs_track_slice returned early without
+% setting .srcCols, so the resulting array could not be concatenated ("the number of fields in
+% structure arrays being concatenated do not match"), and cs_mito_engage left such a cell's record
+% blank, so the app labelled it by index and invented a cell that does not exist.
+T3 = mkCell('cellEmpty', zeros(0,2), nF, dt);
+T  = [T1 T2 T3];
 
 d = 0.10;
 [sel, Tsub] = cs_engage_examples(T, struct('dUm',d,'key','mito'));
@@ -81,6 +87,11 @@ end
 
 %% (4) an empty cell survives ---------------------------------------------------------------------------
 assert(numel(Tsub) == numel(T), 'the slice dropped a cell: %d in, %d out', numel(T), numel(Tsub));
+% The trackless cell must carry srcCols like every other, or the array cannot be concatenated at all
+assert(isfield(Tsub(3),'srcCols') && isempty(Tsub(3).srcCols), ...
+    ['the trackless cell has no (empty) srcCols. A struct array where some cells carry the field ' ...
+     'and some do not cannot be concatenated, and the error surfaces in the CALLER''s vertcat.']);
+assert(size(Tsub(3).matrix,2) == 0, 'the trackless cell reports %d tracks', size(Tsub(3).matrix,2));
 assert(isempty(sel(2).cols), 'cellB has no track near the organelle but kept %s', mat2str(sel(2).cols));
 assert(size(Tsub(2).matrix,2) == 0, 'the empty cell kept %d tracks', size(Tsub(2).matrix,2));
 assert(sel(2).cellIndex == 2, 'cellIndex no longer lines up with the input');
@@ -100,6 +111,7 @@ end
 
 % ================================================================================================
 function T = mkCell(name, xs, nF, dt)
+% xs with zero rows makes a cell with NO tracks — the empty-field case a real plate contains.
 % One cell, one track per ROW of xs = [xStart xEnd]. xEnd NaN holds the track at xStart; otherwise
 % it drifts linearly from one to the other, which is how a track is made to cross the boundary.
 % The organelle is a line at x = 5, so the signed distance is |x-5|.
