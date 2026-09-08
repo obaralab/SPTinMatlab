@@ -138,6 +138,24 @@ end
 assert(all(v >= 0 & v <= 1), 'a per-track occupancy is outside [0,1]: min %.3g max %.3g', min(v), max(v));
 fprintf('per-track file: %d molecules, occupancy in [%.2f, %.2f]\n', numel(PL)-1, min(v), max(v));
 
+%% (7) the examples export asks for a name, and the BUTTON says it worked -----------------------------
+% A modal Save dialog cannot be answered headlessly, so the button takes an optional path — the
+% same escape hatch onLoadTracks uses. What is asserted here is the part a user sees: the file
+% lands where it was told, and the control they clicked confirms it. The status line is a paragraph
+% above the table, and a person who just pressed a button is looking at the button.
+bEx = pick(findobj(f,'Type','uibutton'), @(x) contains(string(x.Text),'Examples'), 'examples button');
+txt0 = char(string(bEx.Text)); col0 = bEx.BackgroundColor;
+want = fullfile(proj,'analysis','examples','my_named_subset.mat');
+ud = f.UserData;
+assert(isfield(ud,'engExamples'), 'the app exposes no headless hook for the examples export');
+ud.engExamples(want); drawnow;
+assert(isfile(want), 'the examples export ignored the name it was given: %s', want);
+assert(~strcmp(char(string(bEx.Text)), txt0), ...
+    ['the button still reads "%s" after a successful export. The status line is far from the ' ...
+     'button and a silent control reads as a click that did nothing.'], txt0);
+assert(~isequal(bEx.BackgroundColor, col0), 'the button colour did not change on export');
+fprintf('examples written to a chosen name; button now reads "%s"\n', char(string(bEx.Text)));
+
 fprintf('\nENGAGEMENT-TAB SMOKE PASSED.\n');
 end
 

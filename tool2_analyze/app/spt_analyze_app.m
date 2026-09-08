@@ -53,7 +53,7 @@ CALEDIT = {};           % which top-bar numbers are HAND EDITS ('pixSizeUm','fov
 tg=[]; tImport=[]; tBuild=[]; tCS=[];                                 % tabs
 tRefine=[]; tSites=[]; tDwell=[]; tExpt=[]; tEngage=[]; tCompare=[];   % downstream tabs
 % Engagement tab handles
-engExN=0; engDropC=0; engOccT=[]; engEngF=[]; engDd=[]; engKey=[]; engD0=[]; engD1=[]; engN=[]; engSig=[]; engMin=[]; engTbl=[]; engLbl=[]; engAxEx=[]; engNEx=[];
+engExN=0; engDropC=0; bEngEx=[]; engOccT=[]; engEngF=[]; engDd=[]; engKey=[]; engD0=[]; engD1=[]; engN=[]; engSig=[]; engMin=[]; engTbl=[]; engLbl=[]; engAxEx=[]; engNEx=[];
 engAxCell=[]; engAxScan=[]; engLast=[];
 ddTimeUnit=[]; lblBuild=[]; tblBuild=[]; txtBuild=[];                 % Build handles
 buildChanKeys = {};   % the channel columns tblBuild was BUILT with — onCalEdit derives its column
@@ -115,7 +115,8 @@ fig.CloseRequestFcn = @(s,e) onAppClose();   % deletes tabs -> track_viewer's pa
 % always report the empty initial state.
 fig.UserData = struct('activeTs',@activeTsNow, 'tracks',@tracksNow, 'loadTracks',@onLoadTracks, ...
     'cmpSetCells',@setCompareCells, 'cmpCellList',@compareCellList, 'cmpLoad',@ensureCompareData, ...
-    'exptCtl',@exptCtlNow, 'calibForBuild',@calibForBuild, 'loadTracksFile',@loadTracksFile);
+    'exptCtl',@exptCtlNow, 'calibForBuild',@calibForBuild, 'loadTracksFile',@loadTracksFile, ...
+    'engExamples',@onEngageExamples);
 gl = uigridlayout(fig,[2 1],'RowHeight',{34,'1x'},'Padding',[8 8 8 8],'RowSpacing',6);
 
 % 16 columns, 16 widths, 16 children — keep the three in step. uigridlayout WRAPS a child it has no
@@ -2151,7 +2152,7 @@ end
             'Tooltip','One row per cell per distance, with the step counts — the file you would score compounds from.');
         engNEx = uispinner(r,'Limits',[1 12],'Value',5,'Step',1, ...
             'Tooltip','How many example tracks to DRAW per condition. The export writes all of them.');
-        uibutton(r,'Text','Examples → Tool 2','ButtonPushedFcn',@(s,e) onEngageExamples(), ...
+        bEngEx = uibutton(r,'Text','Examples → Tool 2','ButtonPushedFcn',@(s,e) onEngageExamples(), ...
             'Tooltip',['Write a TrackStruct holding every track that touches the zone — the same ' ...
                        'population D_bound is built from — and open it in Tool 2 with Load ' ...
                        'TrackStruct… for the player, MSD, stepwise D(t), CSD and the per-track D ' ...
@@ -2207,6 +2208,11 @@ end
         end
         engLast = E;
         engExN = nEx; engDropC = nDropC;
+        if ~isempty(bEngEx) && isgraphics(bEngEx)
+            bEngEx.Text = 'Examples → Tool 2';
+            bEngEx.BackgroundColor = [0.96 0.96 0.96];
+            bEngEx.FontWeight = 'normal';
+        end
 
         % PER-TRACK OCCUPANCY, at every distance in the scan. Cheap (it is a count), and per
         % distance because the table is per cell x distance and occupancy varies with d exactly as
@@ -2452,7 +2458,11 @@ end
         end
     end
 
-    function onEngageExamples()
+    function onEngageExamples(preset)
+        % preset: write straight to this path and skip the Save dialog. The button passes nothing —
+        % it asks. Callers that already know the file (the smokes) pass one, because a modal dialog
+        % cannot be answered headlessly and the export would otherwise be untestable.
+        if nargin < 1, preset = ''; end
         [selE, TsubE, dEx] = engageExampleSel();
         if isempty(selE), engLbl.Text = 'Build or load a TrackStruct first.'; return; end
         nTr = sum(arrayfun(@(x) numel(x.cols), selE));
@@ -2462,8 +2472,34 @@ end
             return
         end
         dst = fullfile(projectDir,'analysis'); if ~isfolder(dst), mkdir(dst); end
-        f = cs_ana_path(dst,'examples', sprintf('examples_%s_%.0fnm.mat', engKey.Value, dEx*1000));
+        % ASK where it goes. The name encodes the channel and the distance, which is what
+        % distinguishes one export from the next, but a run is often better named for what it IS
+        % ("baseline_only", "after_density_cut") and the tool cannot guess that.
+        f = char(preset);
+        if isempty(f)
+            deflt = cs_ana_path(dst,'examples', sprintf('examples_%s_%.0fnm.mat', engKey.Value, dEx*1000));
+            [fn, fp] = uiputfile({'*.mat','TrackStruct (*.mat)'}, 'Save the example tracks as', deflt);
+            if isequal(fn,0)
+                engLbl.Text = 'Export cancelled — nothing was written.'; return
+            end
+            f = fullfile(fp, fn);
+            % The subset guard is name-based, so a file saved under a name that does not start with
+            % examples_ could later be picked up as a BUILD and quietly analysed as one. Say so
+            % rather than silently renaming what the user typed.
+            [~, stemChk] = fileparts(f);
+            if ~startsWith(stemChk,'examples_')
+                uialert(ancestor(engLbl,'figure'), ...
+                    sprintf(['"%s" does not start with "examples_". Subsets are recognised by that ' ...
+                             'prefix and kept out of the Build selector; under this name the file ' ...
+                             'can be made the active build, and every downstream stage would then ' ...
+                             'measure a pre-selected subset.'], stemChk), ...
+                    'Saved, but not recognised as a subset', 'Icon','warning');
+            end
+        end
         Tracks = TsubE; %#ok<NASGU>
+        % The folder may not exist: uiputfile guarantees one, a preset path does not, and cs_ana_path
+        % only creates the folder when IT builds the name.
+        pdir = fileparts(f); if ~isempty(pdir) && ~isfolder(pdir), try, mkdir(pdir); catch, end, end
         try, save(f, 'Tracks', '-v7.3');
         catch ME, engLbl.Text = ['Could not write the examples: ' ME.message]; return; end
         nC = sum(arrayfun(@(x) ~isempty(x.cols), selE));
@@ -2474,6 +2510,14 @@ end
             'export — on exactly these tracks. It is deliberately NOT offered in the Build selector: ' ...
             'it is a subset, not a build.'], nTr, nC, engKey.Value, dEx, f, fb, fe);
         logBuild(sprintf('Engagement examples: %d track(s), %d cell(s) -> %s', nTr, nC, f));
+        % The button itself says it worked. The status line is a paragraph of text above the table
+        % and a person who just clicked a button is looking at the button. Reset on the next
+        % Compute, which is the natural boundary — no timer to outlive the figure.
+        if ~isempty(bEngEx) && isgraphics(bEngEx)
+            bEngEx.Text = '✓ Examples written';
+            bEngEx.BackgroundColor = [0.83 0.93 0.83];
+            bEngEx.FontWeight = 'bold';
+        end
     end
 
     function onEngageExport()
