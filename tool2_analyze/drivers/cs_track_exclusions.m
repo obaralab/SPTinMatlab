@@ -44,7 +44,11 @@ end
 function f = exFile(projectDir)
 f = '';
 if isempty(projectDir), return; end
-f = fullfile(char(projectDir), 'analysis', 'track_exclusions.csv');
+% curation/ when writing; an existing file at the analysis/ root is still honoured, so a project
+% curated before the reorganisation does not silently lose its rejections.
+a = fullfile(char(projectDir), 'analysis');
+legacy = fullfile(a, 'track_exclusions.csv');
+if isfile(legacy), f = legacy; else, f = cs_ana_path(a, 'curation', 'track_exclusions.csv'); end
 end
 
 function ex = doLoad(projectDir)

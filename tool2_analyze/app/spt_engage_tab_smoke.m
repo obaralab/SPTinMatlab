@@ -108,7 +108,7 @@ mn.Value = 100; cb(bC, struct()); drawnow;
 %% (5) the export carries what a compound would be scored from
 bE = pick(findobj(f,'Type','uibutton'), @(x) strcmp(string(x.Text),'Export CSV'), 'Export button');
 cbe = bE.ButtonPushedFcn; cbe(bE, struct()); drawnow;
-csv = fullfile(proj,'analysis','cs_engagement_mito.csv');
+csv = fullfile(proj,'analysis','exports','cs_engagement_mito.csv');
 assert(isfile(csv), 'no engagement CSV at %s', csv);
 L = strsplit(strtrim(fileread(csv)), newline);
 assert(numel(L) == 7, 'CSV has %d lines, wanted a header + 6 rows', numel(L));

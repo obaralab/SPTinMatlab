@@ -103,6 +103,35 @@ SPTinMatlab/
 
 ---
 
+## 2b. Where analysis output goes
+
+`analysis/` was flat, and a 93-cell plate put 186 density files in it around the handful anyone
+opens. `cs_ana_path.m` decides the layout in one place:
+
+```
+analysis/
+  <build>.mat, active_trackstruct.txt, cs_calib.mat   the spine — unchanged
+  density/     Density_<base>.mat/.tif, Density_<base>_CSwindows.mat
+  Densities/   <base>_rho.tif        unchanged: the advisor's pipeline expects this name
+  exports/     the CSVs you take to Prism
+  examples/    examples_*.mat        (engagement subsets)
+  curation/    track_exclusions.csv
+```
+
+The spine stays at the root because every tool looks for it by name and moving it would break
+existing projects for no gain. **Nothing is migrated**: `cs_ana_path(anaDir,'find',name)` checks the
+new home then the root, so an old project keeps working untouched. A reader that only looked in the
+new folder would report "no windows" for a project picked before the move — which reads as *nothing
+was picked*, not as *the file moved*.
+
+**Why density files appear on a project nobody ran density on.** `Densities/<base>_rho.tif` is
+required — its row count sets `SF` for the mapper — so opening the Contact-sites tab bootstraps it
+for every cell when that folder is empty, regardless of the checkbox. The *extra*
+`Density_<base>.mat`/`.tif` are a drop-in for the advisor's external ContactSites code and **nothing
+in this pipeline reads them** (there is no `cs_identify` here). They used to be written in the same
+bootstrap, so a first open produced 279 files where 93 were needed. They now follow the checkbox,
+and the status line says which of the two is happening.
+
 ## 3. Calibration (per-CELL — cameras differ, and so do cells)
 
 Calibration is resolved **per cell**, not per dataset. Cells in one comparison are routinely acquired on

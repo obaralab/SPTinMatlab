@@ -619,7 +619,8 @@ end
         densCache(end+1) = struct('base', b, 'occ', s);
     end
 
-    function saveDensityFiles(k, src, anaDir)
+    function saveDensityFiles(k, src, anaDir, wantExtraDens)
+        if nargin < 4, wantExtraDens = true; end
         % Reproduce the advisor's density save EXACTLY (DensityVisualization + LocDensityFigIntUse) so the
         % files are a drop-in for the ContactSites pipeline. Same nm grid, σ=2 smooth, transpose:
         %   Densities/<base>_rho.tif  = full-range turbo RGB (DensityVisualization) — read by ContactSiteMapper
@@ -641,11 +642,17 @@ end
         lo = min(sm,[],'all'); hi = max(sm,[],'all'); if ~(hi>lo), hi = lo + 1; end
         rgb = ind2rgb(uint8(round(255*(sm-lo)/(hi-lo))), turbo(256));
         imwrite(rgb, fullfile(densDir, [base '_rho.tif']));
-        % Density_<base>.mat/.tif in analysis/ root — imG = 30·smoothed counts (LocDensityFigIntUse.m)
+        % Density_<base>.mat/.tif — imG = 30·smoothed counts (LocDensityFigIntUse.m). NOTHING IN THIS
+        % PIPELINE READS THESE: they are a drop-in for the advisor's external ContactSites code, and
+        % grep finds no reader (there is no cs_identify here). They were nonetheless written for
+        % every cell on first open, which is 186 unread files on a 93-cell plate. They are now
+        % written only when the checkbox actually asks for them, and into analysis/density/.
+        if ~wantExtraDens, return; end
         imG = 30*sm; %#ok<NASGU>
-        save(fullfile(anaDir, ['Density_' base '.mat']), 'imG');
-        try,   ChrisPrograms.saveastiff(uint16(30*sm), fullfile(anaDir, ['Density_' base '.tif']));
-        catch, imwrite(uint16(30*sm), fullfile(anaDir, ['Density_' base '.tif'])); end
+        dOut = cs_ana_path(anaDir, 'density');
+        save(fullfile(dOut, ['Density_' base '.mat']), 'imG');
+        try,   ChrisPrograms.saveastiff(uint16(30*sm), fullfile(dOut, ['Density_' base '.tif']));
+        catch, imwrite(uint16(30*sm), fullfile(dOut, ['Density_' base '.tif'])); end
     end
 
     % ---------------- Tab 3: Contact sites (embeds the ContactSites picker cs_identify) ----------------
@@ -667,7 +674,11 @@ end
         eCScontact = uispinner(r,'Limits',[-1 2],'Value',0.15,'Step',0.05, ...
             'Tooltip','A site is mito-contact when nearby localizations'' median signed MITODIST ≤ this (µm). Adjustable in the picker too.');
         chkCSsaveDens = uicheckbox(r,'Text','(re)save density first','Value',true, ...
-            'Tooltip','Also write Densities/<cell>_rho.tif + Density_<cell>.tif for the downstream mapper (the picker itself computes density live).');
+            'Tooltip',['Also write the EXPORT copies analysis/density/Density_<cell>.mat and .tif — ' ...
+                       'for the advisor''s external ContactSites code. Nothing in THIS pipeline ' ...
+                       'reads them, so leaving it off costs nothing here. Densities/<cell>_rho.tif ' ...
+                       'is written regardless when it is missing: the mapper needs it, and its row ' ...
+                       'count sets the µm scale factor.']);
         lblCS = uilabel(r,'Text','Build (Build & QC tab), then open the windowed contact-site picker here.','FontColor',[0.2 0.4 0.5]);
         pnCS = uipanel(g,'BorderType','none');
         placeholder(pnCS, 'The windowed contact-site picker opens here when you click ▶ Open windowed picker.');
@@ -684,10 +695,22 @@ end
         try, calib = struct('pixSizeUm',PXUM,'fovUm',FOVUM,'dt_s',DTS,'binNm',PRECNM,'snapFovUm',FOVUM); %#ok<NASGU>
              save(fullfile(anaDir,'cs_calib.mat'),'calib'); catch, end
         % density files for the downstream mapper (+ grid size); the picker computes its own density live.
+        % Densities/<base>_rho.tif IS needed — its row count sets SF for the mapper — so it is
+        % bootstrapped when the folder is empty, which is why density files appear on a project
+        % nobody ran density on. The EXTRA Density_<base>.mat/.tif are export-only and follow the
+        % checkbox, so a bootstrap writes 93 files rather than 279.
+        wantExtra = ~isempty(chkCSsaveDens) && chkCSsaveDens.Value;
         needDens = isempty(dir(fullfile(anaDir,'Densities','*_rho.tif')));
-        if (~isempty(chkCSsaveDens) && chkCSsaveDens.Value) || needDens
-            lblCS.Text = 'Saving density maps…'; drawnow;
-            for k = 1:numel(buildTracks), try, saveDensityFiles(k, 'All detections (cloud)', anaDir); catch, end, end
+        if wantExtra || needDens
+            if needDens && ~wantExtra
+                lblCS.Text = sprintf('First open: building the density map the mapper needs, for %d cell(s)…', numel(buildTracks));
+            else
+                lblCS.Text = 'Saving density maps…';
+            end
+            drawnow;
+            for k = 1:numel(buildTracks)
+                try, saveDensityFiles(k, 'All detections (cloud)', anaDir, wantExtra); catch, end
+            end
         end
         % ER max-occupancy MIP = the ER support the ER-Monte-Carlo null scatters within.
         lblCS.Text = 'Preparing ER support…'; drawnow;
@@ -2404,7 +2427,7 @@ end
             return
         end
         dst = fullfile(projectDir,'analysis'); if ~isfolder(dst), mkdir(dst); end
-        f = fullfile(dst, sprintf('examples_%s_%.0fnm.mat', engKey.Value, dEx*1000));
+        f = cs_ana_path(dst,'examples', sprintf('examples_%s_%.0fnm.mat', engKey.Value, dEx*1000));
         Tracks = TsubE; %#ok<NASGU>
         try, save(f, 'Tracks', '-v7.3');
         catch ME, engLbl.Text = ['Could not write the examples: ' ME.message]; return; end
@@ -2421,7 +2444,7 @@ end
     function onEngageExport()
         if isempty(engLast), engLbl.Text = 'Nothing to export — Compute first.'; return; end
         anaDir = ensureAnaDir(); if isempty(anaDir), return; end
-        fn = fullfile(anaDir, sprintf('cs_engagement_%s.csv', regexprep(engKey.Value,'\W','_')));
+        fn = cs_ana_path(anaDir,'export', sprintf('cs_engagement_%s.csv', regexprep(engKey.Value,'\W','_')));
         try
             fid = fopen(fn,'w');
             % Guarded: the per-cell file is closed explicitly below (before the per-track file is
@@ -3117,11 +3140,15 @@ end
         if isempty(f) && ~isempty(projectDir)
             a = fullfile(projectDir,'analysis');
             nBuilds = 0;
-            d = dir(fullfile(a,'*.mat'));
+            % Count the examples/ subfolder too. The examples subsets moved out of the root, and
+            % this count is what decides whether a PICKER opens: with one real build and the subsets
+            % uncounted, the button would silently load the active build and the subsets would be
+            % unreachable from the UI entirely.
+            d = [dir(fullfile(a,'*.mat')); dir(fullfile(a,'examples','*.mat'))];
             skip = {'cs_calib.mat','CSW_final.mat','cs_window_dwell.mat','cs_footprints.mat','experiment_details.mat','experiment_manifest.mat'};
             for q = 1:numel(d)
                 if any(strcmpi(d(q).name,skip)), continue; end
-                try, w = whos('-file', fullfile(a,d(q).name)); if any(strcmp({w.name},'Tracks')), nBuilds = nBuilds + 1; end, catch, end
+                try, w = whos('-file', fullfile(d(q).folder,d(q).name)); if any(strcmp({w.name},'Tracks')), nBuilds = nBuilds + 1; end, catch, end
             end
             if nBuilds <= 1
                 c = fullfile(a, activeTsName(a)); if isfile(c), f = c; end
@@ -3790,7 +3817,7 @@ end
         mode = fitModeNow();
         if strcmp(mode,'adaptive'), fitName = sprintf('adaptiveR2max%.0f', eMsdFrac.Value);
         else,                       fitName = sprintf('fixed%.0f', eMsdFrac.Value); end
-        stem = fullfile(dst, sprintf('qc_trackD_%s_%s_%s', fitName, tag, scopeTag));
+        stem = fullfile(cs_ana_path(dst,'export'), sprintf('qc_trackD_%s_%s_%s', fitName, tag, scopeTag));
 
         D = cellfun(@(x) x.D, sel); ok = isfinite(D) & D > 0;
         nCells = numel(unique(cellfun(@(x) x.cellIdx, sel)));

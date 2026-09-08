@@ -5,7 +5,11 @@ function [ranges, SF, grid, source] = cs_load_windows(anaDir, base, wcol, gridDe
 % .grid, .source = the density source the picker used: 'all'|'tracked'). If absent, falls back to ONE
 % whole-movie window ([-Inf Inf]) per distinct Slice in wcol and returns source = '' (unknown).
 SF = SFdef; grid = gridDef; source = '';
-f = fullfile(anaDir,['Density_' base '_CSwindows.mat']);
+% New home first, then the analysis/ root, so a project picked before the reorganisation still
+% resolves. A reader that only looked in the new folder would report "no windows" for an old
+% project, which reads as "nothing was picked" rather than as a moved file.
+f = cs_ana_path(anaDir,'find',['Density_' base '_CSwindows.mat']);
+if isempty(f), f = fullfile(anaDir,['Density_' base '_CSwindows.mat']); end
 if isfile(f)
     W = load(f); win = []; if isfield(W,'windows'), win = W.windows; end
     if ~isempty(win) && isfield(win,'ranges') && ~isempty(win.ranges)

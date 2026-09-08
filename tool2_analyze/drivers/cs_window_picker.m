@@ -907,7 +907,7 @@ onCell();
         end
         windows=struct('framesPerWindow',st.fpw,'nWindows',st.nW,'ranges',st.win,'grid',st.grid, ...
             'SF_umPerPx',st.SF,'frameInterval',st.Tracks(st.ci).frameInterval,'source',st.src); %#ok<NASGU>
-        save(fullfile(anaDir,['Density_' base '_CSwindows.mat']),'windows');
+        save(cs_ana_path(anaDir,'density',['Density_' base '_CSwindows.mat']),'windows');
         % --- provenance stamp: every result traceable to exactly how it was made ---
         try
             prov=struct('date',char(datetime('now','Format','yyyy-MM-dd HH:mm:ss')),'cell',base, ...

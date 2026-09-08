@@ -85,7 +85,7 @@ assert(selCount(f) == 9, ...
      'still measuring a track the user removed.'], selCount(f));
 
 %% (3) it persisted, readably ---------------------------------------------------------------------------
-exf = fullfile(proj,'analysis','track_exclusions.csv');
+exf = cs_ana_path(fullfile(proj,'analysis'),'find','track_exclusions.csv');
 assert(isfile(exf), 'no analysis/track_exclusions.csv — the decision did not survive the session');
 txt = strsplit(strtrim(fileread(exf)), newline);
 assert(numel(txt) == 2, 'the exclusions file has %d rows, wanted 1', numel(txt)-1);

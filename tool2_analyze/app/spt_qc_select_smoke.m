@@ -129,7 +129,7 @@ assert(contains(t,'n=1'), 'the D distribution says "%s" while the label counts 1
 
 %% (6) the export carries the selection, and the fit window --------------------------------------------
 press(f, 'Export shown');
-L = dir(fullfile(proj,'analysis','qc_trackD_*shown_long.csv'));
+L = dir(fullfile(proj,'analysis','exports','qc_trackD_*shown_long.csv'));
 assert(~isempty(L), 'no long-form CSV was written');
 txt = strsplit(strtrim(fileread(fullfile(L(1).folder, L(1).name))), newline);
 assert(numel(txt) == 2, 'the CSV holds %d lines, wanted a header + the 1 selected track', numel(txt)-1);
@@ -137,7 +137,7 @@ assert(contains(txt{1},'fit_window_pct'), ...
     ['the export omits the fit window. Under an adaptive fit each track chooses its own, so a D ' ...
      'exported without it cannot be compared with another: "%s"'], txt{1});
 assert(contains(txt{1},'median_mito_um'), 'the export omits the mito distance the selection was made on');
-W = dir(fullfile(proj,'analysis','qc_trackD_*_wide.csv'));
+W = dir(fullfile(proj,'analysis','exports','qc_trackD_*_wide.csv'));
 assert(~isempty(W), 'no wide-form (Prism Column) CSV was written');
 wtxt = strsplit(strtrim(fileread(fullfile(W(1).folder, W(1).name))), newline);
 assert(numel(wtxt) == 2 && strcmp(strtrim(wtxt{1}),'D_um2_per_s'), ...
@@ -168,7 +168,7 @@ assert(strcmp(dd.Value,'cellB'), ...
 setv(lenS, 0); setv(ddD, '');
 assert(selCount(f) == 2, 'cellB alone should show its 2 tracks, showing %d', selCount(f));
 press(f, 'Export ALL');
-A = dir(fullfile(proj,'analysis','qc_trackD_*allcells*_long.csv'));
+A = dir(fullfile(proj,'analysis','exports','qc_trackD_*allcells*_long.csv'));
 assert(~isempty(A), 'no all-cells CSV was written');
 at = strsplit(strtrim(fileread(fullfile(A(1).folder, A(1).name))), newline);
 assert(numel(at) == 7, ...
@@ -180,7 +180,7 @@ assert(any(contains(at,'cellA')) && any(contains(at,'cellB')), ...
 % ...and the filters still apply to it
 setv(lenS, 30);
 press(f, 'Export ALL');
-A2 = dir(fullfile(proj,'analysis','qc_trackD_*len30*allcells*_long.csv'));
+A2 = dir(fullfile(proj,'analysis','exports','qc_trackD_*len30*allcells*_long.csv'));
 assert(~isempty(A2), 'the all-cells export ignored the length filter (no len30 file)');
 a2 = strsplit(strtrim(fileread(fullfile(A2(1).folder, A2(1).name))), newline);
 assert(numel(a2) == 6, ...
