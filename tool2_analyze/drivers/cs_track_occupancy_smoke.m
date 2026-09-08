@@ -89,6 +89,28 @@ assert(isfinite(pc(2).occMedian), ...
     ['the D ratio refused this cell and occupancy did too. Counting localizations needs no step ' ...
      'statistics, so a sparse cell should still get an occupancy — that is half the reason to have it.']);
 
+%% (7) THE SIGN CONVENTION: inside the mask is negative, and already counted --------------------------
+% Real data is ~10 % negative (measured on the user's 93-cell plate: 60 157 of 603 591, min
+% -1.386 um). Those localizations sit INSIDE the mitochondrion and are the most engaged there are,
+% so `dist <= d` must include them at any positive d — and a NEGATIVE d must be usable to ask the
+% stricter question, "at least |d| inside".
+Tsign = mkCellSigned('cellSign', [ -0.30 ; -0.02 ; 0.05 ; 0.50 ], 60);
+[ptP, ~] = cs_track_occupancy(Tsign, struct('dUm',0.10,'key','mito','minLoc',5));
+occP = arrayfun(@(x) x.occ, ptP);
+assert(isequal(occP(:)', [1 1 1 0]), ...
+    ['at d = +0.10 um the four tracks scored %s, wanted [1 1 1 0]. A track at -0.30 um is INSIDE ' ...
+     'the mitochondrion; if it scores 0 the zone test is using |distance| and the most engaged ' ...
+     'molecules are being discarded.'], mat2str(occP(:)'));
+
+[ptN, ~] = cs_track_occupancy(Tsign, struct('dUm',-0.10,'key','mito','minLoc',5));
+occN = arrayfun(@(x) x.occ, ptN);
+assert(isequal(occN(:)', [1 0 0 0]), ...
+    ['at d = -0.10 um the four tracks scored %s, wanted [1 0 0 0] — only the one that is at least ' ...
+     '100 nm INSIDE. A negative threshold must be a stricter question, not an empty or an inverted ' ...
+     'one.'], mat2str(occN(:)'));
+fprintf('signed zone: d=+0.10 keeps %d of 4 tracks · d=-0.10 keeps %d (strictly inside)\n', ...
+    sum(occP>0), sum(occN>0));
+
 %% (6) no cell is dropped ------------------------------------------------------------------------------
 assert(numel(pc) == numel(T), 'perCell has %d rows for %d cells', numel(pc), numel(T));
 assert(pc(3).cellIndex == 3 && pc(3).nScored == 0 && ~isempty(pc(3).why), ...
@@ -100,6 +122,15 @@ fprintf('\nTRACK-OCCUPANCY SMOKE PASSED.\n');
 end
 
 % ================================================================================================
+function T = mkCellSigned(name, dists, nF)
+% One track per entry, every localization of it held at that SIGNED distance. Negative is inside.
+nT = numel(dists);
+X = 5 + 0.01*randn(nF,nT); Y = 5 + 0.01*randn(nF,nT);
+D = repmat(dists(:)', nF, 1);
+T = struct('matrix', cat(3, repmat((1:nF)',1,nT), X, Y), 'frameInterval',0.02, 'file',name, ...
+           'dist', struct('mito', D));
+end
+
 function T = mkCell(name, spec, nF, d)
 % spec rows: [nLoc, fracInside]. Each track gets nLoc localizations, of which fracInside lie at
 % distance 0 (inside the zone) and the rest at 3*d (well outside). Distances are planted directly

@@ -146,7 +146,9 @@ tg(1).SelectedTab = etab; drawnow;
 sp = findobj(etab,'Type','uispinner');
 mn = pick(sp, @(x) isequal(x.Limits,[5 5000]), 'min-steps spinner'); mn.Value = 10;
 sg = pick(sp, @(x) isequal(x.Limits,[0 500]),  'precision spinner'); sg.Value = 0;
-d0 = pick(sp, @(x) isequal(x.Limits,[0.01 5]) && x.Value < 0.2, 'distance-from spinner');
+% Limits are [-2 5], not [0.01 5]: a NEGATIVE zone threshold is legal and means "at least this
+% far INSIDE the mask", which the panel could not express before.
+d0 = pick(sp, @(x) isequal(x.Limits,[-2 5]) && x.Value < 0.2, 'distance-from spinner'); %#ok<NASGU>
 press(etab,'Compute'); drawnow;
 tbl = pick(findobj(etab,'Type','uitable'), @(x) any(strcmp(x.ColumnName,'ratio')), 'engagement table');
 lbl = pick(findobj(etab,'Type','uilabel'), @(x) contains(string(x.Text),'answered'), 'engagement status');

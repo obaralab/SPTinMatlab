@@ -854,6 +854,16 @@ New tab app `spt_analyze_app.m`; built on the `drivers/` layer. Build order:
    n_free, n_crossing, occupancy, condition` — so a compound can be scored from the file without re-running.
    `n_crossing` (steps that left the zone, counted where they started) is what sets the dilution: a large
    share means much of the bound pool is molecules on their way out.
+   **The distance is SIGNED and negative means inside.** The zone test is `dist <= d` everywhere
+   (`cs_mito_engage`, `cs_engage_examples`, `cs_track_occupancy`), so a positive `d` already
+   includes every localization inside the mask plus a shell of width `d` outside it — on the user's
+   93-cell plate, 10 % of distances are negative (60 157 of 603 591, min −1.386 µm) and all of them
+   count as engaged at any positive `d`. The scan spinners used to be limited to `[0.01 5]`, which
+   made the stricter question — *at least |d| INSIDE the organelle* — unaskable and left the
+   impression those localizations were being missed. Limits are now `[-2 5]`.
+   `cs_track_occupancy_smoke` asserts it both ways: at `d = +0.10` a track held at −0.30 µm scores
+   1 (it is inside), and at `d = -0.10` only the track at least 100 nm inside survives.
+
    **Occupancy is per TRACK, not per localization** (`cs_track_occupancy.m`). This is SPT: the unit
    of observation is a molecule. Pooling every localization in a cell weights a 400-frame track 100x
    more than a 4-frame one, so a handful of long residents carry the number — and it collapses the
