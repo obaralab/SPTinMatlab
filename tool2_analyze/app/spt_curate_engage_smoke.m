@@ -40,6 +40,12 @@ cleanup = onCleanup(@() rmdir(proj,'s'));
 % zone — the kind of thing you would look at and reject. Its presence lifts D_bound, so removing it
 % must lower the ratio, and by enough to see.
 makeCell(proj, 'cellA');
+% The BUILD gets a second cell (a copy under another name) so that excluding one still leaves one to
+% measure — otherwise the exclude test cannot tell "the flag was honoured" from "there was nothing
+% left". tracks/fixture.mat stays single-cell, which is what assertion 1 measures directly.
+Lb = load(fullfile(proj,'analysis','TrackStruct.mat'));
+Tracks = [Lb.Tracks, Lb.Tracks]; Tracks(2).file = 'cellB'; %#ok<NASGU>
+save(fullfile(proj,'analysis','TrackStruct.mat'),'Tracks','-v7.3');
 
 %% (1) THE FIXTURE MUST BITE — measured directly, before any UI is involved --------------------------
 S = load(fullfile(proj,'tracks','fixture.mat'));
@@ -70,7 +76,7 @@ press(f,'Load TrackStruct');
 n0 = selCount(f);
 % 10, not 4: the fixture has 4 tracks in the zone plus 6 far ones that give D_free its statistics,
 % and the QC shows every track because no filter is set.
-assert(n0 == 10, 'the QC shows %d tracks, wanted 10', n0);
+assert(n0 == 20, 'the QC shows %d tracks, wanted 20 (two cells of 10)', n0);
 
 %% (5) rejecting from the QC removes it from the pooled panels ----------------------------------------
 ax = findobj(f,'Type','axes');
@@ -80,8 +86,8 @@ x = tr(1).matrix(:,4,2); y = tr(1).matrix(:,4,3); x = x(isfinite(x)); y = y(isfi
 cbd = cov.ButtonDownFcn; cbd(cov, struct('IntersectionPoint',[x(1) y(1) 0])); drawnow;
 rej = pick(findobj(f,'Type','uibutton'), @(b) contains(string(b.Text),'Reject'), 'reject button');
 cb = rej.ButtonPushedFcn; cb(rej, struct()); drawnow;
-assert(selCount(f) == 9, ...
-    ['after rejecting one track the QC still counts %d of 10. The pooled panels and the export are ' ...
+assert(selCount(f) == 19, ...
+    ['after rejecting one track the QC still counts %d of 20. The pooled panels and the export are ' ...
      'still measuring a track the user removed.'], selCount(f));
 
 %% (3) it persisted, readably ---------------------------------------------------------------------------
@@ -100,7 +106,7 @@ assert(cs_track_exclusions('count', ex2) == 1 && cs_track_exclusions('has', ex2,
 assert(contains(string(rej.Text),'Restore'), ...
     'the button still reads "%s" on an already-rejected track, so the toggle is illegible', rej.Text);
 cb(rej, struct()); drawnow;
-assert(selCount(f) == 10, 'restoring did not bring the track back (%d of 10)', selCount(f));
+assert(selCount(f) == 20, 'restoring did not bring the track back (%d of 20)', selCount(f));
 assert(cs_track_exclusions('count', cs_track_exclusions('load', proj)) == 0, ...
     'restoring left the row in the file');
 cb(rej, struct()); drawnow;                                  % reject again for the Engagement check
@@ -211,6 +217,37 @@ assert(contains(string(lbl.Text),'EXCLUDED'), ...
     ['the Engagement status line does not mention the rejected track: "%s". A curated ratio must not ' ...
      'look identical to an uncurated one.'], lbl.Text);
 assert(contains(string(lbl.Text),'1 hand-rejected'), 'the status line reports the wrong count: "%s"', lbl.Text);
+
+%% (7) Engagement honours the Experiment tab's per-cell EXCLUDE flag ------------------------------------
+% The durable per-cell judgement. cs_experiment_aggregate has always honoured it, so a plate that
+% dropped a cell in Compare and kept it here gave two different answers with nothing to say why.
+ec = f2.UserData.exptCtl();
+assert(~isempty(ec) && isstruct(ec), 'the Experiment panel was never built in analyze mode');
+cellsE = ec.getCells();
+assert(~isempty(cellsE), 'the Experiment tab found no cells, so there is nothing to exclude');
+nBefore = size(tbl.Data,1);
+sel0 = ec.getSelected(); %#ok<NASGU>
+% exclude the FIRST cell through the panel's own control, the way a user would
+ecCells = ec.getCells();
+tgtFile = ecCells(1).file;
+tblE = pick(findobj(f2,'Type','uitable'), @(x) any(strcmp(x.ColumnName,'excl')), 'experiment table');
+tblE.Selection = 1;
+bx = pick(findobj(f2,'Type','uibutton'), @(x) contains(string(x.Text),'Exclude'), 'exclude button');
+cbx = bx.ButtonPushedFcn; cbx(bx, struct()); drawnow;
+after = ec.getCells();
+h = find(strcmp({after.file}, tgtFile),1);
+assert(~isempty(h) && after(h).exclude, 'the exclude flag did not stick on %s', tgtFile);
+press(etab,'Compute'); drawnow;
+nAfter = size(tbl.Data,1);
+assert(nAfter < nBefore, ...
+    ['the engagement table still has %d rows after excluding a cell (was %d). The Experiment tab''s ' ...
+     'exclude flag is not reaching Engagement, so the same plate answers differently here and in ' ...
+     'Compare.'], nAfter, nBefore);
+assert(~any(strcmp(tbl.Data(:,1), tgtFile)), 'the excluded cell %s is still in the table', tgtFile);
+lbl2 = pick(findobj(etab,'Type','uilabel'), @(x) contains(string(x.Text),'answered'), 'engagement status');
+assert(contains(string(lbl2.Text),'EXCLUDED on the Experiment tab'), ...
+    'the status line does not mention the excluded cell: "%s"', lbl2.Text);
+fprintf('excluding 1 cell on the Experiment tab: %d -> %d engagement rows\n', nBefore, nAfter);
 
 fprintf('QC 4 -> 3 tracks · persisted with a reason · toggles back · subset identity holds · Engagement says EXCLUDED\n');
 fprintf('\nCURATE-ENGAGE SMOKE PASSED.\n');

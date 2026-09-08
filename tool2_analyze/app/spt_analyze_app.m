@@ -53,7 +53,7 @@ CALEDIT = {};           % which top-bar numbers are HAND EDITS ('pixSizeUm','fov
 tg=[]; tImport=[]; tBuild=[]; tCS=[];                                 % tabs
 tRefine=[]; tSites=[]; tDwell=[]; tExpt=[]; tEngage=[]; tCompare=[];   % downstream tabs
 % Engagement tab handles
-engExN=0; engOccT=[]; engEngF=[]; engDd=[]; engKey=[]; engD0=[]; engD1=[]; engN=[]; engSig=[]; engMin=[]; engTbl=[]; engLbl=[]; engAxEx=[]; engNEx=[];
+engExN=0; engDropC=0; engOccT=[]; engEngF=[]; engDd=[]; engKey=[]; engD0=[]; engD1=[]; engN=[]; engSig=[]; engMin=[]; engTbl=[]; engLbl=[]; engAxEx=[]; engNEx=[];
 engAxCell=[]; engAxScan=[]; engLast=[];
 ddTimeUnit=[]; lblBuild=[]; tblBuild=[]; txtBuild=[];                 % Build handles
 buildChanKeys = {};   % the channel columns tblBuild was BUILT with — onCalEdit derives its column
@@ -2182,6 +2182,15 @@ end
         try, trkEx = cs_track_exclusions('load', projectDir); catch, trkEx = []; end
         T = cs_track_exclusions('apply', trkEx, buildTracks);
         nEx = cs_track_exclusions('count', trkEx);
+        % ...then whole cells the Experiment tab excluded. Order matters only for the counts: track
+        % rejections inside an excluded cell are still counted as rejections, which is honest.
+        [keepC, nDropC] = engageKeepCells(T);
+        T = T(keepC);
+        if isempty(T)
+            engLbl.Text = sprintf(['Every cell is marked EXCLUDE on the Experiment tab (%d of %d), ' ...
+                'so there is nothing left to measure.'], nDropC, numel(buildTracks));
+            return
+        end
         % The data dropdown offers 'experiment (all folders)' and this function has only ever
         % measured the CURRENT project's build. A control that silently does nothing is worse than
         % one that is absent, so it says which it used rather than letting the label imply the other.
@@ -2197,7 +2206,7 @@ end
             engLbl.Text = ['Engagement failed: ' ME.message]; return;
         end
         engLast = E;
-        engExN = nEx;
+        engExN = nEx; engDropC = nDropC;
 
         % PER-TRACK OCCUPANCY, at every distance in the scan. Cheap (it is a count), and per
         % distance because the table is per cell x distance and occupancy varies with d exactly as
@@ -2278,6 +2287,9 @@ end
         if engExN > 0
             exTxt = sprintf('  ·  %d hand-rejected track(s) EXCLUDED (analysis/track_exclusions.csv)', engExN);
         end
+        if engDropC > 0
+            exTxt = sprintf('%s  ·  %d cell(s) EXCLUDED on the Experiment tab', exTxt, engDropC);
+        end
         engLbl.Text = sprintf(['%d cell(s) x %d distance(s) · %d answered · %s within %.3g–%.3g µm · ' ...
             'precision %g nm · min %d steps per class. A ratio below 1 means slowed at the interface; ' ...
             '1 means no contrast.%s%s'], size(E,1), size(E,2), nOK, engKey.Value, dl(1), dl(end), ...
@@ -2310,6 +2322,28 @@ end
         end
     end
 
+    function [keep, nDrop] = engageKeepCells(Tracks)
+        % Cells the Experiment tab has marked EXCLUDE are dropped before anything is measured. That
+        % flag is the durable, per-cell judgement — a dying cell, bad segmentation, a density far off
+        % the rest — and cs_experiment_aggregate has always honoured it. Engagement did not, so the
+        % same plate gave one answer in Compare and another here, with nothing on screen to say why.
+        %
+        % Matched on the cell FILE name, the same key engageConditions uses, so a cell cannot be
+        % excluded under one identity and grouped under another.
+        keep = true(1, numel(Tracks)); nDrop = 0;
+        if isempty(exptCtl) || ~isstruct(exptCtl), return; end
+        try, cells = exptCtl.getCells(); catch, return; end
+        if isempty(cells) || ~isfield(cells,'exclude'), return; end
+        for i = 1:numel(Tracks)
+            f = ''; if isfield(Tracks(i),'file'), f = char(Tracks(i).file); end
+            if isempty(f), continue; end
+            h = find(strcmp({cells.file}, f), 1);
+            if ~isempty(h) && ~isempty(cells(h).exclude) && logical(cells(h).exclude)
+                keep(i) = false; nDrop = nDrop + 1;
+            end
+        end
+    end
+
     function [selE, TsubE, dEx] = engageExampleSel()
         % The shared selection: every track with at least one step STARTING in the zone, at the
         % scan's middle distance — the same distance the per-cell plot reports, so the pictures and
@@ -2322,6 +2356,7 @@ end
         % export would hand to Tool 2, tracks the number no longer counts.
         try, trkEx = cs_track_exclusions('load', projectDir); catch, trkEx = []; end
         Tcur = cs_track_exclusions('apply', trkEx, buildTracks);
+        Tcur = Tcur(engageKeepCells(Tcur));      % the same cells the ratio was computed on
         [selE, TsubE] = cs_engage_examples(Tcur, struct('dUm',dEx,'key',engKey.Value));
     end
 

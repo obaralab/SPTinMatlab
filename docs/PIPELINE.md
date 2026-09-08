@@ -883,6 +883,17 @@ New tab app `spt_analyze_app.m`; built on the `drivers/` layer. Build order:
    n_free, n_crossing, occupancy, condition` — so a compound can be scored from the file without re-running.
    `n_crossing` (steps that left the zone, counted where they started) is what sets the dilution: a large
    share means much of the bound pool is molecules on their way out.
+   **Two exclusions, both honoured.** Per-TRACK rejections come from `analysis/curation/
+   track_exclusions.csv` (the `✖ Reject` button in Tool 2's QC); per-CELL exclusions come from the
+   **Experiment tab's `exclude` flag**, the durable judgement `cs_experiment_aggregate` has always
+   honoured. Engagement now applies both, in that order, before anything is measured — track
+   rejections inside an excluded cell are still counted as rejections, which is honest — and the
+   status line names each count. Until this, the same plate could answer one way in Compare and
+   another in Engagement with nothing on screen to say why. The gallery and the examples export use
+   the identical set, so a picture can never show a cell the number excluded. Cells are matched on
+   the file NAME, the same key `engageConditions` uses, so a cell cannot be excluded under one
+   identity and grouped under another. Regression: `spt_curate_engage_smoke` (7).
+
    **Binding kinetics at the interface** (`cs_zone_kinetics.m`): `k_off` = bound episodes seen to
    END ÷ total time bound, `k_on` = binding events ÷ total time FREE. Events over exposure, not
    `1/mean(duration)` — an episode still bound when its track stops is right-censored, and this form
