@@ -98,6 +98,10 @@ uilabel(rA,'Text','frames/win','HorizontalAlignment','right');
 eFpw = uispinner(rA,'Limits',[10 1e6],'Value',st.fpw,'Step',50,'ValueChangedFcn',@(s,e) onFpw(), ...
     'Tooltip','Window length in FRAMES → ceil(nFrames/this) windows; a tiny trailing remainder merges into the last.');
 uilabel(rA,'Text','method','HorizontalAlignment','right');
+% The first item is RELABELLED once the support is resolved — see refreshSupportLabels. A project
+% can DECLARE an ER channel and have no ER files (an empty er_seg/), in which case supportKey is
+% still 'er' and the null is scattered within a mask derived from the localizations. Deciding the
+% label from supportKey alone gets that case exactly wrong, which is why it is decided later.
 ddMeth = uidropdown(rA,'Items',{'ER Monte-Carlo','Local background','Relative'}, ...
     'ItemsData',{'ermc','local','relative'},'Value','ermc','ValueChangedFcn',@(s,e) onMeth());
 uilabel(rA,'Text','sens','HorizontalAlignment','right');
@@ -181,6 +185,13 @@ eMinEnr = uispinner(rD,'Limits',[1 1e4],'Value',st.minEnrich,'Step',0.5,'ValueCh
 uilabel(rD,'Text','min tracks','HorizontalAlignment','right');
 eMinTrk = uispinner(rD,'Limits',[1 1e4],'Value',st.minTracks,'Step',1,'ValueChangedFcn',@(s,e) onGate(), ...
     'Tooltip','Distinct-molecule gate: keep a site only if at least this many DISTINCT tracks contribute localizations to it — rejects a single parked molecule. 1 = off. Re-run Detect to apply.');
+uilabel(rD,'Text','min locs/site','HorizontalAlignment','right');
+eMinSLoc = uispinner(rD,'Limits',[0 1e6],'Value',st.minSiteLocs,'Step',5,'ValueChangedFcn',@(s,e) onGate(), ...
+    'Tooltip',['Evidence gate: keep a site only if at least this many localizations fall inside its ' ...
+               'footprint. 0 = off. DIFFERENT from "min locs/win", which is a per-WINDOW floor for ' ...
+               'the low-count warning and gates nothing. Use with min tracks: localizations say how ' ...
+               'much signal the site rests on, tracks say how many molecules it came from, and a ' ...
+               'site can be rich in one and poor in the other.']);
 % The density is always the tracked localization cloud. There used to be Confined and State-change
 % channels here, driven by Tracks.confined / Tracks.stateChange. Those flags depend on a confinement
 % criterion that is not currently part of the pipeline, so picking sites by diffusion STATE would
@@ -305,7 +316,11 @@ onCell();
         % rest of this file uses. The flags are gone with the diffusion-state channels; the shadow
         % went with them.
         have=false; MD=[]; TID=[];
-        haveCloud = isstruct(T.allSpots) && isfield(T.allSpots,'X') && ~isempty(T.allSpots.X);
+        % isfield FIRST: a TrackStruct written before allSpots existed, or one sliced by hand, has no
+        % such field at all, and reading it errors out of the whole picker rather than falling back
+        % to the tracked matrix — which is the branch that would have worked.
+        haveCloud = isfield(T,'allSpots') && isstruct(T.allSpots) && ...
+                    isfield(T.allSpots,'X') && ~isempty(T.allSpots.X);
         if ~useTracked && haveCloud
             X=double(T.allSpots.X(:)); Y=double(T.allSpots.Y(:)); F=double(T.allSpots.FRAME(:));
             TID=(1:numel(X))';                                   % cloud: each detection its own "track"
@@ -353,6 +368,33 @@ onCell();
         rc = cs_window_density(st.aX, st.aY, st.aF, f0, f1, st.SF, st.grid, st.grid, st.sig);
         [m, si] = cs_support_mask(rc);
         st.supportWhy = si.why;
+        refreshSupportLabels();      % the overlay and the method must stop saying "ER"
+    end
+
+    function refreshSupportLabels()
+        % Say what the support IS. A project with an empty er_seg/ still declares the channel, so
+        % the box read "ER" and the method read "ER Monte-Carlo" while the mask being drawn and
+        % scattered in was derived from the localizations. Nothing about the analysis is wrong —
+        % cs_support_mask is the right fallback — but the labels claimed a segmentation that does
+        % not exist, and the green contour on the map looked like ER.
+        if isempty(st.supportWhy), return; end                 % a real support channel is in use
+        if ~isempty(ddMeth) && isgraphics(ddMeth) && ~strcmp(ddMeth.Items{1},'Support Monte-Carlo')
+            v = ddMeth.Value;
+            ddMeth.Items = [{'Support Monte-Carlo'}, ddMeth.Items(2:end)];
+            ddMeth.Value = v;
+            ddMeth.Tooltip = ['The null is scattered within the DERIVED support — a mask built from ' ...
+                'where molecules were actually seen — because this project has no support ' ...
+                'segmentation. See the status line for its coverage.'];
+        end
+        kS = find(strcmp(st.keys, st.supportKey), 1);
+        if ~isempty(kS) && numel(chkChan) >= kS && isgraphics(chkChan(kS)) ...
+                && ~strcmp(char(chkChan(kS).Text),'support*')
+            chkChan(kS).Text = 'support*';
+            chkChan(kS).Tooltip = ['* DERIVED support, not a segmentation: this project has no ' ...
+                'files for the support channel, so the mask is built from the localization ' ...
+                'occupancy (dilated and filled). It is the detection domain, the Monte-Carlo null ' ...
+                'and the background denominator — but it is not ER.'];
+        end
     end
 
     function m = segMaskAt(segPath, nfr, frame0)
@@ -837,7 +879,8 @@ onCell();
     function onStep(), st.step=round(eStep.Value); buildWindows(); end
     function onMinLocs(), st.minLocs=round(eMinLocs.Value); drawThumbAll(); drawDetail(); end
     function onSplit(), st.splitPeaks=chkSplit.Value; set(lbl,'Text','Split-peaks changed — re-run Detect to apply.'); end
-    function onGate(), st.minEnrich=eMinEnr.Value; st.minTracks=round(eMinTrk.Value); set(lbl,'Text','Gate changed — re-run Detect (win/all) to apply.'); end
+    function onGate()
+        if ~isempty(eMinSLoc) && isgraphics(eMinSLoc), st.minSiteLocs = eMinSLoc.Value; end, st.minEnrich=eMinEnr.Value; st.minTracks=round(eMinTrk.Value); set(lbl,'Text','Gate changed — re-run Detect (win/all) to apply.'); end
     function m = densMask()
         m = true(numel(st.aX),1);     % every tracked localization; there are no other channels
     end

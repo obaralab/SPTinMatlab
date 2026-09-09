@@ -132,6 +132,29 @@ in this pipeline reads them** (there is no `cs_identify` here). They used to be 
 bootstrap, so a first open produced 279 files where 93 were needed. They now follow the checkbox,
 and the status line says which of the two is happening.
 
+### The picker's support channel, and what it is called
+
+A project can **declare** an ER channel and have an empty `er_seg/`. `supportKey` is then still
+`'er'`, so `werMask` falls through to `cs_support_mask` — a mask derived from where molecules were
+actually seen — while the overlay box read **ER** and the method read **ER Monte-Carlo**. The
+analysis was right (that fallback is the correct one, and far better than `true(size(...))`), but
+the labels claimed a segmentation that does not exist and the green contour on the density map
+looked like ER. `refreshSupportLabels` renames them to **support\*** and **Support Monte-Carlo**
+once the derived path is taken — decided from `st.supportWhy`, not from `supportKey`, because
+`supportKey` is non-empty in exactly the case that matters. Regression: `cs_picker_support_smoke`,
+which also asserts a project WITH ER is left alone.
+
+**Per-site gates.** `min tracks` (distinct molecules) and `min locs/site` both gate detection in
+`cs_detect`. The second was plumbed all the way through as `minSiteLocs` and applied at
+`cs_detect.m:79`, but had **no control**, so it sat at 0 forever — a gate nobody could reach. It is
+distinct from `min locs/win`, which is a per-WINDOW floor for the low-count warning and gates
+nothing.
+
+**The picker is not offered cells the Experiment tab excluded.** They are dropped from the Tracks
+it receives rather than greyed out in its dropdown, because it also has *Detect all*, which would
+otherwise pick sites in a cell marked not-to-analyse — and those sites flow on to the mapper and to
+Dwell.
+
 ## 3. Calibration (per-CELL — cameras differ, and so do cells)
 
 Calibration is resolved **per cell**, not per dataset. Cells in one comparison are routinely acquired on

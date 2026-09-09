@@ -723,7 +723,7 @@ end
             % second full copy. It also guarantees the picker analyses the ACTIVE named build.
             cs_window_picker(pnCS, anaDir, struct('FOV_um',FOVUM,'binNm',PRECNM, ...
                 'contactUm',eCScontact.Value,'mipDir',mdir,'segResolver',@resolveOverlay, ...
-                'Tracks',buildTracks,'tsFile',tsFile));
+                'Tracks',pickerTracks(),'tsFile',tsFile));
             lblCS.Text = 'Windowed picker ready — set frames/window, click a window to zoom, Detect win / ＋Add, then 💾 Save.';
         catch ME
             lblCS.Text = ['Picker error: ' ME.message];
@@ -2362,6 +2362,19 @@ end
                     c{i} = char(cells(k).condition); break;
                 end
             end
+        end
+    end
+
+    function T = pickerTracks()
+        % The cells the picker offers. Excluded cells are dropped here rather than greyed out in its
+        % dropdown: the picker also has "Detect all", which would otherwise pick sites in a cell the
+        % Experiment tab says not to analyse, and those sites go on to the mapper and to Dwell.
+        T = buildTracks;
+        if isempty(T), return; end
+        [keep, nDrop] = engageKeepCells(T);
+        if nDrop > 0
+            T = T(keep);
+            lblCS.Text = sprintf('%d cell(s) marked EXCLUDE on the Experiment tab are not offered here.', nDrop);
         end
     end
 
