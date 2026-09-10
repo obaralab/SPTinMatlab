@@ -74,6 +74,25 @@ assert(any(strcmp(txt,'support*')), ...
      'the localizations, and labelling it ER claims a segmentation this project does not have. ' ...
      'Boxes present: %s'], strjoin(txt', ', '));
 assert(~any(strcmp(txt,'ER')), 'an "ER" checkbox survives on a project whose er_seg/ is empty: %s', strjoin(txt', ', '));
+
+%% (6) and NO OUTLINE can be drawn for a support that is not there ------------------------------------
+% werMask always returns something — a detection domain may not be empty — so the contour of a mask
+% built from the localizations was drawn in the support channel's colour, which on a project with no
+% ER reads as ER. Counted, not eyeballed: ticking the box must add no lines to the detail axes.
+kSup = find(strcmp(txt,'support*'), 1);
+assert(strcmp(char(ck(kSup).Enable),'off'), ...
+    'the support checkbox is still enabled; there is no segmentation to outline and a tickable box invites drawing one');
+assert(~ck(kSup).Value, 'the support checkbox is ticked on open, so an outline is drawn before anything is clicked');
+nBefore = countDetailLines(fig);
+ck(kSup).Enable = 'on'; ck(kSup).Value = true;      % force it: the box is the affordance, not the guard
+cbk = ck(kSup).ValueChangedFcn; if ~isempty(cbk), cbk(ck(kSup), struct()); end
+drawnow;
+nAfter = countDetailLines(fig);
+assert(nAfter == nBefore, ...
+    ['forcing the support box on drew %d more line(s). The DRAW path must refuse a derived support, ' ...
+     'not merely the checkbox — werMask always returns a mask, so the contour would otherwise ' ...
+     'appear the moment anything re-ticks the box.'], nAfter - nBefore);
+
 dd = findobj(fig,'Type','uidropdown');
 meth = dd(arrayfun(@(x) any(strcmp(x.ItemsData,'ermc')), dd));
 assert(~isempty(meth), 'the method dropdown was not found');
@@ -122,10 +141,30 @@ assert(~any(strcmp(txt2,'support*')), ...
      'when the derived fallback is actually in use: %s'], strjoin(txt2', ', '));
 dd2 = findobj(fig2,'Type','uidropdown');
 meth2 = dd2(arrayfun(@(x) any(strcmp(x.ItemsData,'ermc')), dd2));
+kSup2 = find(strcmp(txt2,'ER'), 1);
+if ~isempty(kSup2)
+    n0 = countDetailLines(fig2);
+    ck2(kSup2).Value = true;
+    cb2 = ck2(kSup2).ValueChangedFcn; if ~isempty(cb2), cb2(ck2(kSup2), struct()); end
+    drawnow;
+    assert(countDetailLines(fig2) > n0, ...
+        ['ticking ER on a project that HAS a support segmentation drew nothing. Assertion 6 would ' ...
+         'then pass for the wrong reason — because nothing is ever drawn — rather than because the ' ...
+         'derived support is refused.']);
+end
 assert(~isempty(meth2) && strcmp(meth2(1).Value,'ermc'), ...
     ['a project WITH a real support mask no longer defaults to the Monte-Carlo null (got "%s"). ' ...
      'The MC is the right default there — that is the case it was designed for.'], meth2(1).Value);
 
 fprintf('empty er_seg -> "support*" + "Support Monte-Carlo" · real ER left as ER · per-site gates present\n');
 fprintf('\nPICKER-SUPPORT SMOKE PASSED.\n');
+end
+
+% ================================================================================================
+function n = countDetailLines(fig)
+% Lines in the zoomed detail axes — the mask contours are drawn there as line objects.
+ax = findobj(fig,'Type','axes');
+hit = ax(arrayfun(@(a) contains(string(a.Title.String),'window'), ax));
+n = 0;
+if ~isempty(hit), n = numel(findobj(hit(1),'Type','line')); end
 end

@@ -144,6 +144,14 @@ once the derived path is taken — decided from `st.supportWhy`, not from `suppo
 `supportKey` is non-empty in exactly the case that matters. Regression: `cs_picker_support_smoke`,
 which also asserts a project WITH ER is left alone.
 
+**And no outline is drawn for it.** `werMask` always returns a mask — a detection domain may not be
+empty — so the derived support's contour was being drawn in the support channel's colour, which on a
+project with no ER reads as ER. The draw loop now skips the support channel whenever `supportWhy` is
+set, and the checkbox is unticked and **disabled** (not removed, so "where did ER go?" is answered on
+the control). The guard is in the DRAW path, not only the checkbox, because `werMask` would happily
+supply a contour the moment anything re-ticked the box. `cs_picker_support_smoke` (6) forces the box
+on and asserts no line is added — with the guard removed it draws 21.
+
 **With no support segmentation, detection defaults to LOCAL BACKGROUND, not the Monte-Carlo null.**
 All three methods use the support as the detection *domain*; what differs is the null. `ermc`
 scatters points inside the support and takes a cutoff from that — sound against a real ER mask, and

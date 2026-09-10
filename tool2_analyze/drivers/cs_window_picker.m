@@ -415,11 +415,16 @@ onCell();
         kS = find(strcmp(st.keys, st.supportKey), 1);
         if ~isempty(kS) && numel(chkChan) >= kS && isgraphics(chkChan(kS)) ...
                 && ~strcmp(char(chkChan(kS).Text),'support*')
+            % Unticked and DISABLED, not merely renamed: there is no segmentation to outline, and a
+            % tickable box invites drawing one. Disabled rather than removed so the answer to
+            % "where did ER go?" is on the control itself.
             chkChan(kS).Text = 'support*';
-            chkChan(kS).Tooltip = ['* DERIVED support, not a segmentation: this project has no ' ...
-                'files for the support channel, so the mask is built from the localization ' ...
-                'occupancy (dilated and filled). It is the detection domain, the Monte-Carlo null ' ...
-                'and the background denominator — but it is not ER.'];
+            chkChan(kS).Value = false;
+            chkChan(kS).Enable = 'off';
+            chkChan(kS).Tooltip = ['No support segmentation in this project, so there is no outline ' ...
+                'to draw. A support mask IS still derived from the localization occupancy and used ' ...
+                'as the detection domain and the background denominator — see the status line for ' ...
+                'its coverage — but it is not ER and is not shown as though it were.'];
         end
     end
 
@@ -563,7 +568,15 @@ onCell();
         % (which is total — it falls back), every other channel draws only what it actually has.
         for kDraw = 1:numel(st.keys)
             if ~isgraphics(chkChan(kDraw)) || ~chkChan(kDraw).Value, continue; end
-            if strcmp(st.keys{kDraw}, st.supportKey), mk = werMask(w); else, mk = chanMask(st.keys{kDraw}, w); end
+            % NEVER draw the support outline when it was DERIVED. werMask always returns something —
+            % a detection domain may not be empty — so without this the contour of a mask built from
+            % the localizations was drawn in the support channel's colour, and on a project with no
+            % ER that outline reads as ER. The mask is still used for detection and for the
+            % background; it is simply not a segmentation to show. Belt and braces with the disabled
+            % checkbox in refreshSupportLabels: this is the line that actually draws.
+            isSup = strcmp(st.keys{kDraw}, st.supportKey);
+            if isSup && ~isempty(st.supportWhy), continue; end
+            if isSup, mk = werMask(w); else, mk = chanMask(st.keys{kDraw}, w); end
             drawMaskBnd(axDet, mk, chanColour(st.keys{kDraw}, kDraw));
         end
         P=st.sites{w};
