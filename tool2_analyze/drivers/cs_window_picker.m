@@ -29,6 +29,7 @@ st.contactUm = getf(opts,'contactUm',0.15);
 st.mipDir = getf(opts,'mipDir', fullfile(anaDir,'mips'));
 st.segResolver = getf(opts,'segResolver',[]);
 st.method = 'ermc';  st.sens = 0.01;  st.MC = 300;  st.minArea = 3;   % more MC runs -> steadier per-window cutoff
+st.methUserSet = false;   % has the user chosen a method? the no-support default must not override one
 st.clip = 0.5;  st.alpha = 1;  st.src = 'tracked';  st.scaleMode = 'density';  st.cbInfo = '';   % default: tracked-only density (excludes single-frame noise)
 st.addMode = false;  st.ci = 1;  st.cw = 1;  st.MAXPANELS = 24;
 
@@ -378,13 +379,38 @@ onCell();
         % cs_support_mask is the right fallback — but the labels claimed a segmentation that does
         % not exist, and the green contour on the map looked like ER.
         if isempty(st.supportWhy), return; end                 % a real support channel is in use
+
+        % WITH NO SUPPORT SEGMENTATION, DO NOT DEFAULT TO THE MONTE-CARLO NULL. All three methods
+        % use the support as the detection DOMAIN; what differs is the null. ER-MC scatters points
+        % inside the support and takes a cutoff from that — which is sound against a real ER mask
+        % and close to circular against a support DERIVED from the very localizations being tested:
+        % the null region is already shaped by the clustering it is meant to judge.
+        %
+        % 'local' compares each peak with its own large-scale neighbourhood (σ=40), so it does not
+        % depend on the global shape of the support at all. That makes it the honest default here.
+        % ER-MC stays selectable — the derived null is weak, not meaningless — but it is a choice
+        % now rather than what happens if you touch nothing.
+        if ~st.methUserSet && strcmp(st.method,'ermc')
+            st.method = 'local';
+            if ~isempty(ddMeth) && isgraphics(ddMeth), ddMeth.Value = 'local'; end
+            if ~isempty(eSens) && isgraphics(eSens), eSens.Value = 0.15; st.sens = 0.15; end
+            if ~isempty(lbl) && isgraphics(lbl)
+                set(lbl,'Text',['No support segmentation in this project, so detection defaults to ' ...
+                    'LOCAL BACKGROUND rather than the Monte-Carlo null: the derived support is built ' ...
+                    'from the same localizations the null would be judging. Switch method if you ' ...
+                    'want the MC anyway.']);
+            end
+        end
         if ~isempty(ddMeth) && isgraphics(ddMeth) && ~strcmp(ddMeth.Items{1},'Support Monte-Carlo')
             v = ddMeth.Value;
             ddMeth.Items = [{'Support Monte-Carlo'}, ddMeth.Items(2:end)];
             ddMeth.Value = v;
-            ddMeth.Tooltip = ['The null is scattered within the DERIVED support — a mask built from ' ...
-                'where molecules were actually seen — because this project has no support ' ...
-                'segmentation. See the status line for its coverage.'];
+            ddMeth.Tooltip = ['This project has NO support segmentation, so "Support Monte-Carlo" ' ...
+                'would scatter its null inside a mask derived from the same localizations it is ' ...
+                'judging — close to circular, and it understates enrichment. Local background is ' ...
+                'the default here for that reason: it compares each peak with its own ' ...
+                'neighbourhood and does not depend on the support''s shape. Relative thresholds ' ...
+                'on a fraction of the window''s brightest peak.'];
         end
         kS = find(strcmp(st.keys, st.supportKey), 1);
         if ~isempty(kS) && numel(chkChan) >= kS && isgraphics(chkChan(kS)) ...
@@ -890,6 +916,7 @@ onCell();
         c = nnz(m & st.aF>=st.win(w,1) & st.aF<=st.win(w,2));
     end
     function onMeth()
+        st.methUserSet = true;            % from here on the choice is the user's, not a default
         st.method=ddMeth.Value;
         switch st.method, case 'ermc', eSens.Value=0.01; case 'relative', eSens.Value=0.5; case 'local', eSens.Value=0.15; end
         st.sens=eSens.Value;

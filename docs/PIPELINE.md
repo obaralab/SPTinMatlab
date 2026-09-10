@@ -144,6 +144,16 @@ once the derived path is taken — decided from `st.supportWhy`, not from `suppo
 `supportKey` is non-empty in exactly the case that matters. Regression: `cs_picker_support_smoke`,
 which also asserts a project WITH ER is left alone.
 
+**With no support segmentation, detection defaults to LOCAL BACKGROUND, not the Monte-Carlo null.**
+All three methods use the support as the detection *domain*; what differs is the null. `ermc`
+scatters points inside the support and takes a cutoff from that — sound against a real ER mask, and
+close to circular against one derived from the very localizations being judged, since the null
+region is already shaped by the clustering it is meant to test. `local` compares each peak with its
+own large-scale neighbourhood (σ=40) and does not depend on the support's shape at all. The MC stays
+**selectable** — the derived null is weak, not meaningless — and a project that HAS a real support
+mask still defaults to it, which is the case it was built for. The switch only fires when the user
+has not chosen a method (`st.methUserSet`), so it can never override a deliberate choice.
+
 **Per-site gates.** `min tracks` (distinct molecules) and `min locs/site` both gate detection in
 `cs_detect`. The second was plumbed all the way through as `minSiteLocs` and applied at
 `cs_detect.m:79`, but had **no control**, so it sat at 0 forever — a gate nobody could reach. It is

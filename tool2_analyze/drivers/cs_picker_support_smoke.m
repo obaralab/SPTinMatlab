@@ -14,6 +14,10 @@ function cs_picker_support_smoke()
 %      reach is the same as no gate.
 %   4. IT IS NOT THE PER-WINDOW FLOOR. "min locs/win" warns and gates nothing; the two are different
 %      numbers and were easy to confuse.
+%   5. NO SUPPORT SEGMENTATION => NOT the Monte-Carlo null by default. Its null region would be
+%      derived from the same localizations it is judging. 'local' compares each peak with its own
+%      neighbourhood instead. The MC stays SELECTABLE — weak is not meaningless — and a project
+%      that HAS a real support mask still defaults to it, which is the case it was built for.
 %
 % Synthetic; reads no dataset.
 
@@ -75,7 +79,27 @@ meth = dd(arrayfun(@(x) any(strcmp(x.ItemsData,'ermc')), dd));
 assert(~isempty(meth), 'the method dropdown was not found');
 assert(strcmp(meth(1).Items{1},'Support Monte-Carlo'), ...
     'the method still reads "%s" on a project with no ER segmentation', meth(1).Items{1});
-assert(strcmp(meth(1).Value,'ermc'), 'relabelling the method changed its VALUE from ermc to "%s"', meth(1).Value);
+% Renaming Items must not corrupt the Items<->ItemsData mapping. (This used to assert the Value
+% stayed 'ermc'; the value now deliberately moves to 'local' — see assertion 5 — so what is
+% guarded here is the mapping, which is what renaming could actually break.)
+assert(isequal(meth(1).ItemsData(:)', {'ermc','local','relative'}), ...
+    'renaming the first item disturbed ItemsData: %s', strjoin(meth(1).ItemsData, ', '));
+assert(numel(meth(1).Items) == numel(meth(1).ItemsData), ...
+    'Items (%d) and ItemsData (%d) are no longer the same length', numel(meth(1).Items), numel(meth(1).ItemsData));
+assert(any(strcmp(meth(1).ItemsData, meth(1).Value)), ...
+    'the dropdown Value "%s" is not one of its ItemsData keys', meth(1).Value);
+
+%% (5) with no support segmentation the method must NOT default to the Monte-Carlo null ---------------
+% All three methods use the support as the detection DOMAIN; what differs is the null. ER-MC
+% scatters points inside the support — sound against a real ER mask, close to circular against one
+% derived from the very localizations being judged. 'local' compares each peak with its own
+% neighbourhood and does not depend on the support's shape.
+assert(strcmp(meth(1).Value,'local'), ...
+    ['with no support segmentation the method defaulted to "%s". The derived support is built from ' ...
+     'the same localizations the MC null would be judging, so it must not be what happens when the ' ...
+     'user touches nothing.'], meth(1).Value);
+assert(any(strcmp(meth(1).ItemsData,'ermc')), ...
+    'the Monte-Carlo option was REMOVED rather than un-defaulted; the derived null is weak, not meaningless');
 
 %% (2) a real support channel must be left alone --------------------------------------------------------
 proj2 = fullfile(tempdir, sprintf('spt_picksup2_%d', feature('getpid')));
@@ -96,6 +120,11 @@ txt2 = arrayfun(@(x) char(string(x.Text)), ck2, 'uni', 0);
 assert(~any(strcmp(txt2,'support*')), ...
     ['a project WITH an ER segmentation was relabelled "support*". The relabelling must fire only ' ...
      'when the derived fallback is actually in use: %s'], strjoin(txt2', ', '));
+dd2 = findobj(fig2,'Type','uidropdown');
+meth2 = dd2(arrayfun(@(x) any(strcmp(x.ItemsData,'ermc')), dd2));
+assert(~isempty(meth2) && strcmp(meth2(1).Value,'ermc'), ...
+    ['a project WITH a real support mask no longer defaults to the Monte-Carlo null (got "%s"). ' ...
+     'The MC is the right default there — that is the case it was designed for.'], meth2(1).Value);
 
 fprintf('empty er_seg -> "support*" + "Support Monte-Carlo" · real ER left as ER · per-site gates present\n');
 fprintf('\nPICKER-SUPPORT SMOKE PASSED.\n');
