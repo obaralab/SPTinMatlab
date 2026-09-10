@@ -573,6 +573,31 @@ READ, which fixes past and future in one place.
 
 ---
 
+## 9h. uigridlayout row overflow — the recurring bug, and how to actually test for it
+
+Three times now a control row has been given more children than columns. uigridlayout does not
+complain: it **grows the grid**, wraps the extras onto a row nobody declared, splits the height you
+asked for between them, and lets the last child inherit the elastic `'1x'` column. The symptom is
+every control in that row rendering at half height with one stretched across the panel.
+
+Latest: the picker's gates row `rD` was `[1 7]` holding **nine** children (split peaks, three
+label+spinner pairs, explain checkbox, explain label). `min locs/site` inherited the `1x` and
+`explain spot` was pushed to a second, clipped line.
+
+**Checking `Layout.Row` cannot catch this.** Measured directly: declare `[1 3]`, add five children,
+and `numel(RowHeight)` comes back **2** — MATLAB grew it, so `Layout.Row <= numel(RowHeight)` is
+true by construction. My first guard asserted exactly that and passed on the broken layout.
+
+**What works is the rendered HEIGHT**, which is also what the user sees. `cs_picker_support_smoke`
+(7) walks every uibutton/uicheckbox/uispinner/uidropdown/uieditfield in the picker and fails any
+under 18 px. On the broken layout it reports 5 controls at **10 px**; on the fixed one everything is
+30. Copy that assertion into any smoke that builds a control-heavy tab.
+
+Rule of thumb when editing these rows: **count the children, count the ColumnWidth entries, make
+them equal**, and put the elastic `'1x'` last.
+
+---
+
 ## 10. Open threads
 
 1. **`_ch24` may itself be interleaved.** `_spt12` was ch1+ch3 alternating. If `_ch24` is ch2+ch4 the

@@ -120,6 +120,30 @@ assert(strcmp(meth(1).Value,'local'), ...
 assert(any(strcmp(meth(1).ItemsData,'ermc')), ...
     'the Monte-Carlo option was REMOVED rather than un-defaulted; the derived null is weak, not meaningless');
 
+%% (7) NO CONTROL MAY BE SQUASHED BY A WRAPPED ROW ------------------------------------------------------
+% uigridlayout does not complain when a row has more children than columns. It GROWS the grid — the
+% RowHeight you declared as one entry comes back with two — and splits the height you asked for
+% between them, so every control in that row renders at half size and the last one silently inherits
+% the elastic column. Checking Layout.Row cannot catch it, precisely because RowHeight grows to
+% match; what is visible is the HEIGHT, which is also exactly what the user sees. It has happened
+% three times in this project and a screenshot of a nested grid cannot be trusted to show it.
+kinds = {'uibutton','uicheckbox','uispinner','uidropdown','uieditfield','uinumericeditfield'};
+short = {};
+for kk = 1:numel(kinds)
+    hs = findobj(fig,'Type',kinds{kk});
+    for hi = 1:numel(hs)
+        p_ = hs(hi).Position;
+        if p_(4) > 0 && p_(4) < 18
+            short{end+1} = sprintf('%s "%s" h=%.0f', kinds{kk}, labelOf(hs(hi)), p_(4)); %#ok<AGROW>
+        end
+    end
+end
+assert(isempty(short), ...
+    ['%d control(s) render under 18 px tall — a row has more children than columns, so uigridlayout ' ...
+     'wrapped the extras and split the row height between them: %s'], ...
+    numel(short), strjoin(short(1:min(4,numel(short))), ' · '));
+fprintf('every control renders at full height\n');
+
 %% (2) a real support channel must be left alone --------------------------------------------------------
 proj2 = fullfile(tempdir, sprintf('spt_picksup2_%d', feature('getpid')));
 if isfolder(proj2), rmdir(proj2,'s'); end
@@ -167,4 +191,11 @@ ax = findobj(fig,'Type','axes');
 hit = ax(arrayfun(@(a) contains(string(a.Title.String),'window'), ax));
 n = 0;
 if ~isempty(hit), n = numel(findobj(hit(1),'Type','line')); end
+end
+
+function t = labelOf(h)
+t = '';
+try, t = char(string(h.Text)); catch, end
+if isempty(t), try, t = char(string(h.Tooltip)); catch, end, end
+if numel(t) > 24, t = t(1:24); end
 end

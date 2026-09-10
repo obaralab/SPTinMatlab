@@ -177,7 +177,12 @@ lblSweep = uilabel(rC,'Text','','FontColor',[0.35 0.35 0.45]);
 % removing those shifted every remaining control two columns left, so the explain checkbox landed in
 % a 56 px slot (its own label did not fit, which is why it was awkward to hit) and the explanation
 % text landed in a fixed 150 px one instead of the elastic column, cutting it off.
-rD = uigridlayout(g,[1 7],'ColumnWidth',{92, 96,60, 82,54, 132, '1x'},'Padding',[0 0 0 0],'ColumnSpacing',5);
+% NINE columns for NINE children. It was [1 7] with nine controls, so uigridlayout wrapped the last
+% two onto a second row and split the 30 px between them — every control in the row squashed to half
+% height, "explain spot" clipped, and "min locs/site" stretched across the elastic column because it
+% had inherited the '1x'. Keep the counts equal: one column per child, and the elastic one last.
+rD = uigridlayout(g,[1 9],'ColumnWidth',{88, 84,56, 74,52, 92,58, 118, '1x'}, ...
+    'Padding',[0 0 0 0],'ColumnSpacing',5);
 chkSplit = uicheckbox(rD,'Text','split peaks','Value',st.splitPeaks,'ValueChangedFcn',@(s,e) onSplit(), ...
     'Tooltip','Marker-controlled watershed: two touching real peaks become two sites instead of one blob centroid at the saddle. Re-run Detect to apply.');
 uilabel(rD,'Text','min enrich ×','HorizontalAlignment','right');
