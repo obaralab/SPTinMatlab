@@ -12,6 +12,7 @@ function ctl = spt_track_movie(parent)
 
 % ---- state (persists across the nested callbacks) ----
 R = []; sel = []; S = struct('x',{},'y',{},'f',{}); K = 0;
+loadGen = 0;   % a load that is superseded mid-flight aborts rather than half-applying — see load_
 f0 = 1; f1 = 1; cur = 1; nfr = 1; lo = 0; hi = 1; cols = lines(8);   % nfr = true movie length (promoted from load_ so draw()/seek() can see it)
 haveEr = false; haveMi = false; erFg = 1; miFg = 1; erNfr = 0; miNfr = 0;
 erCol = [0.15 0.9 0.35]; erA = 0.28; miCol = [1 0.25 0.75]; miA = 0.42;
@@ -39,7 +40,19 @@ uilabel(cr, 'Text', '');   % spacer
 ctl = struct('load', @load_, 'stop', @stopAll, 'axes', ax, 'saveVideo', @saveVid);
 
     function load_(Rin, selIn)
-        stopT();
+        % RE-ENTRANCY. Setting uicontrol properties on a uifigure (the chkER/chkMi/btnS Enable writes
+        % below) can flush the graphics queue, which lets a queued click run drawSelected -> load_
+        % again INSIDE this one. The inner call then sets the shared R — to [] when that cell has no
+        % matched movie — and this one resumes with R gone, reaching composite() at the imshow line
+        % with a double. That is the reported
+        %   "Dot indexing is not supported for variables of this type" at imread(R.sptPath, fr).
+        % A generation counter makes the SUPERSEDED load abort: the newest click is the one the user
+        % meant, and a half-applied older one would leave the title, limits and overlays describing a
+        % different track from the image.
+        loadGen = loadGen + 1; myGen = loadGen;
+        % playing=false BEFORE anything that can bail: every early return below leaves the timer
+        % stopped but the flag set, and a queued tick reads the flag.
+        stopT(); playing = false;
         R = Rin;
         if isempty(R) || ~isstruct(R) || ~isfield(R,'sptPath') || ~isfile(R.sptPath), clearView(); return; end
         sel = selIn(:).'; K = numel(sel);
@@ -63,6 +76,9 @@ ctl = struct('load', @load_, 'stop', @stopAll, 'axes', ax, 'saveVideo', @saveVid
         chkER.Enable = onoff_(haveEr); if ~haveEr, chkER.Value = false; end
         chkMi.Enable = onoff_(haveMi); if ~haveMi, chkMi.Value = false; end
         btnS.Enable = 'on';
+        % Everything above can flush; re-check before the first read of R and before touching the
+        % axes, which is where the crash landed.
+        if myGen ~= loadGen || isempty(R) || ~isstruct(R), return; end
         sld.Limits = [1 max(nfr, 2)]; sld.Value = f0; cur = f0;   % scrub the WHOLE movie; start at the tracks' first frame
         cla(ax);
         hImg = imshow(composite(cur), 'Parent', ax); hold(ax, 'on');
@@ -77,6 +93,7 @@ ctl = struct('load', @load_, 'stop', @stopAll, 'axes', ax, 'saveVideo', @saveVid
         if haveCS
             hCS = plot(ax, R.csPolyPx(:,1), R.csPolyPx(:,2), '-', 'Color', [1 0.9 0.15], 'LineWidth', 1.6, 'Visible', onoff_(chkCS.Value));
         end
+        if myGen ~= loadGen, return; end        % a newer load already owns the player
         chkCS.Enable = onoff_(haveCS); if ~haveCS, chkCS.Value = false; end
         hold(ax, 'off');
         title(ax, sprintf('%s — %d tracks · track span %d–%d of %d frames', R.base, K, f0, f1, nfr));
@@ -115,15 +132,34 @@ ctl = struct('load', @load_, 'stop', @stopAll, 'axes', ax, 'saveVideo', @saveVid
     end
 
     function clearView()
+        % Stop the timer HERE too. clearView is the teardown path — it is what runs when a track has
+        % no movie to show — and leaving a live timer behind it is what let a tick fire into a
+        % cleared R. Setting playing=false alone was not enough: tick did not consult it.
+        stopT(); playing = false;
         cla(ax); title(ax, 'run or pick a cell, then Play random tracks'); hCS = gobjects(0); zoomBox = [];
         btnS.Enable = 'off'; chkER.Enable = 'off'; chkMi.Enable = 'off'; chkCS.Enable = 'off';
         lblF.Text = ''; playing = false; btnP.Text = '▶ Play';
     end
 
     function tick()
-        if ~isvalid(ax), stopT(); return; end
+        % A STOPPED TIMER CAN STILL DELIVER ONE QUEUED CALLBACK. stop() prevents future firings; it
+        % does not cancel one already in flight. By the time that one runs, load_ may have swapped R
+        % for another track, changed the slider's Limits, or cleared the view entirely — so nothing
+        % here may assume the world it was started in still exists.
+        %
+        % Both halves of the crash this guards came from that single tick:
+        %   "'Value' must be a double scalar within the range of 'Limits'" — sld.Value was clamped to
+        %   the OLD nfr while Limits had already been set from the new movie, and
+        %   "Dot indexing is not supported for variables of this type" — draw() reached composite()
+        %   with R = [], because the clicked cell had no matched movie and load_ had cleared it.
+        if ~playing || isempty(R) || ~isstruct(R), stopT(); return; end
+        if ~isvalid(ax) || isempty(sld) || ~isgraphics(sld), stopT(); return; end
         cur = cur + 1; if cur > f1 || cur < f0, cur = f0; end   % playback loops the track span (Play stays useful)
-        sld.Value = min(max(cur, 1), nfr); draw();
+        % Clamp to the slider's CURRENT limits, not to nfr: during a reload the two disagree, and
+        % that disagreement is what threw.
+        L = sld.Limits;
+        sld.Value = min(max(cur, L(1)), L(2));
+        draw();
     end
 
     function toggle()
@@ -184,6 +220,12 @@ ctl = struct('load', @load_, 'stop', @stopAll, 'axes', ax, 'saveVideo', @saveVid
     end
 
     function rgb = composite(fr)
+        % Defensive at the line that actually threw. The generation guard in load_ is the real fix;
+        % this makes the failure a blank frame rather than an exception if any other path ever
+        % reaches here with R torn down.
+        if isempty(R) || ~isstruct(R) || ~isfield(R,'sptPath') || ~isfile(R.sptPath)
+            rgb = zeros(2,2,3); return
+        end
         g0 = mat2gray(double(imread(R.sptPath, fr)), [lo hi]);
         rgb = repmat(g0, [1 1 3]); [Hh, Ww] = size(g0);
         if haveEr && chkER.Value && fr <= erNfr

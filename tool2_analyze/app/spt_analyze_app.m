@@ -3675,6 +3675,13 @@ end
         if ~isempty(playerCtl) && isstruct(playerCtl)
             if ~isempty(R), playerCtl.load(R, 0); else, playerCtl.load([], 0); end
         end
+        % Say WHY the player is empty. trackR returns [] when this cell has no matched raw movie —
+        % the name did not resolve, or the project was opened somewhere the spt/ folder is not — and
+        % an empty player with no explanation reads as a broken click.
+        if isempty(R) && ~isempty(lblQCm) && isgraphics(lblQCm)
+            lblQCm.Text = sprintf(['%s: no raw movie matched for this cell, so there is nothing to ' ...
+                'play. The MSD, stepwise D(t) and CSD panels below still describe the track.'], s.base);
+        end
         % MSD + D = slope/4 fit over the resolved window
         dtk = trackDt(s.cellIdx);
         cla(axMSD); r = spt_fit_msd(s.MSD, dtk, fitSpec());

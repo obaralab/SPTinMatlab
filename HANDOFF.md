@@ -598,6 +598,46 @@ them equal**, and put the elastic `'1x'` last.
 
 ---
 
+## 9i. The track player crashed on click — two faults, one of them a re-entrancy race
+
+Reported from `run_curate`: clicking a track threw twice at once.
+
+```
+Error while evaluating TimerFcn for timer 'timer-4'
+'Value' must be a double scalar within the range of 'Limits'
+Dot indexing is not supported for variables of this type
+  at spt_track_movie/composite (line 187):  imread(R.sptPath, fr)
+  from spt_track_movie/load_ (line 68)
+```
+
+**Fault 1 — a queued tick.** `stop(tmr)` prevents future firings; it does NOT cancel a callback
+already in flight. That last tick clamped `sld.Value` to the OLD `nfr` while `Limits` had already
+been set from the new movie. `tick` now re-validates `playing`, `R`, `ax` and `sld`, and clamps to
+`sld.Limits` rather than to `nfr` — during a reload the two disagree, and that disagreement is the
+error. `clearView` also stops the timer now; setting `playing=false` was not enough because `tick`
+never consulted it.
+
+**Fault 2 — RE-ENTRANCY INTO `load_`, which is the real one.** Read the stack carefully: `composite`
+was reached from **`load_` line 68**, not from a tick. `R` passes the `isstruct` guard at line 43 and
+is a double by line 68. Setting uicontrol properties on a uifigure (the `chkER`/`chkMi`/`btnS`
+`Enable` writes) **flushes the graphics queue**, so a queued click ran `drawSelected` → `load_` again
+*inside* the first one, set the shared `R` to `[]` (that cell has no matched movie), and the outer
+call resumed with `R` gone. A `loadGen` counter now makes the superseded load abort; `composite` is
+additionally defensive.
+
+**Note on the test.** My first smoke asserted the tick guards and PASSED with the fix reverted — it
+was not reproducing the reported crash at all, because `draw()` was already guarded and the tick
+path never reached `composite`. Only re-reading the stack showed the call came from `load_`. The
+race itself is not deterministically reproducible, so assertion 4 checks the property that the fix
+provides instead: after two loads the slider limits and the title describe the SECOND movie, which a
+half-applied first load would break.
+
+**Generalisable:** in a uifigure, any property write can flush the queue, so any nested function
+holding shared state across one is re-entrant. `draw()` already carried a comment about this; `load_`
+did not.
+
+---
+
 ## 10. Open threads
 
 1. **`_ch24` may itself be interleaved.** `_spt12` was ch1+ch3 alternating. If `_ch24` is ch2+ch4 the
