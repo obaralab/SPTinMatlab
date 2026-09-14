@@ -56,6 +56,7 @@ applyCellCalib(1);                             % st.FOV / st.binNm / st.grid / s
 % per-cell state
 st.aX=[]; st.aY=[]; st.aF=[]; st.aMD=[]; st.haveMD=false; st.nDet=0; st.nAll=0; st.aT=[];   % st.aT = per-localization track id
 st.splitPeaks=true; st.minEnrich=1.0; st.minTracks=1; st.minSiteLocs=0;   % detection-quality gates (1.0/1 = off)
+st.wdbg={}; st.wgate={};   % per-window detection intermediates, so a near-miss can be explained
 % st.sites{w} column map (widened to carry per-site stats through add/remove/reorder):
 SC = struct('x',1,'y',2,'flag',3,'manual',4,'peak',5,'pval',6,'enr',7,'nloc',8,'ntrk',9,'stab',10,'area',11,'dwell',12);
 NCOL = 12;   % ...'dwell' = median % of associated tracks' localizations inside the site (dwelling vs passing)
@@ -727,8 +728,48 @@ onCell();
         rpx=max(2,round(max(st.contactUm,0.15)/st.SF));
         inw=st.aF>=st.win(w,1)&st.aF<=st.win(w,2); lx=st.aX(inw)/st.SF; ly=st.aY(inw)/st.SF; lt=st.aT(inw);
         near=hypot(lx-xc,ly-yc)<=rpx; ntrk=numel(unique(lt(near)));
-        set(lblExplain,'Text',sprintf('spot (%.0f,%.0f): dens %.2g · %.1f×bg · %d loc / %d trk%s', xc,yc,dv,enr,nnz(near),ntrk,pstr));
+        set(lblExplain,'Text',sprintf('spot (%.0f,%.0f): dens %.2g · %.1f×bg · %d loc / %d trk%s%s', ...
+            xc,yc,dv,enr,nnz(near),ntrk,pstr, gateVerdict(w, ri, ci, ntrk)));
         drawDetail(); hold(axDet,'on'); plot(axDet,xc,yc,'x','Color',[1 1 1],'MarkerSize',13,'LineWidth',1.6,'HitTest','off'); hold(axDet,'off');
+    end
+
+    function t = gateVerdict(w, ri, ci, ntrk)
+        % WHY this pixel is or is not a site, read off the detection's OWN intermediates rather than
+        % recomputed. Reported in the order the gates actually apply, and naming the first one that
+        % stops it — "high above background" is not sufficient on its own, and which of the five
+        % reasons it failed is the thing a person actually needs in order to change a setting.
+        t = '';
+        if numel(st.wdbg) < w || isempty(st.wdbg{w}), t = '  ·  run Detect to see why'; return; end
+        D = st.wdbg{w}; G = st.wgate{w};
+        if ~D.bwThr(ri,ci)
+            mk = werMask(w);                       % MATLAB cannot index a function call result
+            if ~mk(ri,ci)
+                t = '  ·  NOT A SITE: outside the support mask (nothing there is ever detected)';
+            else
+                t = sprintf('  ·  NOT A SITE: below the %s threshold %.3g', G.method, D.dthr);
+            end
+            return
+        end
+        if ~D.bwOpen(ri,ci)
+            t = sprintf(['  ·  NOT A SITE: its above-threshold patch is smaller than min area %d px ' ...
+                '— too CONFINED to survive the speck filter, however bright'], D.minArea);
+            return
+        end
+        lab = D.L(ri,ci);
+        if lab < 1, t = '  ·  NOT A SITE: not assigned to a region by the peak split'; return; end
+        pix = find(D.L == lab);
+        pk  = max(st.wdens{w}(pix));
+        enrR = pk / max(D.bgMed, eps);
+        rcw = windowRaw(w); nlR = sum(rcw(pix));
+        if enrR < G.minEnrich
+            t = sprintf('  ·  NOT A SITE: region enrichment %.1fx is under min enrich %.1fx', enrR, G.minEnrich);
+        elseif nlR < G.minSiteLocs
+            t = sprintf('  ·  NOT A SITE: %d localizations in the footprint, under min locs/site %d', nlR, G.minSiteLocs);
+        elseif ntrk < G.minTracks
+            t = sprintf('  ·  NOT A SITE: %d distinct track(s), under min tracks %d', ntrk, G.minTracks);
+        else
+            t = sprintf('  ·  passes every gate (region %d: %.1fx bg, %d loc)', lab, enrR, nlR);
+        end
     end
 
     function drawSiteTracks(siteRow)
@@ -761,7 +802,10 @@ onCell();
         p=detParams();
         p.splitPeaks=st.splitPeaks; p.minEnrich=st.minEnrich; p.minSiteLocs=st.minSiteLocs;
         if strcmp(st.method,'ermc'), [p.Dthr, p.nullMax]=windowNull(w); end   % one MC run, reused for detection + p-values + colorbar
-        [xy,~,~,S]=cs_detect(rc, erm, st.sig, st.method, p);
+        [xy,~,~,S,dbg]=cs_detect(rc, erm, st.sig, st.method, p);
+        st.wdbg{w} = dbg;                 % kept so explainSpot can name the gate that rejected a spot
+        st.wgate{w} = struct('minEnrich',st.minEnrich,'minSiteLocs',st.minSiteLocs, ...
+                             'minTracks',st.minTracks,'method',st.method);
         % per-site: distinct contributing tracks + median dwell % + split-half stability + mito class
         [nTrk, stab, dwell] = siteTrackStability(w, S, erm, dens);
         keep = nTrk >= st.minTracks;                                          % distinct-molecule gate

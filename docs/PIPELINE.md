@@ -162,6 +162,19 @@ own large-scale neighbourhood (σ=40) and does not depend on the support's shape
 mask still defaults to it, which is the case it was built for. The switch only fires when the user
 has not chosen a method (`st.methUserSet`), so it can never override a deliberate choice.
 
+**"It is clearly above background — why is it not a site?"** has five possible answers and the
+picker used to give none of them. A spot passes only if it is (1) inside the support mask, (2) above
+the method's threshold, (3) part of a patch of at least `minArea` pixels, (4) over `min enrich` and
+`min locs/site`, and (5) over `min tracks`. **Gate 3 is the one that surprises**: a peak can be far
+above background and still be dropped for being spatially CONFINED, because too few pixels clear the
+threshold. `cs_detect_explain_smoke` plants a spot at **1.8x the threshold with only 13 px above it**
+against a `minArea` of 20 — rejected, and recovered by lowering `minArea` to 1.
+
+**explain spot now names the failing gate**, read off `cs_detect`'s own intermediates (its 5th
+output `dbg`: `bwThr`, `bwOpen`, `L`, `dthr`, `bgMed`, `minArea`) rather than from a second copy of
+the chain — an explanation derived independently is how it comes to disagree with the detection it
+claims to explain.
+
 **Per-site gates.** `min tracks` (distinct molecules) and `min locs/site` both gate detection in
 `cs_detect`. The second was plumbed all the way through as `minSiteLocs` and applied at
 `cs_detect.m:79`, but had **no control**, so it sat at 0 forever — a gate nobody could reach. It is

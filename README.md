@@ -196,6 +196,7 @@ cs_track_occupancy_smoke    % occupancy per MOLECULE, and the pooled number it c
 cs_zone_kinetics_smoke      % k_off/k_on as events over exposure, so censoring cannot inflate them
 spt_qc_table_smoke          % the QC table never claims a channel whose distances are all NaN
 spt_player_teardown_smoke   % a queued timer tick, and a superseded load, cannot crash the player
+cs_detect_explain_smoke     % a bright spot that is not a site says WHICH gate stopped it
 cs_picker_support_smoke     % a DERIVED support is never labelled ER, and the per-site gates exist
 spt_compare_group_smoke     % Compare: crossing, the site/dw%/cell filters, and the per-point export
 spt_precision_smoke         % sigma_loc = sqrt(b)/2 recovers a known injected precision

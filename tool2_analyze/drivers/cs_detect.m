@@ -1,4 +1,4 @@
-function [xy, dens, dthr, stats] = cs_detect(rawCounts, erMask, sig, method, p)
+function [xy, dens, dthr, stats, dbg] = cs_detect(rawCounts, erMask, sig, method, p)
 %CS_DETECT  Detect contact-site candidate peaks in a window's localization-count image.
 %
 %   [xy, dens, dthr, stats] = cs_detect(rawCounts, erMask, sig, method, p)
@@ -12,6 +12,11 @@ function [xy, dens, dthr, stats] = cs_detect(rawCounts, erMask, sig, method, p)
 %               (a site must sit on the ER). Pass [] / true(size) to detect over the whole FOV.
 %   sig       : Gaussian sigma (px) for the detection-scale smoothing (the pipeline uses 8).
 %   method    : 'ermc' | 'local' | 'relative'.
+%   dbg       : (5th output) the intermediates — .bwThr (above threshold AND in the support),
+%               .bwOpen (after the minArea speck removal), .L (labelled regions after splitting),
+%               .dthr, .bgMed, .minArea. For callers that must explain why a particular pixel did
+%               not become a site; deriving that from a second copy of the gate chain is how an
+%               explanation comes to disagree with the detection it claims to explain.
 %   p         : struct of knobs:
 %       alpha (0.01), M (100), minArea (3 px), localSig (40), localK (1.6), relFrac (0.5)
 %       Dthr        — caller-supplied cached MC cutoff (skips re-running the null)
@@ -54,7 +59,14 @@ switch lower(method)
         bw = (dens > dthr) & erMask;
 end
 
-bw = bwareaopen(bw, max(1, round(getf(p,'minArea',3))));    % drop specks
+% dbg carries the INTERMEDIATES so a caller can say WHY a given pixel is not a site without
+% reimplementing any of this. Explaining a near-miss from a second copy of the gate chain is how the
+% explanation and the detection drift apart, and an explanation that disagrees with the result is
+% worse than none.
+dbg = struct('bwThr',bw, 'bwOpen',[], 'L',[], 'dthr',dthr, 'bgMed',NaN, 'minArea',0);
+dbg.minArea = max(1, round(getf(p,'minArea',3)));
+bw = bwareaopen(bw, dbg.minArea);                            % drop specks
+dbg.bwOpen = bw;
 
 % --- split touching peaks so two real maxima don't collapse into one centroid ---
 if getf(p,'splitPeaks',true)
@@ -62,9 +74,11 @@ if getf(p,'splitPeaks',true)
 else
     L = double(bwlabel(bw));
 end
+dbg.L = L;
 
 % --- per-site stats + effect-size gate ---
 bgMed = median(dens(erMask)); if ~(bgMed>0), bgMed = median(dens(bw)); end; if ~(bgMed>0), bgMed = eps; end
+dbg.bgMed = bgMed;
 nullMax   = getf(p,'nullMax',[]);
 minEnrich = getf(p,'minEnrich',1.0);
 minLocs   = getf(p,'minSiteLocs',0);
