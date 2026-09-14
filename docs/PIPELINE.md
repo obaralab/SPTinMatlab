@@ -936,6 +936,17 @@ New tab app `spt_analyze_app.m`; built on the `drivers/` layer. Build order:
    a TRACK on one qualifying step, and the QC's `near mito ≤` filter cuts on a track's MEDIAN
    distance.
 
+   **The QC distance filter offers two statistics per channel.** `(median)` keeps tracks whose
+   MEDIAN signed distance is under the threshold — more than half the track sits there, so one
+   excursion neither includes nor excludes it: **residents**. `(closest)` keeps any track whose
+   nearest approach is under it: **visitors** too. They are not interchangeable — on the user's
+   plate at d = 0.15 µm the median rule keeps 953 of 7611 tracks (13 %) and the closest rule 3214
+   (42 %). Median stays the default because a nearest-approach rule on a crowded cell selects nearly
+   everything, which is a much weaker claim. The export filename carries the statistic
+   (`_mitomed0.15_` vs `_mitomin0.15_`) so the two selections cannot overwrite each other.
+   `spt_qc_select_smoke` (4c) has a fixture track whose median is +1.20 µm and whose minimum dips to
+   -0.90, so the two rules must disagree or the option is a relabelling.
+
    **Two exclusions, both honoured.** Per-TRACK rejections come from `analysis/curation/
    track_exclusions.csv` (the `✖ Reject` button in Tool 2's QC); per-CELL exclusions come from the
    **Experiment tab's `exclude` flag**, the durable judgement `cs_experiment_aggregate` has always

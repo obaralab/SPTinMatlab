@@ -405,10 +405,13 @@ end
         % same question to ask of it. Items are rebuilt per build from the channels that actually
         % carry data, so a project with no ER is never offered a filter that would select nothing.
         ddDistCh = uidropdown(qsA,'Items',{'any distance'},'ItemsData',{''},'Value','','FontSize',9, ...
-            'Tooltip',['Keep only tracks whose MEDIAN signed distance to this channel is under the ' ...
-                       'value on the right. Median over the track, so one excursion neither includes ' ...
-                       'nor excludes it. Negative is inside the mask, so 0 means "more than half the ' ...
-                       'track sits on the organelle".'], ...
+            'Tooltip',['Which tracks to keep, by their distance to a channel. (median) keeps tracks ' ...
+                       'whose MEDIAN signed distance is under the value on the right — more than ' ...
+                       'half the track sits there, so one excursion neither includes nor excludes ' ...
+                       'it: RESIDENTS. (closest) keeps any track whose nearest approach is under ' ...
+                       'it: VISITORS too, which on a crowded cell is nearly everything. Distance ' ...
+                       'is signed and negative is inside the mask, so 0 with (median) means "more ' ...
+                       'than half the track is on the organelle".'], ...
             'ValueChangedFcn',@(~,~) redrawQcPooled());
         spnDistMax = uispinner(qsA,'Limits',[-5 5],'Value',0.2,'Step',0.05,'FontSize',9, ...
             'ValueDisplayFormat','%.2f µm','ValueChangedFcn',@(~,~) redrawQcPooled());
@@ -3615,10 +3618,11 @@ end
         if ~isempty(ER), histogram(axDist, ER, 40, 'FaceColor',[0.15 0.6 0.25],'EdgeColor','none','FaceAlpha',0.6); leg{end+1}='ER'; end %#ok<AGROW>
         if ~isempty(MI), histogram(axDist, MI, 40, 'FaceColor',[0.85 0.2 0.6],'EdgeColor','none','FaceAlpha',0.6); leg{end+1}='mito'; end %#ok<AGROW>
         xline(axDist, 0, 'k-');
-        kD = distKey();
+        kD = distSpec();
         if ~isempty(kD)
             % Draw the cut in the colour of the channel it applies to, so on a project with both
-            % ER and mito it is unambiguous which histogram the line belongs to.
+            % ER and mito it is unambiguous which histogram the line belongs to. distSpec, not
+            % distKey: the raw value now carries the statistic too ('mito|min').
             cD = [0.85 0.2 0.6]; if strcmp(kD,'er'), cD = [0.15 0.6 0.25]; end
             xline(axDist, spnDistMax.Value, '--', 'Color',cD,'LineWidth',1.2);
         end
@@ -3848,10 +3852,10 @@ end
         if ~isempty(spnLenMin) && isgraphics(spnLenMin) && spnLenMin.Value > 0
             keep = keep & cellfun(@(x) x.len >= spnLenMin.Value, recs);
         end
-        key = distKey();
+        [key, stat] = distSpec();
         if ~isempty(key)
             thr = spnDistMax.Value;
-            keep = keep & cellfun(@(x) hasMedDist(x, key, thr), recs);
+            keep = keep & cellfun(@(x) hasDist(x, key, stat, thr), recs);
         end
     end
 
@@ -3860,9 +3864,19 @@ end
         % segmentation should not be offered an ER filter that would silently select nothing —
         % that reads as a broken filter rather than as absent data.
         if isempty(ddDistCh) || ~isgraphics(ddDistCh), return; end
+        % Two statistics per channel, because they answer different questions and the answer is not
+        % interchangeable. MEDIAN keeps tracks that mostly sit at the organelle — residents. CLOSEST
+        % keeps any track that ever came that near — visitors included. On a crowded cell a closest
+        % rule selects nearly everything, which is why median is offered first and stays the default.
         items = {'any distance'}; data = {''};
-        if ~isempty(MI) && any(isfinite(MI)), items{end+1} = 'near mito ≤'; data{end+1} = 'mito'; end
-        if ~isempty(ER) && any(isfinite(ER)), items{end+1} = 'near ER ≤';   data{end+1} = 'er';   end
+        if ~isempty(MI) && any(isfinite(MI))
+            items{end+1} = 'mito ≤ (median)';  data{end+1} = 'mito|med';
+            items{end+1} = 'mito ≤ (closest)'; data{end+1} = 'mito|min';
+        end
+        if ~isempty(ER) && any(isfinite(ER))
+            items{end+1} = 'ER ≤ (median)';  data{end+1} = 'er|med';
+            items{end+1} = 'ER ≤ (closest)'; data{end+1} = 'er|min';
+        end
         was = ddDistCh.Value;
         ddDistCh.Items = items; ddDistCh.ItemsData = data;
         % Keep the current choice across a cell change when that channel is still available;
@@ -3877,6 +3891,17 @@ end
         if ~isempty(ddDistCh) && isgraphics(ddDistCh) && ~isempty(ddDistCh.Value), k = char(ddDistCh.Value); end
     end
 
+    function [key, stat] = distSpec()
+        % '' = off. Otherwise 'mito|med', 'mito|min', 'er|med', 'er|min'. Split in ONE place so a
+        % third channel or a third statistic is a change to the item list and nothing else.
+        key = ''; stat = 'med';
+        raw = distKey();
+        if isempty(raw), return; end
+        parts = strsplit(char(raw), '|');
+        key = parts{1};
+        if numel(parts) > 1 && ~isempty(parts{2}), stat = parts{2}; end
+    end
+
     function v = distOf(x, key)
         switch key
             case 'mito', v = fieldOr(x,'MI');
@@ -3886,9 +3911,13 @@ end
         v = v(isfinite(v));
     end
 
-    function tf = hasMedDist(x, key, thr)
+    function tf = hasDist(x, key, stat, thr)
+        % MEDIAN: more than half the track is within thr — a resident. CLOSEST: the track's nearest
+        % approach is within thr — a visitor counts. A track with no distance at all is not
+        % selectable either way, rather than counting as distance zero.
         v = distOf(x, key);
-        tf = ~isempty(v) && median(v) <= thr;    % no distance on this track => not selectable
+        if isempty(v), tf = false; return; end
+        if strcmp(stat,'min'), tf = min(v) <= thr; else, tf = median(v) <= thr; end
     end
 
     function redrawQcPooled()
@@ -4011,8 +4040,8 @@ end
 
         dst = fullfile(projectDir,'analysis'); if ~isfolder(dst), mkdir(dst); end
         tag = 'all'; if ~isempty(spnLenMin) && spnLenMin.Value > 0, tag = sprintf('len%d', round(spnLenMin.Value)); end
-        kD = distKey();
-        if ~isempty(kD), tag = sprintf('%s_%s%.2f', tag, kD, spnDistMax.Value); end
+        [kD, statD] = distSpec();
+        if ~isempty(kD), tag = sprintf('%s_%s%s%.2f', tag, kD, statD, spnDistMax.Value); end
         mode = fitModeNow();
         if strcmp(mode,'adaptive'), fitName = sprintf('adaptiveR2max%.0f', eMsdFrac.Value);
         else,                       fitName = sprintf('fixed%.0f', eMsdFrac.Value); end

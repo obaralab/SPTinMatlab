@@ -101,7 +101,7 @@ setv(lenS, 30);
 assert(selCount(f) == 3, 'len >= 30 selected %d tracks, wanted 3 (the 12-localization one drops)', selCount(f));
 
 %% (4) distance, on the MEDIAN -------------------------------------------------------------------------
-setv(lenS, 0); setv(ddD, 'mito'); setv(mitS, 0);
+setv(lenS, 0); setv(ddD, 'mito|med'); setv(mitS, 0);
 % A (-0.30) and C (-0.20) have median <= 0. D dips to -0.90 but its MEDIAN is +1.20, so a
 % median rule excludes it and a min rule would not — which is the whole point of the choice.
 assert(selCount(f) == 2, ...
@@ -109,17 +109,36 @@ assert(selCount(f) == 2, ...
      'along the track, which selects any track that ever brushed a mitochondrion.'], selCount(f));
 
 %% (4b) the SAME cut against ER picks the other tracks ---------------------------------------------------
-assert(any(strcmp(ddD.ItemsData,'er')), ...
+assert(any(strcmp(ddD.ItemsData,'er|med')), ...
     'the distance filter offers no ER option even though the fixture carries ER distances');
-setv(ddD, 'er');
+setv(ddD, 'er|med');
 % ER is the mirror: B (-0.40) and D (-0.30) are the ones inside it.
 assert(selCount(f) == 2, 'ER <= 0 selected %d tracks, wanted 2', selCount(f));
 selER = selectedNames(f);
-setv(ddD, 'mito'); selMI = selectedNames(f);
+setv(ddD, 'mito|med'); selMI = selectedNames(f);
 assert(~isequal(sort(selER), sort(selMI)), ...
     ['the ER and mito cuts selected the SAME tracks (%s). The filter is not reading the channel it ' ...
      'was told to.'], strjoin(selMI, ','));
-setv(ddD, 'mito');
+setv(ddD, 'mito|med');
+
+%% (4c) CLOSEST vs MEDIAN must select DIFFERENT tracks --------------------------------------------------
+% Track D is the whole point of the fixture: its median mito distance is +1.20 µm and its minimum
+% dips to -0.90. A resident rule excludes it, a visitor rule includes it. If the two agreed here the
+% new option would be a relabelling.
+setv(lenS, 0); setv(ddD, 'mito|med'); setv(mitS, 0);
+nMed = selCount(f);
+assert(any(strcmp(ddD.ItemsData,'mito|min')), ...
+    'the dropdown offers no (closest) option: %s', strjoin(ddD.ItemsData, ', '));
+setv(ddD, 'mito|min');
+nMin = selCount(f);
+assert(nMin > nMed, ...
+    ['(closest) selected %d tracks and (median) %d. The track whose median is +1.20 µm but which ' ...
+     'dips to -0.90 must be caught by a nearest-approach rule and missed by a median one, or the ' ...
+     'two options are the same rule under two names.'], nMin, nMed);
+assert(nMin == 3 && nMed == 2, ...
+    'wanted 3 tracks by closest and 2 by median, got %d and %d', nMin, nMed);
+fprintf('mito ≤ 0: median keeps %d (residents) · closest keeps %d (visitors too)\n', nMed, nMin);
+setv(ddD, 'mito|med');
 
 %% (5) the panels report the same n ----------------------------------------------------------------------
 setv(lenS, 30);                                   % now A only: long AND median-inside
