@@ -149,7 +149,11 @@ ddScale = uidropdown(rB,'Items',{'density (a.u.)','locs / 30 nm bin','significan
                 'locs / 30 nm bin = raw localization COUNT per bin (interpretable units). ' ...
                 'significance (p) = recolour by per-pixel p vs the ER-MC null (needs ER-MC + a Detect).']);
 chkLoc = uicheckbox(rB,'Text','＋locs','Value',false,'ValueChangedFcn',@(s,e) drawDetail(), ...
-    'Tooltip','Overlay this window''s localizations as points.');
+    'Tooltip',['Overlay this window''s localizations as points — the TRACKED ones, which is what ' ...
+               'the density is built from. Point size and opacity scale with how many there are. ' ...
+               'NOTE this is a different count from the two others on screen: explain spot counts ' ...
+               'within contact µm of where you CLICKED, and a site''s "loc" column counts what is ' ...
+               'inside its thresholded FOOTPRINT, which is usually smaller.']);
 uilabel(rB,'Text','sims','HorizontalAlignment','right');
 eSims = uispinner(rB,'Limits',[20 2000],'Value',st.MC,'Step',20, ...
     'Tooltip', ['ER-Monte-Carlo null runs. More runs = finer α resolution (the smallest resolvable α ≈ 1/sims) ' ...
@@ -567,8 +571,26 @@ onCell();
         hold(axDet,'on');
         if chkLoc.Value                                                              % this window's localizations
             inw=st.aF>=st.win(w,1)&st.aF<=st.win(w,2); lx=st.aX(inw)/st.SF; ly=st.aY(inw)/st.SF;
-            if numel(lx)>60000, s2=ceil(numel(lx)/60000); lx=lx(1:s2:end); ly=ly(1:s2:end); end
-            scatter(axDet,lx,ly,2,'w','filled','MarkerFaceAlpha',0.15,'HitTest','off');
+            nLocDraw = numel(lx); nSub = 0;
+            if nLocDraw>60000, s2=ceil(nLocDraw/60000); lx=lx(1:s2:end); ly=ly(1:s2:end); nSub=s2; end
+            % SIZE AND OPACITY FROM THE COUNT. These were fixed at 2 px and alpha 0.15, chosen for a
+            % crowded window — so a site holding 145 localizations rendered as a handful of faint
+            % specks and looked like it held about ten. The overlay is how a person checks the
+            % number the table reports, and at that opacity it contradicted it.
+            % Sparse windows get large, near-opaque points; dense ones keep the old settings so the
+            % map underneath stays readable.
+            if nLocDraw < 2000,      mSz = 9; mAl = 0.85;
+            elseif nLocDraw < 20000, mSz = 5; mAl = 0.45;
+            else,                    mSz = 2; mAl = 0.15;
+            end
+            scatter(axDet,lx,ly,mSz,'w','filled','MarkerFaceAlpha',mAl,'HitTest','off');
+            if nSub > 1
+                % Silently plotting every s2-th point makes the overlay disagree with every count in
+                % the app, with nothing on screen to say why.
+                text(axDet, 0.99, 0.01, sprintf('locs shown: every %d%s of %d', nSub, ordSuffix(nSub), nLocDraw), ...
+                    'Units','normalized','Color',[1 1 0.6],'FontSize',8, ...
+                    'HorizontalAlignment','right','VerticalAlignment','bottom','HitTest','off');
+            end
         end
         % One contour per ticked channel, start-frame. The SUPPORT channel draws its resolved mask
         % (which is total — it falls back), every other channel draws only what it actually has.
@@ -728,8 +750,12 @@ onCell();
         rpx=max(2,round(max(st.contactUm,0.15)/st.SF));
         inw=st.aF>=st.win(w,1)&st.aF<=st.win(w,2); lx=st.aX(inw)/st.SF; ly=st.aY(inw)/st.SF; lt=st.aT(inw);
         near=hypot(lx-xc,ly-yc)<=rpx; ntrk=numel(unique(lt(near)));
-        set(lblExplain,'Text',sprintf('spot (%.0f,%.0f): dens %.2g · %.1f×bg · %d loc / %d trk%s%s', ...
-            xc,yc,dv,enr,nnz(near),ntrk,pstr, gateVerdict(w, ri, ci, ntrk)));
+        % Name the RADIUS. This count is "within contact µm of where you clicked", the site table's
+        % nLocs is "inside the site's thresholded footprint", and the ＋locs overlay draws every
+        % localization in the window. Three different questions that all read as "localizations
+        % here", so the one being answered is stated.
+        set(lblExplain,'Text',sprintf('spot (%.0f,%.0f): dens %.2g · %.1f×bg · %d loc / %d trk within %.3g µm%s%s', ...
+            xc,yc,dv,enr,nnz(near),ntrk,rpx*st.SF,pstr, gateVerdict(w, ri, ci, ntrk)));
         drawDetail(); hold(axDet,'on'); plot(axDet,xc,yc,'x','Color',[1 1 1],'MarkerSize',13,'LineWidth',1.6,'HitTest','off'); hold(axDet,'off');
     end
 
@@ -793,6 +819,13 @@ onCell();
         set(lblExplain,'Text',sprintf('site %d: %d assoc track(s) · dwell%% med %.0f · %d >50%% inside  (blue passing → red dwelling)', ...
             siteRow, numel(utrk), median(dwp), nnz(dwp>50)));
     end
+    function sfx = ordSuffix(n)
+        sfx = 'th';
+        if mod(n,100) < 11 || mod(n,100) > 13
+            switch mod(n,10), case 1, sfx='st'; case 2, sfx='nd'; case 3, sfx='rd'; end
+        end
+    end
+
     function c=dwellColor(pct), t=min(max(pct/100,0),1); c=[t 0.30 1-t]; end   % 0% → blue, 100% → red
 
     % ---- detection ----

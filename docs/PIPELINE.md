@@ -175,6 +175,22 @@ output `dbg`: `bwThr`, `bwOpen`, `L`, `dthr`, `bgMed`, `minArea`) rather than fr
 the chain — an explanation derived independently is how it comes to disagree with the detection it
 claims to explain.
 
+**THREE localization counts are on screen and they answer different questions.** All three count the
+same TRACKED localizations (the density is built from the matrix, not the cloud), but over different
+regions:
+
+| where | region counted |
+|---|---|
+| `explain spot` | within `contact µm` of **where you clicked** — a disc |
+| a site's `loc` column | inside that site's **thresholded footprint** — usually smaller |
+| the `＋locs` overlay | **every** localization in the window |
+
+They were easy to read as contradicting each other, and the overlay made it worse: it drew at 2 px
+and **alpha 0.15**, tuned for a crowded window, so a site holding 145 localizations rendered as a
+handful of faint specks and looked like ten. Size and opacity now scale with the count (9 px / 0.85
+under 2 000 points, down to the old 2 px / 0.15 over 20 000), the >60 000 subsample says so on the
+plot instead of silently thinning, and `explain spot` names the radius it counted within.
+
 **Per-site gates.** `min tracks` (distinct molecules) and `min locs/site` both gate detection in
 `cs_detect`. The second was plumbed all the way through as `minSiteLocs` and applied at
 `cs_detect.m:79`, but had **no control**, so it sat at 0 forever — a gate nobody could reach. It is

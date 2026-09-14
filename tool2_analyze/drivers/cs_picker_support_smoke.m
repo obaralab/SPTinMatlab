@@ -144,6 +144,29 @@ assert(isempty(short), ...
     numel(short), strjoin(short(1:min(4,numel(short))), ' · '));
 fprintf('every control renders at full height\n');
 
+%% (8) THE THREE LOCALIZATION COUNTS MUST BE DISTINGUISHABLE ------------------------------------------
+% "explain spot says 200 but the overlay looks like 10." They count the same TRACKED localizations;
+% what differed was that the overlay drew them at 2 px and 15 % opacity, so a tight cluster of 145
+% rendered as a few specks and contradicted the number beside it. Three counts are on screen and
+% each answers a different question, so each must say which.
+ckL = ck(arrayfun(@(x) contains(string(x.Text),'locs'), ck));
+assert(~isempty(ckL), 'the ＋locs checkbox was not found');
+tipL = char(string(ckL(1).Tooltip));
+assert(contains(tipL,'FOOTPRINT') && contains(tipL,'CLICKED'), ...
+    ['the ＋locs tooltip does not distinguish the three counts. The overlay, explain spot and the ' ...
+     'site table all say "localizations" and mean different regions: "%s"'], tipL);
+% ticking it must actually draw points, and at a visible size
+n0 = countDetailPoints(fig);
+ckL(1).Value = true;
+cbL = ckL(1).ValueChangedFcn; if ~isempty(cbL), cbL(ckL(1), struct()); end
+drawnow;
+sc = findobj(fig,'Type','scatter');
+assert(~isempty(sc), 'ticking ＋locs drew no scatter at all');
+assert(sc(1).MarkerFaceAlpha > 0.3, ...
+    ['the localization overlay is drawn at alpha %.2f. At that opacity a cluster of a hundred ' ...
+     'points reads as a handful, which is the reported complaint.'], sc(1).MarkerFaceAlpha);
+fprintf('＋locs: %d points at alpha %.2f, size %g\n', numel(sc(1).XData), sc(1).MarkerFaceAlpha, sc(1).SizeData(1));
+
 %% (2) a real support channel must be left alone --------------------------------------------------------
 proj2 = fullfile(tempdir, sprintf('spt_picksup2_%d', feature('getpid')));
 if isfolder(proj2), rmdir(proj2,'s'); end
@@ -198,4 +221,9 @@ t = '';
 try, t = char(string(h.Text)); catch, end
 if isempty(t), try, t = char(string(h.Tooltip)); catch, end, end
 if numel(t) > 24, t = t(1:24); end
+end
+
+function n = countDetailPoints(fig)
+sc = findobj(fig,'Type','scatter');
+n = 0; if ~isempty(sc), n = numel(sc(1).XData); end
 end
