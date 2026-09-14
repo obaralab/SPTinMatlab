@@ -47,11 +47,21 @@ Tr = struct('file','cellA.tif', 'matrix', cat(3,F0,X0,Y0), ...
             'frameInterval', 0.01, ...
             'calib', struct('pixSizeUm',0.16,'fovUm',20.48,'dt_s',0.01,'precNm',30,'binNm',30));
 
+% A REAL support file for the ER channel. Without one the picker correctly relabels the box
+% "support*" — a project can declare ER and have nothing segmented, and calling a derived mask "ER"
+% claims a segmentation that does not exist (cs_picker_support_smoke owns that case). This test is
+% about one checkbox being GENERATED per declared channel and carrying that channel's own label, so
+% the fixture has to give the channel something to be.
+segDir = fullfile(proj,'er_seg'); mkdir(segDir);
+erTif = fullfile(segDir,'cellA_er.tif');
+imwrite(uint8(255*ones(64,64)), erTif);
+resolver = @(~) struct('seg', struct('er', erTif));
+
 fig = uifigure('Visible','off','Position',[100 100 1400 900]);
 closeFig = onCleanup(@() closeIfThere(fig));
 pn = uipanel(fig,'Units','normalized','Position',[0 0 1 1]);
 cs_window_picker(pn, ana, struct('FOV_um',20.48,'binNm',30,'contactUm',0.15, ...
-    'Tracks',Tr,'channels',chans));
+    'Tracks',Tr,'channels',chans,'segResolver',resolver));
 drawnow; pause(0.3);                       % let the layout settle before measuring anything
 
 boxes = findobj(fig,'Type','uicheckbox');
@@ -73,7 +83,10 @@ fig2 = uifigure('Visible','off','Position',[100 100 1400 900]);
 closeFig2 = onCleanup(@() closeIfThere(fig2));
 pn2 = uipanel(fig2,'Units','normalized','Position',[0 0 1 1]);
 ana2 = fullfile(scratch,'plain','analysis'); mkdir(ana2);
-cs_window_picker(pn2, ana2, struct('FOV_um',20.48,'binNm',30,'contactUm',0.15,'Tracks',Tr));
+% Same real ER file as PART B, for the same reason: with nothing segmented the support box is
+% honestly relabelled, and this part is asserting the DEFAULT CHANNEL SET, not the relabel.
+cs_window_picker(pn2, ana2, struct('FOV_um',20.48,'binNm',30,'contactUm',0.15,'Tracks',Tr, ...
+    'segResolver',resolver));
 drawnow; pause(0.3);
 b2 = findobj(fig2,'Type','uicheckbox');
 t2 = arrayfun(@(h) string(h.Text), b2);

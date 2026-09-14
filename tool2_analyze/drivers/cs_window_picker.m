@@ -92,7 +92,7 @@ g = uigridlayout(parent,[6 1],'RowHeight',{32,30,30,30,32,'1x'},'Padding',[8 8 8
 
 % ---- control row A: data + detection ----
 rA = uigridlayout(g,[1 13],'ColumnWidth', ...
-    {34,140, 62,58, 52,140, 40,78, 74,72, 66,66, '1x'}, 'Padding',[0 0 0 0],'ColumnSpacing',5);   %#ok<*NASGU>
+    {34,140, 62,58, 52,140, 92,78, 74,72, 66,66, '1x'}, 'Padding',[0 0 0 0],'ColumnSpacing',5);   %#ok<*NASGU>
 uilabel(rA,'Text','Cell','HorizontalAlignment','right');
 ddCell = uidropdown(rA,'Items',cellNames(),'ValueChangedFcn',@(s,e) onCell());
 % density is always built from TRACKED localizations (single-frame detections are excluded as noise)
@@ -106,12 +106,16 @@ uilabel(rA,'Text','method','HorizontalAlignment','right');
 % label from supportKey alone gets that case exactly wrong, which is why it is decided later.
 ddMeth = uidropdown(rA,'Items',{'ER Monte-Carlo','Local background','Relative'}, ...
     'ItemsData',{'ermc','local','relative'},'Value','ermc','ValueChangedFcn',@(s,e) onMeth());
-uilabel(rA,'Text','sens','HorizontalAlignment','right');
-eSens = uispinner(rA,'Limits',[0 1],'Value',st.sens,'Step',0.01, ...
-    'Tooltip','ER-MC: family-wise α (lower = stricter = fewer sites; = the cutoff line on the colorbar). Relative: fraction of peak. Local: strictness.', ...
+% ONE control sets the cutoff for all three detectors, and it means something different in each.
+% Labelled 'sens' it read as a Monte-Carlo knob, so on Relative — where it IS the threshold the
+% picker reports a near-miss against — there appeared to be no way to move that threshold at all.
+% sensLabels() names it for the method in force; see there for what each one does.
+lblSens = uilabel(rA,'Tag','sensLabel','Text','cutoff α','HorizontalAlignment','right');
+eSens = uispinner(rA,'Tag','sens','Limits',[0 1],'Value',st.sens,'Step',0.01, ...
     'ValueChangedFcn',@(s,e) onSens());
+sensLabels();                                % name it for the method in force, and fill its tooltip
 uilabel(rA,'Text','contact µm','HorizontalAlignment','right');
-eContact = uispinner(rA,'Limits',[-1 2],'Value',st.contactUm,'Step',0.05,'ValueChangedFcn',@(s,e) reclassify(), ...
+eContact = uispinner(rA,'Tag','contactUm','Limits',[-1 2],'Value',st.contactUm,'Step',0.05,'ValueChangedFcn',@(s,e) reclassify(), ...
     'Tooltip','A site is mito-contact when nearby localizations'' median signed MITODIST ≤ this (µm).');
 btnDetW = uibutton(rA,'Text','Detect win','ButtonPushedFcn',@(s,e) detectCur(), ...
     'Tooltip','Detect candidate sites in the CURRENT window (manual, on demand).');
@@ -166,12 +170,12 @@ btnSave = uibutton(rB,'Text','💾 Save','BackgroundColor',[0.18 0.45 0.70],'Fon
 % ---- control row C: windowing (overlap) + per-window count floor + window-length sweep ----
 rC = uigridlayout(g,[1 7],'ColumnWidth',{88,58, 96,60, 168, 300, '1x'},'Padding',[0 0 0 0],'ColumnSpacing',5);
 uilabel(rC,'Text','step frames','HorizontalAlignment','right');
-eStep = uispinner(rC,'Limits',[0 1e6],'Value',st.step,'Step',50,'ValueChangedFcn',@(s,e) onStep(), ...
+eStep = uispinner(rC,'Tag','stepFrames','Limits',[0 1e6],'Value',st.step,'Step',50,'ValueChangedFcn',@(s,e) onStep(), ...
     'Tooltip',['Window START stride in frames. 0 (or ≥ frames/win) = non-overlapping windows. A SMALLER ' ...
                'step makes overlapping windows that track a moving contact site more smoothly (more panels, ' ...
                'up to the panel cap; overlapping windows are not statistically independent).']);
 uilabel(rC,'Text','min locs/win','HorizontalAlignment','right');
-eMinLocs = uispinner(rC,'Limits',[0 1e7],'Value',st.minLocs,'Step',250,'ValueChangedFcn',@(s,e) onMinLocs(), ...
+eMinLocs = uispinner(rC,'Tag','minLocsPerWin','Limits',[0 1e7],'Value',st.minLocs,'Step',250,'ValueChangedFcn',@(s,e) onMinLocs(), ...
     'Tooltip','Per-window tracked-localization floor: a window with fewer localizations turns RED (⚠) — its density is under-powered for reliable peak detection.');
 btnSweep = uibutton(rC,'Text','⇢ Sweep window length','ButtonPushedFcn',@(s,e) onSweep(), ...
     'Tooltip','Vary frames/window and plot the # of detected sites + median significance vs window length, to find the knee where results stabilize (uses the whole-movie ER support + a fast 80-run MC; ~15–30 s).');
@@ -191,13 +195,13 @@ rD = uigridlayout(g,[1 9],'ColumnWidth',{88, 84,56, 74,52, 92,58, 118, '1x'}, ..
 chkSplit = uicheckbox(rD,'Text','split peaks','Value',st.splitPeaks,'ValueChangedFcn',@(s,e) onSplit(), ...
     'Tooltip','Marker-controlled watershed: two touching real peaks become two sites instead of one blob centroid at the saddle. Re-run Detect to apply.');
 uilabel(rD,'Text','min enrich ×','HorizontalAlignment','right');
-eMinEnr = uispinner(rD,'Limits',[1 1e4],'Value',st.minEnrich,'Step',0.5,'ValueChangedFcn',@(s,e) onGate(), ...
+eMinEnr = uispinner(rD,'Tag','minEnrich','Limits',[1 1e4],'Value',st.minEnrich,'Step',0.5,'ValueChangedFcn',@(s,e) onGate(), ...
     'Tooltip','Effect-size gate: keep a site only if its peak density is at least this multiple of the ER-median background. 1 = off. Re-run Detect to apply.');
 uilabel(rD,'Text','min tracks','HorizontalAlignment','right');
-eMinTrk = uispinner(rD,'Limits',[1 1e4],'Value',st.minTracks,'Step',1,'ValueChangedFcn',@(s,e) onGate(), ...
+eMinTrk = uispinner(rD,'Tag','minTracks','Limits',[1 1e4],'Value',st.minTracks,'Step',1,'ValueChangedFcn',@(s,e) onGate(), ...
     'Tooltip','Distinct-molecule gate: keep a site only if at least this many DISTINCT tracks contribute localizations to it — rejects a single parked molecule. 1 = off. Re-run Detect to apply.');
 uilabel(rD,'Text','min locs/site','HorizontalAlignment','right');
-eMinSLoc = uispinner(rD,'Limits',[0 1e6],'Value',st.minSiteLocs,'Step',5,'ValueChangedFcn',@(s,e) onGate(), ...
+eMinSLoc = uispinner(rD,'Tag','minSiteLocs','Limits',[0 1e6],'Value',st.minSiteLocs,'Step',5,'ValueChangedFcn',@(s,e) onGate(), ...
     'Tooltip',['Evidence gate: keep a site only if at least this many localizations fall inside its ' ...
                'footprint. 0 = off. DIFFERENT from "min locs/win", which is a per-WINDOW floor for ' ...
                'the low-count warning and gates nothing. Use with min tracks: localizations say how ' ...
@@ -219,18 +223,23 @@ lbl = uilabel(g,'Text','','FontColor',[0.2 0.4 0.5],'WordWrap','on','VerticalAli
 mn = uigridlayout(g,[1 3],'ColumnWidth',{'1.0x','1.5x',290},'Padding',[0 0 0 0],'ColumnSpacing',8);
 pnThumbs = uipanel(mn,'Title','Windows — click one to zoom','BorderType','line');
 dc = uigridlayout(mn,[1 2],'ColumnWidth',{'1x',66},'Padding',[0 0 0 0],'ColumnSpacing',4);
-axDet = uiaxes(dc); axDet.Toolbar.Visible='on'; title(axDet,'window detail'); axDet.YDir='reverse';
+axDet = uiaxes(dc); axDet.Tag='detailAxes'; axDet.Toolbar.Visible='on'; title(axDet,'window detail'); axDet.YDir='reverse';
 spt_axes_policy(axDet);   % zoom+pan alongside the click; the hover data tip is the hazard
 try, axDet.Toolbar = axtoolbar(axDet,{'zoomin','zoomout','restoreview'}); catch, end
 axDet.ButtonDownFcn = @(s,e) onDetailClick(e);
 axCbar = uiaxes(dc); axCbar.Toolbar.Visible='off'; spt_axes_policy(axCbar,'display'); axCbar.XTick=[];
 rp = uigridlayout(mn,[3 1],'RowHeight',{20,'1x',30},'Padding',[0 0 0 0],'RowSpacing',4);
 lblList = uilabel(rp,'Text','Sites in window','FontWeight','bold');
-tblSites = uitable(rp,'ColumnName',{'#','mito','p','enr×','trk','dw%','stab'}, ...
-    'ColumnWidth',{30,46,52,44,34,44,'auto'},'RowName',{},'SelectionType','row', ...   % # mito p enr trk dw stab
+tblSites = uitable(rp,'ColumnName',{'#','mito','p','enr×','loc','trk','dw%','stab'}, ...
+    'ColumnWidth',{40,46,52,44,42,34,44,'auto'},'RowName',{},'SelectionType','row', ...   % # mito p enr loc trk dw stab
     'SelectionChangedFcn',@(s,e) onTableSel(e), ...
     'Tooltip',['Per-site stats. p = significance (fraction of MC null peaks ≥ the site; smaller = stronger). ' ...
-               'enr× = peak density / ER-median background. trk = distinct contributing tracks. ' ...
+               'enr× = peak density / ER-median background. ' ...
+               'loc = localizations INSIDE this site''s footprint — the thresholded blob for a detected ' ...
+               'site, or the contact-µm disc for a ⁺-marked manual one. It is the count the gates ' ...
+               '(min locs/site) test, and it is SMALLER than either of the other two counts on screen: ' ...
+               '"explain spot" counts within contact µm of where you clicked, and ＋locs draws the ' ...
+               'whole window. trk = distinct contributing tracks. ' ...
                'dw% = median % of each track''s localizations INSIDE the site (high = tracks dwell; low = just passing). ' ...
                'stab = split-half reproducibility (0–1). Click a row to overlay its tracks + highlight it.']);
 btnRem = uibutton(rp,'Text','－ Remove selected','ButtonPushedFcn',@(s,e) removeSelected());
@@ -404,6 +413,7 @@ onCell();
             st.method = 'local';
             if ~isempty(ddMeth) && isgraphics(ddMeth), ddMeth.Value = 'local'; end
             if ~isempty(eSens) && isgraphics(eSens), eSens.Value = 0.15; st.sens = 0.15; end
+            sensLabels();
             if ~isempty(lbl) && isgraphics(lbl)
                 set(lbl,'Text',['No support segmentation in this project, so detection defaults to ' ...
                     'LOCAL BACKGROUND rather than the Monte-Carlo null: the derived support is built ' ...
@@ -710,17 +720,22 @@ onCell();
         end
     end
 
-    function m = measureAt(w, xc, yc)
+    function m = measureAt(w, xc, yc, wantP)
         % Density, enrichment, localizations, distinct tracks, p and footprint area at an arbitrary
         % point. Shared by the spot inspector and by a manually added site so the two cannot report
         % different numbers for the same place.
+        %
+        % wantP=false skips the p-value. Only the COUNTS here depend on the contact radius (peak,
+        % enrichment and p are read at the single centre pixel), so re-measuring after a radius change
+        % must not drag an ER-Monte-Carlo run along behind a spinner callback.
+        if nargin < 4, wantP = true; end
         m = struct('peak',NaN,'pval',NaN,'enr',NaN,'nloc',NaN,'ntrk',NaN,'area',NaN,'dwell',NaN);
         ci=round(xc); ri=round(yc);
         if ci<1||ci>st.grid||ri<1||ri>st.grid, return; end
         D=windowDensity(w); m.peak=D(ri,ci);
         bg=median(D(werMask(w))); if ~(bg>0), bg=eps; end
         m.enr=m.peak/bg;
-        if strcmp(st.method,'ermc'), [~,nm]=windowNull(w); m.pval=mean(nm>=m.peak); end
+        if wantP && strcmp(st.method,'ermc'), [~,nm]=windowNull(w); m.pval=mean(nm>=m.peak); end
         rpx=max(2,round(max(st.contactUm,0.15)/st.SF));
         inw=st.aF>=st.win(w,1)&st.aF<=st.win(w,2);
         lx=st.aX(inw)/st.SF; ly=st.aY(inw)/st.SF; lt=st.aT(inw);
@@ -981,9 +996,32 @@ onCell();
         fl=cs_mito_from_dist([cx cy], lx, ly, md, max(0.6/st.SF,3), st.contactUm, false);
     end
     function reclassify()
+        % Contact µm does TWO jobs, and only one of them used to be honoured here. It decides the
+        % mito flag of every site, and it IS the footprint of a manually added one — measureAt counts
+        % inside a disc of exactly this radius. So a manual row's loc / trk / dw% / area are
+        % re-measured at the new radius instead of keeping whatever radius was in force when it was
+        % clicked; a column headed "loc" showing a count from a different footprint is worse than no
+        % column at all. Detected rows are left alone on purpose: their footprint is the thresholded
+        % blob, which this spinner does not move — those follow a re-run of Detect.
         st.contactUm=eContact.Value;
-        for w=1:st.nW, P=st.sites{w}; for i=1:size(P,1), c0=st.cw; st.cw=w; P(i,3)=classifyOne(P(i,1),P(i,2)); st.cw=c0; end, st.sites{w}=P; end
+        nRe = 0;
+        for w=1:st.nW
+            P=st.sites{w}; c0=st.cw; st.cw=w;
+            for i=1:size(P,1)
+                P(i,SC.flag)=classifyOne(P(i,SC.x),P(i,SC.y));
+                if P(i,SC.manual)==1
+                    m = measureAt(w, P(i,SC.x), P(i,SC.y), false);     % counts only; no MC behind a spinner
+                    P(i,[SC.nloc SC.ntrk SC.area SC.dwell]) = [m.nloc m.ntrk m.area m.dwell];
+                    nRe = nRe + 1;
+                end
+            end
+            st.cw=c0; st.sites{w}=P;
+        end
         drawThumbAll(); drawDetail(); refreshList();
+        if nRe>0
+            set(lbl,'Text',sprintf(['contact %.2f µm: reclassified every site · re-measured %d manual ' ...
+                'site(s) at the new radius  ·  %s'], st.contactUm, nRe, statusText()));
+        end
     end
 
     function p=detParams()
@@ -1014,11 +1052,43 @@ onCell();
         st.methUserSet = true;            % from here on the choice is the user's, not a default
         st.method=ddMeth.Value;
         switch st.method, case 'ermc', eSens.Value=0.01; case 'relative', eSens.Value=0.5; case 'local', eSens.Value=0.15; end
-        st.sens=eSens.Value;
+        st.sens=eSens.Value; sensLabels();
         if strcmp(st.scaleMode,'sigp') && ~strcmp(st.method,'ermc'), ddScale.Value='density'; st.scaleMode='density'; end
         drawDetail();
     end
-    function onSens(), st.sens=eSens.Value; drawColorbar(st.cw); if strcmp(st.scaleMode,'sigp'), drawDetail(); end, end
+    function onSens(), st.sens=eSens.Value; sensLabels(); drawColorbar(st.cw); if strcmp(st.scaleMode,'sigp'), drawDetail(); end, end
+
+    function sensLabels()
+        % Name the cutoff control for the detector actually selected, and say in the tooltip what the
+        % number is multiplied by — without that, 0.5 on Relative and 0.5 on Local are the same digit
+        % standing for two unrelated thresholds, and neither is an α.
+        if isempty(lblSens) || ~isgraphics(lblSens) || isempty(eSens) || ~isgraphics(eSens), return; end
+        switch st.method
+            case 'relative'
+                lblSens.Text = 'cutoff ×peak';
+                tip = ['RELATIVE cutoff: a pixel is above threshold when its density exceeds this ' ...
+                       'FRACTION OF THE BRIGHTEST density in the support of THIS window. 0.5 = half ' ...
+                       'the window peak. HIGHER = stricter = fewer, tighter sites. This is the ' ...
+                       'number "explain spot" compares against, and the status line prints the ' ...
+                       'resolved threshold as "rel cutoff N×peak". It is a per-window threshold, so ' ...
+                       'one very bright site raises the bar for every other site in that window.'];
+            case 'local'
+                lblSens.Text = 'cutoff ×local';
+                tip = ['LOCAL-BACKGROUND cutoff: a pixel is above threshold when its density exceeds ' ...
+                       'k × its own large-scale neighbourhood (a σ=40 px blur of the same map), with ' ...
+                       'k = 1 + 4 × this value — so 0.15 means 1.6× local background. HIGHER = stricter. ' ...
+                       'Unlike Relative it has no global reference, so a faint site next to a bright ' ...
+                       'one is judged on its own surroundings.'];
+            otherwise
+                lblSens.Text = 'cutoff α';
+                tip = ['MONTE-CARLO cutoff: family-wise α. Keep a peak only if at most this fraction ' ...
+                       'of null runs (localizations re-scattered at random within the support) ' ...
+                       'produced a peak at least as high. LOWER = stricter = fewer sites. It is the ' ...
+                       'cutoff line drawn on the colorbar. The smallest α that means anything is ' ...
+                       '1/sims.'];
+        end
+        eSens.Tooltip = tip;
+    end
     function onSims(), st.MC=round(eSims.Value); st.wnull=cell(1,st.nW); drawDetail(); end   % M changed -> null cache stale
     function onContrast(), st.clip=eContrast.Value; drawThumbAll(); drawDetail(); end
     function onScale()
@@ -1031,10 +1101,17 @@ onCell();
 
     % ---- site table (per-site stats, transparency) ----
     function refreshList()
-        P=st.sites{st.cw}; n=size(P,1); D=cell(n,7);
+        % The loc column is the CROSS-CHECK column: every other number here is derived from the
+        % footprint, so seeing how many localizations that footprint actually holds is what tells you
+        % whether a 12×-enriched site is a real cluster or four points in a lucky corner. Manual
+        % rows are marked ⁺ because their footprint is a different object (the contact-µm disc), and
+        % the two counts are not comparable without knowing which you are looking at.
+        P=st.sites{st.cw}; n=size(P,1); D=cell(n,8);
         for i=1:n
-            D(i,:)={ sprintf('%d',i), mitoTag(P(i,SC.flag)), fmtStat(P(i,SC.pval),'%.2g'), fmtStat(P(i,SC.enr),'%.1f'), ...
-                     fmtStat(P(i,SC.ntrk),'%d'), fmtStat(P(i,SC.dwell),'%.0f'), fmtStat(P(i,SC.stab),'%.2f') };
+            tag=sprintf('%d',i); if P(i,SC.manual)==1, tag=[tag '⁺']; end
+            D(i,:)={ tag, mitoTag(P(i,SC.flag)), fmtStat(P(i,SC.pval),'%.2g'), fmtStat(P(i,SC.enr),'%.1f'), ...
+                     fmtStat(P(i,SC.nloc),'%d'), fmtStat(P(i,SC.ntrk),'%d'), fmtStat(P(i,SC.dwell),'%.0f'), ...
+                     fmtStat(P(i,SC.stab),'%.2f') };
         end
         tblSites.Data=D;
         lblList.Text=sprintf('Sites in window %d (%d) — click a row to see its tracks',st.cw,n); syncListFromSel();

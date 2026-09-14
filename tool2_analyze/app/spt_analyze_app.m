@@ -1006,31 +1006,39 @@ end
         xlim(axRef,[min(bx)-pad max(bx)+pad]); ylim(axRef,[min(by)-pad max(by)+pad]);
         xlabel(axRef,'x (µm)'); ylabel(axRef,'y (µm)');
         delTag = ''; if del, delTag = '  [DELETED]'; end
-        title(axRef, sprintf('cell %d · site %d · win %d · %s · %.4f µm² · %d trk%s', e.cellIndex, e.csID, e.window, char(e.mode), e.areaUm2, numel(trk), delTag));
+        titleTxt = sprintf('cell %d · site %d · win %d · %s · %.4f µm² · %d trk%s', e.cellIndex, e.csID, e.window, char(e.mode), e.areaUm2, numel(trk), delTag);
         % peak localization density (raw loc/bin) inside the site + significance (site peak vs null)
         pkLoc = NaN; if ~isempty(Raw), pkLoc = localPeak(Raw, cUm, SF, g); end
         pval = NaN;
         if isSig && ~isempty(nullMax) && ~isempty(Dens)
             pval = mean(nullMax >= localPeak(Dens, cUm, SF, g));
         end
-        % radial concentration: how the localizations concentrate toward the centre vs a CELL-WIDE
-        % ER-uniform null (density from the localizations over ER across the whole cell, not the local FOV)
-        pctIn = NaN; idx = NaN;
+        % nIn is the ABSOLUTE localization count inside the CURRENT boundary, reported next to the
+        % percentage. It is recomputed here from e.refboundary, and EVERY refine path (frac/max-R,
+        % freehand, smooth, reset, delete) ends in drawRefSite — so it follows the footprint as it is
+        % edited rather than standing for whatever the auto footprint held when the site was built.
+        % A percentage on its own cannot be cross-checked against the picker's loc column or against
+        % nLocInside in the mapper's export; a count can.
+        pctIn = NaN; idx = NaN; nIn = 0; nWin = numel(Lx);
         if ~isempty(Lx)
-            inb = inpolygon(Lx, Ly, bx, by); pctIn = 100*nnz(inb)/max(numel(Lx),1);
+            inb = inpolygon(Lx, Ly, bx, by); nIn = nnz(inb); pctIn = 100*nIn/max(nWin,1);
+            % radial concentration: how the localizations concentrate toward the centre vs a CELL-WIDE
+            % ER-uniform null (density from the localizations over ER across the whole cell, not the local FOV)
             if ~isempty(axRad) && isgraphics(axRad)
                 en = []; try, en = erNullForSite(e.cellIndex, SF, g, cUm, Lx, Ly, 1.2); catch, end
                 try, idx = cs_radial_plot(axRad, Lx-cUm(1), Ly-cUm(2), 1.2, pctIn, true, en); catch, end
             end
         end
+        title(axRef, sprintf('%s · %d loc', titleTxt, nIn));   % set here: nIn is not known any earlier
         if ~isempty(btnRefDelete) && isgraphics(btnRefDelete)
             if del, btnRefDelete.Text = '♻ Restore site'; btnRefDelete.FontColor = [0.15 0.5 0.2];
             else,   btnRefDelete.Text = '🗑 Delete site'; btnRefDelete.FontColor = [0.75 0.1 0.1]; end
         end
         if ~isempty(lblRefInfo) && isgraphics(lblRefInfo)
             pTxt = ''; if isfinite(pval), pTxt = sprintf('\nCSR peak p = %.3g', pval); end
-            lblRefInfo.Text = sprintf('area %.4f µm²\n%d tracked track(s)\npeak %.2g loc/bin\n%.1f%% of window locs inside\nconcentration %.2f%s%s', ...
-                e.areaUm2, numel(trk), pkLoc, pctIn, idx, pTxt, tern(del,'  · DELETED',''));
+            lblRefInfo.Text = sprintf(['area %.4f µm²\n%d tracked track(s)\npeak %.2g loc/bin\n' ...
+                '%d of %d window locs inside (%.1f%%)\nconcentration %.2f%s%s'], ...
+                e.areaUm2, numel(trk), pkLoc, nIn, nWin, pctIn, idx, pTxt, tern(del,'  · DELETED',''));
         end
     end
 

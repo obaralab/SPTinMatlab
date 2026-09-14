@@ -54,16 +54,20 @@ cs_window_picker(pn, fullfile(proj,'analysis'), ...
 drawnow;
 
 %% (3)+(4) the per-site gate exists, and is distinct from the per-window floor -----------------------
-sp = findobj(fig,'Type','uispinner');
-gSite = sp(arrayfun(@(x) isequal(x.Limits,[0 1e6]), sp));
+% Found by TAG, not by Limits. 'step frames' and 'min locs/site' both run [0 1e6], so identifying
+% the gate by its range could pin the window stride and assert that a stride gates detection — which
+% is what this test did until the controls were tagged.
+gSite = findobj(fig,'Type','uispinner','Tag','minSiteLocs');
 assert(~isempty(gSite), ...
     ['there is no per-site localization gate. minSiteLocs is plumbed into cs_detect and applied ' ...
      'there, so without a control it sits at 0 forever — a gate nobody can reach.']);
-gWin = sp(arrayfun(@(x) isequal(x.Limits,[0 1e7]), sp));
+gWin = findobj(fig,'Type','uispinner','Tag','minLocsPerWin');
 assert(~isempty(gWin), 'the per-window locs floor is missing');
 assert(gSite(1) ~= gWin(1), ...
     'the per-site gate and the per-window floor resolved to the same control; they are different numbers');
-gTrk = sp(arrayfun(@(x) isequal(x.Limits,[1 1e4]) && x.Step==1, sp));
+assert(gSite(1) ~= findobj(fig,'Type','uispinner','Tag','stepFrames'), ...
+    'the per-site gate resolved to the window stride');
+gTrk = findobj(fig,'Type','uispinner','Tag','minTracks');
 assert(~isempty(gTrk), 'the per-site track gate is missing');
 
 %% (1) the derived support is not called ER ------------------------------------------------------------
@@ -119,6 +123,27 @@ assert(strcmp(meth(1).Value,'local'), ...
      'user touches nothing.'], meth(1).Value);
 assert(any(strcmp(meth(1).ItemsData,'ermc')), ...
     'the Monte-Carlo option was REMOVED rather than un-defaulted; the derived null is weak, not meaningless');
+
+%% (8) THE CUTOFF CONTROL IS NAMED FOR THE METHOD IN FORCE ---------------------------------------------
+% One spinner sets the threshold for all three detectors and means something different in each: an
+% α against the MC null, a fraction of the window peak on Relative, a multiple of local background
+% on Local. Labelled 'sens' it read as a Monte-Carlo knob, so on Relative — where it IS the cutoff
+% "explain spot" reports a near-miss against — it looked as though no control for that cutoff
+% existed. The label matters MOST here, because assertion (5) has just moved the method by itself.
+lblFor = @() char(string(cutoffLabel(fig).Text));
+assert(contains(lblFor(),'local'), ...
+    ['the cutoff control reads "%s" after the method defaulted to LOCAL. It is a multiple of local ' ...
+     'background here, not an α — and nothing told the user the method moved.'], lblFor());
+setDrop(meth(1), 'relative');
+assert(contains(lblFor(),'peak'), ...
+    'on Relative the cutoff control reads "%s"; it is a fraction of the window PEAK', lblFor());
+tipRel = char(string(cutoffSpin(fig).Tooltip));
+assert(contains(lower(tipRel),'peak') && ~isempty(tipRel), ...
+    'the Relative tooltip does not say what the number multiplies: "%s"', tipRel);
+setDrop(meth(1), 'ermc');
+assert(contains(lblFor(),char(945)), ...
+    'on Monte-Carlo the cutoff control reads "%s"; there it really is an α', lblFor());
+setDrop(meth(1), 'local');
 
 %% (7) NO CONTROL MAY BE SQUASHED BY A WRAPPED ROW ------------------------------------------------------
 % uigridlayout does not complain when a row has more children than columns. It GROWS the grid — the
@@ -226,4 +251,20 @@ end
 function n = countDetailPoints(fig)
 sc = findobj(fig,'Type','scatter');
 n = 0; if ~isempty(sc), n = numel(sc(1).XData); end
+end
+
+function h = cutoffLabel(fig)
+% By TAG. Position in Children is not an identity: reading "the label next to the spinner" off child
+% order picked up the one on the OTHER side and asserted against 'contact µm'.
+h = findobj(fig,'Type','uilabel','Tag','sensLabel');
+assert(~isempty(h), 'the cutoff label is gone');
+h = h(1);
+end
+
+function s = cutoffSpin(fig)
+s = findobj(fig,'Type','uispinner','Tag','sens'); s = s(1);
+end
+
+function setDrop(d, v)
+d.Value = v; cb = d.ValueChangedFcn; if ~isempty(cb), cb(d, struct('Value',v)); end, drawnow;
 end

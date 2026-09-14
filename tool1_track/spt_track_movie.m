@@ -98,7 +98,13 @@ ctl = struct('load', @load_, 'stop', @stopAll, 'axes', ax, 'saveVideo', @saveVid
         hold(ax, 'off');
         title(ax, sprintf('%s — %d tracks · track span %d–%d of %d frames', R.base, K, f0, f1, nfr));
         computeZoomBox();
-        draw(); applyZoom(); startT(); btnP.Text = '⏸ Pause'; playing = true;
+        % ORDER MATTERS. tick() bails out and STOPS the timer when ~playing (that is what keeps it
+        % from drawing into graphics a teardown has deleted). A timer with StartDelay 0 fires its
+        % first tick effectively at once, and writing btnP.Text flushes the graphics queue — so
+        % startT() before playing=true left a window in which the very first tick saw ~playing and
+        % shut the player down. The player then sat on frame 1 with the button reading Pause.
+        draw(); applyZoom();
+        playing = true; btnP.Text = '⏸ Pause'; startT();
     end
 
     function computeZoomBox()
@@ -164,8 +170,8 @@ ctl = struct('load', @load_, 'stop', @stopAll, 'axes', ax, 'saveVideo', @saveVid
 
     function toggle()
         if isempty(R), return; end
-        if playing, stopT(); btnP.Text = '▶ Play';  playing = false;
-        else,       startT(); btnP.Text = '⏸ Pause'; playing = true; end
+        if playing, playing = false; stopT(); btnP.Text = '▶ Play';
+        else,       playing = true;  btnP.Text = '⏸ Pause'; startT(); end
     end
 
     function seek(fr), cur = min(max(fr, 1), nfr); draw(); end   % manual scrub across the whole movie
