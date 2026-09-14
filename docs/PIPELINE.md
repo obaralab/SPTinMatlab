@@ -152,15 +152,21 @@ the control). The guard is in the DRAW path, not only the checkbox, because `wer
 supply a contour the moment anything re-ticked the box. `cs_picker_support_smoke` (6) forces the box
 on and asserts no line is added — with the guard removed it draws 21.
 
-**With no support segmentation, detection defaults to LOCAL BACKGROUND, not the Monte-Carlo null.**
+**Detection defaults to LOCAL BACKGROUND on every project, with or without a support segmentation.**
 All three methods use the support as the detection *domain*; what differs is the null. `ermc`
 scatters points inside the support and takes a cutoff from that — sound against a real ER mask, and
 close to circular against one derived from the very localizations being judged, since the null
 region is already shaped by the clustering it is meant to test. `local` compares each peak with its
-own large-scale neighbourhood (σ=40) and does not depend on the support's shape at all. The MC stays
-**selectable** — the derived null is weak, not meaningless — and a project that HAS a real support
-mask still defaults to it, which is the case it was built for. The switch only fires when the user
-has not chosen a method (`st.methUserSet`), so it can never override a deliberate choice.
+own large-scale neighbourhood (σ=40) and does not depend on the support's shape at all, so a faint
+site next to a bright one is judged on its own surroundings.
+
+This began as a no-support-only fallback: a project with a real ER mask still defaulted to the MC,
+on the reasoning that that is the case the MC was built for. That is true of the *method* and was
+not a reason to make it the *default*. Local is now the default everywhere; the MC stays
+**selectable** and keeps its p-values — the derived null is weak, not meaningless. Choosing it on a
+project whose support is derived from the localizations says so on the status line, and choosing it
+on a project with a real segmentation says nothing, because there the null is sound.
+`cs_picker_support_smoke` asserts both halves of that.
 
 **"It is clearly above background — why is it not a site?"** has five possible answers and the
 picker used to give none of them. A spot passes only if it is (1) inside the support mask, (2) above
@@ -807,10 +813,18 @@ New tab app `spt_analyze_app.m`; built on the `drivers/` layer. Build order:
      then carries `· channel <name> (N locs)`.
    - Display: **contrast** (turbo clip at contrast·peak) + **map α** (dim to reveal points) +
      **＋locs** overlay (this window's localizations).
-   - **Detection** (`cs_detect.m`): **ER Monte-Carlo** (default; null scatters the on-ER localizations
-     **uniformly inside the ER footprint** — no intensity weight, binary seg — so only peaks above
-     ER-confined density survive; α=0.01 → ~1–25 sites/window vs the old ~208), **Local background**,
-     **Relative**. `sens` is the ER-MC family-wise **α** (false-positive rate per window; the cutoff is the
+   - **Detection** (`cs_detect.m`): **Local background** (default; threshold is `k ×` a σ=40 px blur of
+     the density at *that pixel*, `k = 1 + 4·sens`, so a faint site beside a bright one is judged on its
+     own surroundings and nothing depends on the support's global shape — no p-value), **ER Monte-Carlo**
+     (null scatters the on-ER localizations **uniformly inside the ER footprint** — no intensity weight,
+     binary seg — so only peaks above ER-confined density survive; α=0.01 → ~1–25 sites/window vs the old
+     ~208; the only method with a false-positive rate, but it needs a REAL support: against a support
+     derived from the localizations it is judging the null is close to circular), **Relative** (a fraction
+     of the window's brightest pixel — no background in it at all, so one bright site raises the bar for
+     every other site in that window).
+     `sens` is the cutoff control for all three and means something different in each — the picker
+     relabels it **cutoff α** / **cutoff ×peak** / **cutoff ×local** to say which. It is the ER-MC
+     family-wise **α** (false-positive rate per window; the cutoff is the
      `(1−α)` quantile of the null peak); **MC sims** sets the number of null runs (default **300** — enough
      that the per-window cutoff is steady; too few, e.g. the old 60, made the extreme quantile noisy and
      collapsed some windows to a couple of sites). The null is computed **once per window on Detect**

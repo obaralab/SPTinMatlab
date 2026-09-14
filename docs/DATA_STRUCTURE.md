@@ -312,7 +312,8 @@ localization precision from 30 nm to 15 nm doubles `grid` and so **quadruples** 
 Not measured; MATLAB was not run for this document. What is certain from the code: the unit of work
 is `imgaussfilt` over the 848,241-pixel grid. Opening a cell draws one thumbnail per window, each
 forcing one `accumarray` + one `imgaussfilt` (`:334-347` → `:313-321`). One **Detect** with the
-default ER-Monte-Carlo method adds `M = 300` more — `cs_mc_threshold.m:35-44` runs one `accumarray`
+ER-Monte-Carlo method adds `M = 300` more (the default detector is Local background, which adds one
+`imgaussfilt` rather than 300) — `cs_mc_threshold.m:35-44` runs one `accumarray`
 plus one full-grid `imgaussfilt` per realization. So Stage 1 is
 
 ```

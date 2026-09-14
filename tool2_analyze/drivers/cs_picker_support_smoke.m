@@ -224,9 +224,26 @@ if ~isempty(kSup2)
          'then pass for the wrong reason — because nothing is ever drawn — rather than because the ' ...
          'derived support is refused.']);
 end
-assert(~isempty(meth2) && strcmp(meth2(1).Value,'ermc'), ...
-    ['a project WITH a real support mask no longer defaults to the Monte-Carlo null (got "%s"). ' ...
-     'The MC is the right default there — that is the case it was designed for.'], meth2(1).Value);
+% LOCAL IS THE DEFAULT EVERYWHERE, with or without a real support. This used to assert 'ermc' here,
+% on the reasoning that a project with a genuine ER mask is the case the Monte-Carlo was designed
+% for. That is still true of the METHOD; it is not a reason to make it the default. Local judges each
+% peak against its own neighbourhood, so a faint site beside a bright one is not held to the bright
+% one's standard, and its result does not move when the support's global shape changes. The MC stays
+% one click away and keeps its p-values — what changed is that choosing it is now a choice.
+assert(~isempty(meth2) && strcmp(meth2(1).Value,'local'), ...
+    ['the default detector is "%s"; it is LOCAL BACKGROUND on every project, support or not.'], meth2(1).Value);
+assert(any(strcmp(meth2(1).ItemsData,'ermc')), ...
+    'the Monte-Carlo option was removed rather than un-defaulted on a project that HAS a support');
+% ...and on this project, which has a real ER mask, choosing it must NOT raise the circular-null
+% warning: that warning belongs only to a support derived from the localizations being judged.
+setDrop(meth2(1), 'ermc');
+warned = false;
+lb2 = findobj(fig2,'Type','uilabel');
+for i = 1:numel(lb2), if contains(string(lb2(i).Text),'NO support segmentation'), warned = true; end, end
+assert(~warned, ...
+    ['selecting the Monte-Carlo on a project WITH a real ER segmentation warned that the null is ' ...
+     'circular. It is not — that warning is for a support derived from the localizations, and a ' ...
+     'warning that fires on the sound case teaches people to ignore it.']);
 
 fprintf('empty er_seg -> "support*" + "Support Monte-Carlo" · real ER left as ER · per-site gates present\n');
 fprintf('\nPICKER-SUPPORT SMOKE PASSED.\n');

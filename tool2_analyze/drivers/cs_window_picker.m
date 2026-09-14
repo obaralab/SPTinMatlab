@@ -28,8 +28,15 @@ st.minLocs= getf(opts,'minLocsPerWin',1000);  % per-window tracked-loc floor for
 st.contactUm = getf(opts,'contactUm',0.15);
 st.mipDir = getf(opts,'mipDir', fullfile(anaDir,'mips'));
 st.segResolver = getf(opts,'segResolver',[]);
-st.method = 'ermc';  st.sens = 0.01;  st.MC = 300;  st.minArea = 3;   % more MC runs -> steadier per-window cutoff
-st.methUserSet = false;   % has the user chosen a method? the no-support default must not override one
+% LOCAL BACKGROUND is the default detector, on every project. All three use the support as the
+% detection DOMAIN and differ only in the reference: 'local' compares each peak with its own
+% large-scale neighbourhood (σ=40 px), so a faint site beside a bright one is judged on its own
+% surroundings and nothing depends on the global shape of the support. 'ermc' is the only one with a
+% false-positive rate attached, but it needs a REAL support segmentation — against a support derived
+% from the localizations it is judging, its null is close to circular — and 'relative' has no
+% background in it at all, so one bright site raises the bar for every other site in the window.
+% Both stay selectable; neither is what happens when you touch nothing.
+st.method = 'local';  st.sens = 0.15;  st.MC = 300;  st.minArea = 3;   % more MC runs -> steadier per-window cutoff
 st.clip = 0.5;  st.alpha = 1;  st.src = 'tracked';  st.scaleMode = 'density';  st.cbInfo = '';   % default: tracked-only density (excludes single-frame noise)
 st.addMode = false;  st.ci = 1;  st.cw = 1;  st.MAXPANELS = 24;
 
@@ -105,7 +112,7 @@ uilabel(rA,'Text','method','HorizontalAlignment','right');
 % still 'er' and the null is scattered within a mask derived from the localizations. Deciding the
 % label from supportKey alone gets that case exactly wrong, which is why it is decided later.
 ddMeth = uidropdown(rA,'Tag','method','Items',{'ER Monte-Carlo','Local background','Relative'}, ...
-    'ItemsData',{'ermc','local','relative'},'Value','ermc','ValueChangedFcn',@(s,e) onMeth(), ...
+    'ItemsData',{'ermc','local','relative'},'Value',st.method,'ValueChangedFcn',@(s,e) onMeth(), ...
     'Tooltip',['All three threshold the SAME smoothed density and differ only in what they compare ' ...
                'it against — the status line prints that number for whichever is selected. ' ...
                'MONTE-CARLO: the localizations re-scattered at random inside the support; the ' ...
@@ -411,27 +418,17 @@ onCell();
         % not exist, and the green contour on the map looked like ER.
         if isempty(st.supportWhy), return; end                 % a real support channel is in use
 
-        % WITH NO SUPPORT SEGMENTATION, DO NOT DEFAULT TO THE MONTE-CARLO NULL. All three methods
-        % use the support as the detection DOMAIN; what differs is the null. ER-MC scatters points
-        % inside the support and takes a cutoff from that — which is sound against a real ER mask
-        % and close to circular against a support DERIVED from the very localizations being tested:
-        % the null region is already shaped by the clustering it is meant to judge.
-        %
-        % 'local' compares each peak with its own large-scale neighbourhood (σ=40), so it does not
-        % depend on the global shape of the support at all. That makes it the honest default here.
-        % ER-MC stays selectable — the derived null is weak, not meaningless — but it is a choice
-        % now rather than what happens if you touch nothing.
-        if ~st.methUserSet && strcmp(st.method,'ermc')
-            st.method = 'local';
-            if ~isempty(ddMeth) && isgraphics(ddMeth), ddMeth.Value = 'local'; end
-            if ~isempty(eSens) && isgraphics(eSens), eSens.Value = 0.15; st.sens = 0.15; end
-            sensLabels();
-            if ~isempty(lbl) && isgraphics(lbl)
-                set(lbl,'Text',['No support segmentation in this project, so detection defaults to ' ...
-                    'LOCAL BACKGROUND rather than the Monte-Carlo null: the derived support is built ' ...
-                    'from the same localizations the null would be judging. Switch method if you ' ...
-                    'want the MC anyway.']);
-            end
+        % The default is LOCAL BACKGROUND on every project now, so there is no longer a method to
+        % switch away from here. What is still worth saying is the opposite case: the user has
+        % CHOSEN the Monte-Carlo on a project whose support is derived from the same localizations
+        % the null would be judging, which makes the null close to circular and its p-values
+        % optimistic. The choice stands — a weak null is not a meaningless one — but it is not left
+        % silent, and it is said whenever a cell is loaded with that method selected.
+        if strcmp(st.method,'ermc') && ~isempty(lbl) && isgraphics(lbl)
+            set(lbl,'Text',['⚠ Monte-Carlo selected on a project with NO support segmentation. The ' ...
+                'null scatters localizations inside the support, and here the support is DERIVED ' ...
+                'from the same localizations it would be judging — so its p-values are optimistic. ' ...
+                'Local background does not depend on the support''s shape.']);
         end
         if ~isempty(ddMeth) && isgraphics(ddMeth) && ~strcmp(ddMeth.Items{1},'Support Monte-Carlo')
             v = ddMeth.Value;
@@ -1109,7 +1106,6 @@ onCell();
         c = nnz(m & st.aF>=st.win(w,1) & st.aF<=st.win(w,2));
     end
     function onMeth()
-        st.methUserSet = true;            % from here on the choice is the user's, not a default
         st.method=ddMeth.Value;
         switch st.method, case 'ermc', eSens.Value=0.01; case 'relative', eSens.Value=0.5; case 'local', eSens.Value=0.15; end
         st.sens=eSens.Value; sensLabels();
