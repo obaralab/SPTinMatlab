@@ -32,6 +32,14 @@ function [xy, dens, dthr, stats, dbg] = cs_detect(rawCounts, erMask, sig, method
 %   dthr  : the scalar threshold used ([] for 'local', which thresholds per-pixel).
 %   stats : [K x 1] struct — one per RETURNED site: .peak .pval .enrich .nLocs .areaPx .pixels
 %           (.pixels = linear indices of the site footprint, so callers can map localizations to it).
+%   dbg   : detection intermediates, so a caller can explain a near-miss without reimplementing any
+%           of this. .bwThr .bwOpen .L .dthr .bgMed .minArea, plus the background reference:
+%             .thrPix  what each pixel was compared against - scalar (ermc, relative) or MAP (local)
+%             .bgPix   the reference the threshold was built from, where it differs: the window peak
+%                      for relative, the sigma=40 local-background map for local, [] for ermc
+%             .bgKind  'mc' | 'peak' | 'local'
+%           .bgMed is a DIFFERENT number from all of these: the median density over the support,
+%           which is the denominator of .enrich and is the same for every method.
 
 if nargin < 3 || isempty(sig),    sig = 8;         end
 if nargin < 4 || isempty(method), method = 'ermc'; end
@@ -41,29 +49,51 @@ erMask = logical(erMask);
 if ~isequal(size(erMask), size(rawCounts)), erMask = true(size(rawCounts)); end
 
 dens = imgaussfilt(rawCounts, sig);
-dthr = [];
+% WHAT EACH METHOD CALLS "BACKGROUND", recorded rather than left implicit. All three threshold the
+% same smoothed density; they differ entirely in what they compare it AGAINST, and the reference is
+% a scalar for two of them and a MAP for the third:
+%
+%   ermc     a Monte-Carlo null: the localizations re-scattered at random inside the support. The
+%            reference is the (1-alpha) quantile of the null's PEAK densities — one number for the
+%            whole window, and the only one of the three with a false-positive rate attached.
+%   relative a fraction of THIS window's brightest pixel. Not a background at all: a bright site
+%            raises the bar for every other site in the same window.
+%   local    k x the pixel's OWN large-scale neighbourhood (a sigma=40 blur of the map), so the
+%            threshold differs at every pixel and no single number describes it.
+%
+% thrPix is what each pixel was actually compared against: scalar for ermc/relative, a map for
+% local. Before it existed, "below the local threshold %.3g" of an empty dthr printed nothing at
+% all, which is the one method where the number is least guessable. bgPix is the reference the
+% threshold was built from, where that differs from the threshold itself.
+dthr = [];  thrPix = [];  bgPix = [];  bgKind = '';
 switch lower(method)
     case 'ermc'
         dthr = getf(p,'Dthr',[]);   % caller may pass a precomputed (cached) cutoff to avoid re-running the MC
         if isempty(dthr), dthr = cs_mc_threshold(rawCounts, erMask, sig, getf(p,'alpha',0.01), getf(p,'M',100)); end
         bw = (dens > dthr) & erMask;
+        thrPix = dthr; bgKind = 'mc';
     case 'relative'
         pk = max(dens(erMask)); if isempty(pk) || ~(pk>0), pk = max(dens(:)); end
         dthr = getf(p,'relFrac',0.5) * pk;
         bw = (dens > dthr) & erMask;
+        thrPix = dthr; bgPix = pk; bgKind = 'peak';
     case 'local'
         bg = imgaussfilt(dens, getf(p,'localSig',40));      % large-scale local background
-        bw = (dens > getf(p,'localK',1.6) * bg) & erMask;
+        k  = getf(p,'localK',1.6);
+        bw = (dens > k * bg) & erMask;
+        thrPix = k * bg; bgPix = bg; bgKind = 'local';
     otherwise
         dthr = cs_mc_threshold(rawCounts, erMask, sig, getf(p,'alpha',0.01), getf(p,'M',100));
         bw = (dens > dthr) & erMask;
+        thrPix = dthr; bgKind = 'mc';
 end
 
 % dbg carries the INTERMEDIATES so a caller can say WHY a given pixel is not a site without
 % reimplementing any of this. Explaining a near-miss from a second copy of the gate chain is how the
 % explanation and the detection drift apart, and an explanation that disagrees with the result is
 % worse than none.
-dbg = struct('bwThr',bw, 'bwOpen',[], 'L',[], 'dthr',dthr, 'bgMed',NaN, 'minArea',0);
+dbg = struct('bwThr',bw, 'bwOpen',[], 'L',[], 'dthr',dthr, 'bgMed',NaN, 'minArea',0, ...
+             'thrPix',thrPix, 'bgPix',bgPix, 'bgKind',bgKind);
 dbg.minArea = max(1, round(getf(p,'minArea',3)));
 bw = bwareaopen(bw, dbg.minArea);                            % drop specks
 dbg.bwOpen = bw;

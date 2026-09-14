@@ -104,8 +104,20 @@ uilabel(rA,'Text','method','HorizontalAlignment','right');
 % can DECLARE an ER channel and have no ER files (an empty er_seg/), in which case supportKey is
 % still 'er' and the null is scattered within a mask derived from the localizations. Deciding the
 % label from supportKey alone gets that case exactly wrong, which is why it is decided later.
-ddMeth = uidropdown(rA,'Items',{'ER Monte-Carlo','Local background','Relative'}, ...
-    'ItemsData',{'ermc','local','relative'},'Value','ermc','ValueChangedFcn',@(s,e) onMeth());
+ddMeth = uidropdown(rA,'Tag','method','Items',{'ER Monte-Carlo','Local background','Relative'}, ...
+    'ItemsData',{'ermc','local','relative'},'Value','ermc','ValueChangedFcn',@(s,e) onMeth(), ...
+    'Tooltip',['All three threshold the SAME smoothed density and differ only in what they compare ' ...
+               'it against — the status line prints that number for whichever is selected. ' ...
+               'MONTE-CARLO: the localizations re-scattered at random inside the support; the ' ...
+               'threshold is the α quantile of the null''s peak densities. One number per window, ' ...
+               'and the only option with a false-positive rate attached — but it needs a REAL ' ...
+               'support segmentation, since a support derived from the same localizations makes the ' ...
+               'null circular. LOCAL BACKGROUND: k × each pixel''s own σ=40 px neighbourhood, so a ' ...
+               'faint site beside a bright one is judged on its own surroundings; no global ' ...
+               'reference and no p-value. RELATIVE: a fraction of THIS window''s brightest pixel — ' ...
+               'no background in it at all, so one bright site raises the bar for every other site ' ...
+               'in the same window. Separately from all of these, enr× always divides by the median ' ...
+               'density over the support.']);
 % ONE control sets the cutoff for all three detectors, and it means something different in each.
 % Labelled 'sens' it read as a Monte-Carlo knob, so on Relative — where it IS the threshold the
 % picker reports a near-miss against — there appeared to be no way to move that threshold at all.
@@ -671,25 +683,44 @@ onCell();
             if lam<=top, plot(axCbar,[0 1],[lam lam],'-','Color',[0.1 0.5 1],'LineWidth',2); end   % CSR background line
             plot(axCbar,0.5,min(rpk,top),'v','MarkerFaceColor','k','MarkerEdgeColor','w','MarkerSize',7);
             hold(axCbar,'off'); ylabel(axCbar,'localizations / 30 nm bin');
-            st.cbInfo = sprintf('ER-MC background %.2g locs/bin · peak %g (%.1f× enrich)', lam, rpk, rpk/max(lam,eps));
+            st.cbInfo = sprintf(['uniform-scatter background %.3g loc/bin (on-support locs ÷ support bins ' ...
+                '— the rate a CSR null would produce) · peak %g (%.1f×)'], lam, rpk, rpk/max(lam,eps));
         else
             top=max(st.clip*pkobs,eps); strip=reshape(turbo(256),[256 1 3]);
             image('Parent',axCbar,'XData',[0 1],'YData',[0 top],'CData',strip,'HitTest','off');
             set(axCbar,'YDir','normal','XLim',[0 1],'YLim',[0 top],'XTick',[]); hold(axCbar,'on');
+            % EVERY method now states its background IN NUMBERS, in localizations per bin, next to
+            % the threshold it produces. Two different backgrounds are in play and saying only
+            % "x bg" hid that: bgMed is the support median, which is what enr× divides by and is the
+            % same whichever detector is running; the second number is what THIS detector actually
+            % compares a pixel against, which for Relative is not a background at all and for Local
+            % is a different value at every pixel.
+            bgMed = median(D(erm)); if ~(bgMed>0), bgMed = median(D(:)); end
             if strcmp(st.method,'ermc') && numel(st.wnull)>=w && ~isempty(st.wnull{w})
                 nm=st.wnull{w}; Dthr=cs_quantile_(nm, 1-max(min(st.sens,1),1e-4)); nmed=median(nm);   % cached null only
                 yb0=min(nmed,top); yb1=min(Dthr,top);
                 if yb1>yb0, patch(axCbar,[0 1 1 0],[yb0 yb0 yb1 yb1],[0.55 0.6 0.66],'FaceAlpha',0.55,'EdgeColor','none','HitTest','off'); end
                 if Dthr<=top, plot(axCbar,[0 1],[Dthr Dthr],'-','Color',[0.9 0.1 0.1],'LineWidth',2.2);
                 else, plot(axCbar,0.5,top,'^','MarkerFaceColor',[0.9 0.1 0.1],'MarkerEdgeColor','w','MarkerSize',8); end
-                st.cbInfo = sprintf('cutoff α=%.3g · peak p=%.3g', st.sens, mean(nm>=pkobs));
+                st.cbInfo = sprintf(['support bg %.3g loc/bin (enr× divides by this) · MC null peaks ' ...
+                    'median %.3g → cutoff %.3g at α=%.3g · window peak %.3g, p=%.3g'], ...
+                    bgMed, nmed, Dthr, st.sens, pkobs, mean(nm>=pkobs));
             elseif strcmp(st.method,'ermc')
-                st.cbInfo = 'run Detect to compute the ER-MC cutoff';
+                st.cbInfo = sprintf('support bg %.3g loc/bin · run Detect to scatter the MC null and get its cutoff', bgMed);
             elseif strcmp(st.method,'relative')
                 thr=max(min(st.sens,1),0.02)*pkobs; if thr<=top, plot(axCbar,[0 1],[thr thr],'-','Color',[0.9 0.1 0.1],'LineWidth',2.2); end
-                st.cbInfo = sprintf('rel cutoff %.2f×peak', st.sens);
+                st.cbInfo = sprintf(['support bg %.3g loc/bin (enr× divides by this) · cutoff %.2f× the ' ...
+                    'window peak %.3g = %.3g loc/bin — no background in it, one bright site raises the bar'], ...
+                    bgMed, st.sens, pkobs, thr);
             else
-                st.cbInfo = 'local bg (per-pixel threshold)';
+                % The local background is a MAP, so a single number cannot describe it. The median
+                % and the range over the support say what it is and how much it varies, which is
+                % the whole reason for preferring it to a global cutoff.
+                lb = imgaussfilt(D, 40); lv = lb(erm); k = 1+4*max(min(st.sens,1),0);
+                if isempty(lv), lv = lb(:); end
+                st.cbInfo = sprintf(['support bg %.3g loc/bin (enr× divides by this) · cutoff %.1f× each ' ...
+                    'pixel''s OWN σ=40 px background, which runs %.3g–%.3g (median %.3g) over the support'], ...
+                    bgMed, k, min(lv), max(lv), median(lv));
             end
             plot(axCbar,0.5,min(pkobs,top),'v','MarkerFaceColor','k','MarkerEdgeColor','w','MarkerSize',7);
             hold(axCbar,'off'); ylabel(axCbar,'density (a.u., σ-smoothed)');
@@ -769,8 +800,12 @@ onCell();
         % nLocs is "inside the site's thresholded footprint", and the ＋locs overlay draws every
         % localization in the window. Three different questions that all read as "localizations
         % here", so the one being answered is stated.
-        set(lblExplain,'Text',sprintf('spot (%.0f,%.0f): dens %.2g · %.1f×bg · %d loc / %d trk within %.3g µm%s%s', ...
-            xc,yc,dv,enr,nnz(near),ntrk,rpx*st.SF,pstr, gateVerdict(w, ri, ci, ntrk)));
+        % "11.4xbg" never said what bg WAS. It is the median density over the support — the same
+        % denominator the enr× column uses, and a different number from whatever the selected method
+        % thresholds against, which the verdict names separately.
+        set(lblExplain,'Text',sprintf(['spot (%.0f,%.0f): %.3g loc/bin · %.1f× support bg %.3g · ' ...
+            '%d loc / %d trk within %.3g µm%s%s'], ...
+            xc,yc,dv,enr,bg,nnz(near),ntrk,rpx*st.SF,pstr, gateVerdict(w, ri, ci, ntrk)));
         drawDetail(); hold(axDet,'on'); plot(axDet,xc,yc,'x','Color',[1 1 1],'MarkerSize',13,'LineWidth',1.6,'HitTest','off'); hold(axDet,'off');
     end
 
@@ -787,7 +822,10 @@ onCell();
             if ~mk(ri,ci)
                 t = '  ·  NOT A SITE: outside the support mask (nothing there is ever detected)';
             else
-                t = sprintf('  ·  NOT A SITE: below the %s threshold %.3g', G.method, D.dthr);
+                % Say what the threshold was MADE OF, not just its value. "below 0.158" invites the
+                % question the user actually has — 0.158 of what? — and on 'local' the threshold is
+                % per-pixel, so D.dthr is empty there and %.3g of [] printed no number at all.
+                t = sprintf('  ·  NOT A SITE: below the %s threshold %s', G.method, thrPhrase(D, ri, ci));
             end
             return
         end
@@ -810,6 +848,23 @@ onCell();
             t = sprintf('  ·  NOT A SITE: %d distinct track(s), under min tracks %d', ntrk, G.minTracks);
         else
             t = sprintf('  ·  passes every gate (region %d: %.1fx bg, %d loc)', lab, enrR, nlR);
+        end
+    end
+
+    function s = thrPhrase(D, ri, ci)
+        % The threshold at ONE pixel, with the reference it was derived from, in the density's own
+        % units (a Gaussian blur of the bin counts, so: localizations per bin).
+        s = '';
+        if ~isfield(D,'bgKind'), s = sprintf('%.3g', D.dthr); return; end   % a dbg from before this existed
+        thr = D.thrPix; if ~isscalar(thr), thr = thr(ri,ci); end
+        switch D.bgKind
+            case 'peak'
+                s = sprintf('%.3g = %.2f × this window''s peak %.3g', thr, st.sens, D.bgPix);
+            case 'local'
+                s = sprintf('%.3g = %.1f × local bg %.3g here (σ=40 px blur)', ...
+                            thr, 1+4*max(min(st.sens,1),0), D.bgPix(ri,ci));
+            otherwise
+                s = sprintf('%.3g = the α %.3g cutoff of the MC null', thr, st.sens);
         end
     end
 
@@ -867,7 +922,12 @@ onCell();
         st.sites{w}=[keepManual; rows]; st.selList=[];
         selectWindow(w);
         gtxt=''; if nDrop>0, gtxt=sprintf(' · %d dropped (<%d tracks)',nDrop,st.minTracks); end
-        set(lbl,'Text',sprintf('Window %d: %d auto + %d manual site(s) [%s]%s  ·  %s', w, K, size(keepManual,1), st.method, gtxt, statusText()));
+        % Keep the background/cutoff readout. selectWindow -> drawDetail had just put it on the
+        % status line and this line overwrote it, so the numbers that explain the result vanished at
+        % the exact moment the result appeared — the only way to see them again was to click away.
+        set(lbl,'Text',sprintf('Window %d: %d auto + %d manual site(s) [%s]%s  ·  %s%s', ...
+            w, K, size(keepManual,1), st.method, gtxt, statusText(), ...
+            tern(isempty(st.cbInfo),'',[' · ' st.cbInfo])));
     end
 
     function [nTrk, stab, dwell] = siteTrackStability(w, S, erm, dens)
