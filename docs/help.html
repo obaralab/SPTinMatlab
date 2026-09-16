@@ -239,8 +239,8 @@ mark{ background:var(--accent-soft); color:inherit; border-radius:3px; padding:0
   <a href="#t2buildtips">&nbsp;&nbsp;Working practices</a>
   <h4>Tool 3 · Analyze</h4>
   <a href="#t3contact">Tool 3 · Contact sites — the windowed picker</a>
-  <a href="#t3open">&nbsp;&nbsp;Opening the picker — the three controls on the host row</a>
-  <a href="#t3cellwin">&nbsp;&nbsp;Cell selector, the status line, and the windows</a>
+  <a href="#t3open">&nbsp;&nbsp;Opening the picker — the controls on the host row</a>
+  <a href="#t3cellwin">&nbsp;&nbsp;The cell table, saved status, the status line, and the windows</a>
   <a href="#t3channel">&nbsp;&nbsp;The density channel dropdown diffusion-aware</a>
   <a href="#t3method">&nbsp;&nbsp;method · sens · sims — how the cutoff is set</a>
   <a href="#t3gates">&nbsp;&nbsp;The detection-quality gates</a>
@@ -255,12 +255,14 @@ mark{ background:var(--accent-soft); color:inherit; border-radius:3px; padding:0
   <a href="#t3refload">&nbsp;&nbsp;▶ Load / build contact sites</a>
   <a href="#t3refauto">&nbsp;&nbsp;The automatic outline — frac and maxR</a>
   <a href="#t3refdraw">&nbsp;&nbsp;✎ Draw centre + boundary — the manual refine</a>
+  <a href="#t3refcentre">&nbsp;&nbsp;✥ Move centre only</a>
   <a href="#t3refsmooth">&nbsp;&nbsp;✨ Smooth boundary</a>
   <a href="#t3refdelete">&nbsp;&nbsp;🗑 Delete site / ♻ Restore site</a>
   <a href="#t3refdisplay">&nbsp;&nbsp;Display controls in the editor</a>
   <a href="#t3radial">&nbsp;&nbsp;The radial plot and its cell-wide ER-uniform reference</a>
   <a href="#t3refjudge">&nbsp;&nbsp;What a good — and a bad — boundary looks like</a>
   <a href="#t3refsave">&nbsp;&nbsp;💾 Save — what actually gets persisted</a>
+  <a href="#t3export">&nbsp;&nbsp;📦 Export for advisor — one folder to hand over</a>
   <a href="#t3sites">Tool 3 · Sites — the mapper, membership and the raw-movie player</a>
   <a href="#t3mapper">&nbsp;&nbsp;▶ Run mapper — the controls and what the run does</a>
   <a href="#t3sitestable">&nbsp;&nbsp;The results table</a>
@@ -1790,25 +1792,33 @@ D distribution — median &lt;med&gt; µm²/s  ·  adaptive fit &lt;min&gt;–&l
   <span class="chip"><code>csIDs/&lt;cell&gt;_CSsites.txt</code></span>
 </div>
 
-<h3 id="t3open">Opening the picker — the three controls on the host row</h3>
+<h3 id="t3open">Opening the picker — the controls on the host row</h3>
 <p>The tab starts almost empty: the picker is a separate component (<code>drivers/cs_window_picker.m</code>) that builds its whole UI inside the tab when you ask for it.</p>
 <table>
   <tr><th>Control</th><th>Default</th><th>What it does</th></tr>
   <tr><td><kbd>▶ Open windowed picker</kbd></td><td>—</td><td>Builds the picker in the panel below. Requires a project folder and a build: if nothing is in memory it loads the <b>active</b> build (<code>analysis/active_trackstruct.txt</code> → <code>analysis/&lt;name&gt;.mat</code>). The in-memory build is handed straight to the picker, so the picker can never analyse a different file from the one the tool says is active.</td></tr>
   <tr><td><b>contact µm</b></td><td><code>0.15</code> (range −1 … 2, step 0.05)</td><td>The mito-contact threshold passed in as the picker's starting value. A site is flagged <em>mito</em> when the <b>median signed <code>MITODIST</code></b> of the localizations around it is ≤ this many µm (negative = inside mito). The picker has its own copy of this spinner, so you can change it after opening.</td></tr>
-  <tr><td><b>(re)save density first</b></td><td>ticked</td><td>Before the picker opens, write <code>analysis/Densities/&lt;cell&gt;_rho.tif</code> and <code>analysis/Density_&lt;cell&gt;.tif</code> / <code>.mat</code> for every cell. These are the legacy-format density files; the picker itself computes its density live and does not need them. If the <code>Densities/</code> folder holds no <code>*_rho.tif</code> at all they are written whether or not the box is ticked, because the <code>_rho.tif</code> height is what sets the density grid size.</td></tr>
+  <tr><td><kbd>📦 Export for advisor</kbd></td><td>—</td><td>Writes <b>one new folder</b>, <code>analysis/exports/advisor_&lt;date-time&gt;/</code>, for every cell that has saved sites — see <a href="#t3export">Export for advisor</a>. It replaced the old <b>(re)save density first</b> box, which wrote density files on every open, from the full detection cloud, without the sites they were for.</td></tr>
 </table>
-<p>Opening also writes <code>analysis/cs_calib.mat</code> (pixel size, FOV, dt, bin size from the top bar) and, once per cell, small whole-movie occupancy MIPs into <code>analysis/mips/&lt;prefix&gt;_er_mip.tif</code> and <code>_mito_mip.tif</code>. The ER MIP is the <em>fallback</em> ER support for the null (see below), so the first open on a project is slower than later ones.</p>
+<p>Opening still writes <code>analysis/Densities/&lt;cell&gt;_rho.tif</code> for any cell that lacks one — its <b>height</b> sets the density grid the mapper divides by, so it is not optional — built from the same filtered tracked localizations the picker shows. Opening also writes <code>analysis/cs_calib.mat</code> (pixel size, FOV, dt, bin size from the top bar) and, once per cell, small whole-movie occupancy MIPs into <code>analysis/mips/&lt;prefix&gt;_er_mip.tif</code> and <code>_mito_mip.tif</code>. The ER MIP is the <em>fallback</em> ER support for the null (see below), so the first open on a project is slower than later ones.</p>
 <div class="note">The status label to the right of the row is the picker's own progress line. While it says <em>Saving density maps…</em> or <em>Preparing ER support…</em>, nothing is wrong — it is doing the one-off work.</div>
 
-<h3 id="t3cellwin">Cell selector, the status line, and the windows</h3>
-<p><b>Cell</b> lists every cell in the build by its base name. Switching cell reloads that cell's localizations, resolves its ER/mito segmentation stacks, rebuilds the windows and redraws every thumbnail — <b>switching cell rebuilds the windows, and rebuilding empties every window's site list</b> — there is no per-cell pick store, so any picks you have not saved for the previous cell are lost, and switching back does not bring them back. Press <kbd>💾 Save</kbd> before you change cell.</p>
+<h3 id="t3cellwin">The cell table, saved status, the status line, and the windows</h3>
+<p>The <b>Cells</b> table on the left lists every cell once, and clicking a row opens it (the <b>Cell</b> dropdown does the same and stays in step). Names drop the prefix and suffix every cell shares, so the column shows the part that differs.</p>
+<table>
+  <tr><th><b>saved</b> reads</th><th>Meaning</th></tr>
+  <tr><td><b style="color:#1a8033">✓</b> + a count</td><td>The sites on disk (<code>csIDs/&lt;cell&gt;_CSsites.txt</code>) are exactly what you see.</td></tr>
+  <tr><td><b style="color:#cc6600">● unsaved</b> + a count</td><td>You have picks that are not saved. They are <b>kept</b> while you look at other cells — open the cell again and they come back, with a status note saying so — but they exist only in this session until you press <kbd>💾 Save</kbd>.</td></tr>
+  <tr><td>—</td><td>Never saved.</td></tr>
+</table>
+<p>Opening a cell shows, in this order: your unsaved picks for it; else its <b>saved sites</b>, with every table column restored from <code>_CSsites_stats.csv</code>; else nothing. Saved sites belong to the window layout they were picked on, so if <b>frames/win</b> (or <b>step</b>) now makes a different layout they are not drawn, and the status line says which frames/win brings them back. The header counts how many cells are saved.</p>
+<div class="note">Before this, switching cell emptied the site list and loaded nothing. A saved cell reopened blank — indistinguishable from one never picked — and unsaved picks were lost the moment you looked at another cell.</div>
 <p>The picker's status line is the single most informative readout on the tab. Its format is:</p>
-<pre><code>&lt;cell&gt; · detections 220401 · tracked 101948 (46%) · 4 windows · mito from MITODIST
+<pre><code>&lt;cell&gt; · detections 220401 · density from tracked 101948 (46%) minus 4 hand-rejected track(s) · 4 windows · mito from MITODIST
         · THIS window 27172 tracked locs · cutoff α=0.01 · peak p=…</code></pre>
 <ul>
   <li><b>detections</b> — every localization in the cell's full cloud (<code>allSpots</code>), including single-frame ones.</li>
-  <li><b>tracked</b> — the localizations the density is actually built from (the tracked <code>matrix</code>), and their share of the cloud. The density is <em>always</em> tracked-only here; there is no "use the cloud" toggle in the picker.</li>
+  <li><b>density from tracked</b> — the localizations the density is actually built from, and their share of the cloud: the build's tracked <code>matrix</code>, i.e. the tracks that passed filtering and curation, <b>minus any track rejected by hand on the QC tab</b> (the line says <em>minus N hand-rejected track(s)</em> when there are any). The density is <em>always</em> built this way; there is no "use the cloud" toggle. A single-frame detection that never linked into a track is never in it.</li>
   <li><b>mito from MITODIST</b> / <b>no MITODIST</b> — whether this cell's build carries a per-spot signed mito distance. Without it every site is flagged non-mito.</li>
   <li><b>THIS window … tracked locs</b> — the count for the window you have selected, matching the thumbnail title.</li>
   <li>The tail after that is the colorbar readout (<a href="#t3detail">below</a>) — cutoff, background, peak p, depending on the colour-scale mode.</li>
@@ -1980,6 +1990,9 @@ D distribution — median &lt;med&gt; µm²/s  ·  adaptive fit &lt;min&gt;–&l
 <p>The traced polygon is stored in µm relative to the centre you clicked, and the closing seam is tidied: a freehand trace closes with a straight chord back to the start, leaving a sharp notch, so a light corner-rounding pass is applied to <b>only the four vertices either side of the seam</b> (three gentle Laplacian passes). Every other vertex you drew is kept <b>exactly</b> as drawn. The mode becomes <code>freehand</code> and the site is flagged edited.</p>
 <div class="note">Closing the seam is <em>not</em> the same as smoothing the outline. If you want the whole shape rounded, use <b>✨ Smooth boundary</b> below — it is a separate, explicit action.</div>
 
+<h3 id="t3refcentre">✥ Move centre only</h3>
+<p>For a site whose outline is right but whose centre is off. Click where the centre should be: the <b>boundary stays exactly where it is on the map</b>, so the member tracks, the localization count and the area do not change. What changes is everything measured <em>from</em> the centre — the radial profile and the site-relative coordinates the mapper stores. The mode gains <code>+centre</code>, the site is flagged edited, and the status line warns if the new centre falls outside the boundary. (The boundary is stored relative to the centre, so keeping it still means shifting it by the opposite of the move.)</p>
+
 <h3 id="t3refsmooth">✨ Smooth boundary</h3>
 <p>A half-max ring traced from pixels is jagged by construction, and a freehand trace is jittery. <kbd>✨ Smooth boundary</kbd> turns either into a clean closed curve: the polygon is resampled to <b>120 points equally spaced by arc length</b> around the loop, then x and y are run through a <b>periodic</b> (wrap-around) moving average, so there is no kink where the curve closes.</p>
 <p>The <b>smooth boundary</b> slider (0–1, default <code>0.35</code>) sets the strength by growing the averaging window — <code>0</code> keeps the detail, <code>1</code> is nearly a circle. Each click smooths <em>further</em> (they compound), the area is recomputed by <code>polyarea</code> each time, and the site's mode gains a <code>+smooth</code> suffix — <code>halfmax+smooth</code>, <code>freehand+smooth</code> — so the title records what you did.</p>
@@ -1991,18 +2004,19 @@ D distribution — median &lt;med&gt; µm²/s  ·  adaptive fit &lt;min&gt;–&l
 <h3 id="t3refdisplay">Display controls in the editor</h3>
 <table>
   <tr><th>Control</th><th>Default</th><th>Effect</th></tr>
-  <tr><td><b>show localizations</b></td><td>off</td><td>Overlays this window's localizations as translucent white dots on the density. The fastest way to see whether a boundary follows the points or the smoothing kernel.</td></tr>
+  <tr><td><b>localizations</b></td><td>off</td><td>Overlays this window's localizations as translucent white dots on the density — the fastest way to see whether a boundary follows the points or the smoothing kernel. <b>Every dot is on a track</b>: the site's member tracks are yellow and every other track in the window is a faint grey line. Before, only members were drawn, so a dot from a track belonging to a neighbouring site looked unlinked; in one real view 45 of 69 dots were like that. No track in a filtered build is a single localization.</td></tr>
+  <tr><td><b>other sites</b></td><td>on</td><td>Outlines every <b>other</b> picked site in the same cell and window — dashed cyan, labelled <code>s#</code>, dashed red if deleted. Zoom out to see which neighbouring blobs are already sites. Click an outline or its label to open that site. Sites in other windows are not drawn: they were picked on a different density.</td></tr>
   <tr><td><b>colour scale</b></td><td><code>density (a.u.)</code></td><td><b>density (a.u.)</b> = the σ-smoothed density; <b>locs / bin</b> = the raw localization count per density bin; <b>significance (p)</b> = the map recoloured as <code>1 − p</code> against a per-window Monte-Carlo null (hot = density unlikely under a random scatter). A colorbar is drawn and labelled to match.</td></tr>
   <tr><td><b>contrast</b></td><td><code>1</code> (0.1–1)</td><td>Clips the colour cap at <code>contrast × peak</code>. Left = brighter. In significance mode the scale is fixed to 0–1 and contrast is ignored.</td></tr>
 </table>
 <p>The significance null here is computed on the <b>cell-occupied region</b> (the occupied bins, dilated and hole-filled) rather than the ER support, with a fixed <b>100</b> runs, and is cached per cell·window·source — so it is a slightly different, more permissive null than the picker's ER Monte-Carlo. Read it as "is this pixel unlikely under a random scatter over the cell", not as the detection cutoff.</p>
 <p>Around the boundary the editor also draws: a <b>magenta +</b> at the site centre, the boundary in <b>white</b> (dashed red if deleted), and every <b>tracked member track</b> as a thin yellow trail (any track with at least one localization inside the polygon during the window — the same membership test the mapper uses). The view is auto-framed to the boundary with a margin of <code>max(0.6 µm, 1.4·√(area/π))</code>.</p>
-<p>The panel title carries the identity and geometry: <code>cell 1 · site 7 · win 3 · halfmax+smooth · 0.0412 µm² · 24 trk</code>. The info block on the right adds:</p>
+<p>The panel title carries the identity and geometry: <code>cell 1 · site 7 · win 3 · halfmax+smooth · 0.0412 µm² · 24 trk · 310 loc</code>. The info block on the right adds:</p>
 <ul>
   <li><b>area</b> µm² — <code>polyarea</code> of the boundary.</li>
   <li><b>N tracked track(s)</b> — member count.</li>
   <li><b>peak … loc/bin</b> — the maximum <em>raw</em> count within a square of half-width <code>max(2 px, round(0.4 µm ÷ SF))</code> about the centre: the honest "how many localizations in the busiest bin".</li>
-  <li><b>… % of window locs inside</b> — the share of this window's localizations that fall inside your boundary.</li>
+  <li><b>N of M window locs inside (P%)</b> — how many of this window's localizations fall inside your boundary, as a count and a share. It is recomputed on every edit, so it follows the boundary; the count is the one to cross-check against the picker's <b>loc</b> column and the export's <code>n_loc_inside</code>.</li>
   <li><b>concentration</b> — the radial concentration index (next section).</li>
   <li><b>CSR peak p</b> — only in significance mode: the p of the site's peak against that window's null.</li>
 </ul>
@@ -2049,6 +2063,26 @@ ref(r) = ρ · A_ER(r)                                               % A_ER(r) =
 <div class="note">The Refine tab is <em>not</em> <code>drivers/cs_refine.m</code>. That file is the paper suite's standalone freehand refiner — it can be run on its own (<code>cs_refine(analysisDir)</code>), embedded via <code>'Parent'</code>, and restricted with <code>'MitoFlag'</code>, but it works on the legacy chain (<code>Tracks_final.mat</code> + <code>TrackData/&lt;base&gt;_CSdata.mat</code> → <code>CSdata/&lt;base&gt;_CSdata.mat</code>), not on <code>CS_footprints.mat</code>. Tool 3's Refine tab reimplements the same interaction on the windowed pipeline; the two do not read each other's files.</div>
 
 <hr>
+
+<h3 id="t3export">📦 Export for advisor — one folder to hand over</h3>
+<p>On the <b>Contact sites</b> tab. Each press writes a <b>new</b> folder, <code>analysis/exports/advisor_&lt;yyyyMMdd-HHmmss&gt;/</code> — what you sent stays what you sent, and nothing is ever overwritten or deleted. It includes every cell with saved sites, except cells marked EXCLUDE on the Experiment tab.</p>
+<table>
+  <tr><th>File</th><th>What it is</th></tr>
+  <tr><td><code>Density_&lt;cell&gt;.mat</code> / <code>.tif</code></td><td><code>imG = 30 × smoothed counts</code>, whole movie — the external ContactSites code's own format and grid</td></tr>
+  <tr><td><code>Densities/&lt;cell&gt;_rho.tif</code></td><td>the same density through the turbo colormap</td></tr>
+  <tr><td><code>Density_&lt;cell&gt;_windows.tif</code></td><td>the same density <b>per picker window</b>, one page per window. Sites are picked on window densities; a window-2 site need not be visible on the whole-movie map.</td></tr>
+  <tr><td><code>Density_&lt;cell&gt;_CSwindows.mat</code></td><td><code>windows.ranges</code> — first and last frame of each window</td></tr>
+  <tr><td><code>csIDs/&lt;cell&gt;_CSsites.txt</code></td><td>the picks, in the format the external mapper reads</td></tr>
+  <tr><td><code>sites/&lt;cell&gt;_contactsites.csv</code> / <code>.mat</code></td><td>one row per site: centre (µm and px), window and frames, mito, area, <code>n_loc_inside</code>, <code>n_tracks</code>, how the footprint was made, whether it was edited. The <code>.mat</code> adds the boundary polygon in µm and px.</td></tr>
+  <tr><td><code>contactsites_all.csv</code></td><td>every site of every cell in one table</td></tr>
+  <tr><td><code>README.txt</code></td><td>all of the above, the coordinate conventions, and what was left out</td></tr>
+</table>
+<ul>
+  <li><b>Localizations</b>: the build's tracked localizations minus hand-rejected tracks — the set the picker and Refine show. Not the detection cloud.</li>
+  <li><b>Sites</b>: as currently <b>saved</b> — each Refine edit applied, deleted sites left out (and counted). An edit you have not saved on the Refine tab is <b>not</b> in the files; the status line warns when that is the case and the button turns amber rather than green.</li>
+  <li><b>Coordinates</b>: use <code>x_um</code>/<code>y_um</code> if in doubt. <code>x_px</code> = <code>x_um ÷ SF</code> with <code>SF = FOV ÷ grid</code>, the convention the ContactSites mapper uses. The density image's histogram columns start at one bin, so a pixel index and <code>x_px</code> can differ by up to half a pixel — the README says so.</li>
+</ul>
+<p>The button shows <b>✓</b> and turns green when the export worked, its tooltip names the folder, and it goes back to plain as soon as anything it exported changes (a Refine edit or save, reopening the picker). On a 29-cell plate with 464 sites it takes about 17 s and writes about 160 MB.</p>
 
 <h2 id="t3sites">Tool 3 · <b>Sites</b> — the mapper, membership and the raw-movie player</h2>
 <p class="lead">Tab <b>4 · Sites</b> is where a boundary becomes a measurement: which tracks belong to this site, in this window, and how enriched it is. It produces <code>analysis/CSW_final.mat</code>, the single file the Dwell and Compare tabs read.</p>
@@ -2842,7 +2876,7 @@ filter.exported        = 2026-07-29 11:02:13</code></pre>
 
   <tr>
     <td><code>Densities/&lt;cell&gt;_rho.tif</code><br><code>Density_&lt;cell&gt;.mat</code><br><code>Density_&lt;cell&gt;.tif</code></td>
-    <td>Tool 3 · Contact sites, on <kbd>▶ Open windowed picker</kbd> while <b>(re)save density first</b> is ticked (it is by default), and unconditionally if no <code>_rho.tif</code> exists yet (<code>saveDensityFiles</code>)</td>
+    <td><code>_rho.tif</code>: Tool 3 · Contact sites, on <kbd>▶ Open windowed picker</kbd>, for any cell that has none yet (<code>saveDensityFiles</code>). All three, plus sites: <kbd>📦 Export for advisor</kbd>, into <code>exports/advisor_&lt;date-time&gt;/</code> (<code>cs_advisor_export</code>). Both are built from the filtered tracked localizations minus hand-rejected tracks.</td>
     <td><code>cs_default_gridsf</code> and <code>cs_window_picker</code>'s <code>pickGrid</code> read only the <b>height</b> of <code>_rho.tif</code>, to set the density grid and therefore <code>SF</code>; the legacy <code>cs_identify</code> reads <code>Density_&lt;cell&gt;.tif</code> as its display density</td>
     <td>The advisor's density export, reproduced exactly. <code>_rho.tif</code> is a full-range turbo RGB image of the smoothed count map; <code>Density_&lt;cell&gt;.mat</code> holds <code>imG = 30 × smoothed counts</code> and the <code>.tif</code> is the <code>uint16</code> version of the same array. Grid: <code>binNm</code>-wide bins over the FOV, smoothed with <code>imgaussfilt(...,[2 2])</code>, then transposed to image convention. <b>The windowed picker does not use these files for its density</b> — it computes the per-window density live from the build. They exist for the legacy mapper and to fix the grid size.</td>
   </tr>

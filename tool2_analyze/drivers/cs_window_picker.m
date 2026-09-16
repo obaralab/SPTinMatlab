@@ -39,6 +39,17 @@ st.segResolver = getf(opts,'segResolver',[]);
 st.method = 'local';  st.sens = 0.15;  st.MC = 300;  st.minArea = 3;   % more MC runs -> steadier per-window cutoff
 st.clip = 0.5;  st.alpha = 1;  st.src = 'tracked';  st.scaleMode = 'density';  st.cbInfo = '';   % default: tracked-only density (excludes single-frame noise)
 st.addMode = false;  st.ci = 1;  st.cw = 1;  st.MAXPANELS = 24;
+% PER-CELL SITE MEMORY. Switching cells used to wipe the sites on screen and load nothing, so a saved
+% cell reopened EMPTY — indistinguishable from one never picked — and unsaved picks were silently lost
+% the moment another cell was opened. Now:
+%   stash      unsaved picks per cell, with the window layout they were made on
+%   savedInfo  what is on disk per cell (count, positions) — read once, refreshed on Save
+%   sitesCell  which cell st.sites currently belongs to (st.ci has already moved on inside onCell)
+st.stash = containers.Map('KeyType','char','ValueType','any');
+st.savedInfo = containers.Map('KeyType','char','ValueType','any');
+st.savedCount = containers.Map('KeyType','char','ValueType','double');   % cheap: just the row count, for the table
+st.sitesCell = '';  st.restoreNote = '';  st.layoutNote = '';  st.nBlank = 0;
+st.winFpw = NaN;  st.winStep = NaN;      % the frames/win and step that produced st.win
 
 % ---- Tracks: use the caller's already-loaded struct when it hands one over ----
 % The app holds the ACTIVE (possibly named) build in memory; re-loading it here would put a second
@@ -101,10 +112,12 @@ g = uigridlayout(parent,[6 1],'RowHeight',{32,30,30,30,32,'1x'},'Padding',[8 8 8
 rA = uigridlayout(g,[1 13],'ColumnWidth', ...
     {34,140, 62,58, 52,140, 92,78, 74,72, 66,66, '1x'}, 'Padding',[0 0 0 0],'ColumnSpacing',5);   %#ok<*NASGU>
 uilabel(rA,'Text','Cell','HorizontalAlignment','right');
-ddCell = uidropdown(rA,'Items',cellNames(),'ValueChangedFcn',@(s,e) onCell());
+% ItemsData is the cell INDEX: two cells can share a file name across folders, and looking the name
+% back up would open the first of them whichever was chosen.
+ddCell = uidropdown(rA,'Items',cellNames(),'ItemsData',1:numel(cellNames()),'ValueChangedFcn',@(s,e) onCellDrop(e));
 % density is always built from TRACKED localizations (single-frame detections are excluded as noise)
 uilabel(rA,'Text','frames/win','HorizontalAlignment','right');
-eFpw = uispinner(rA,'Limits',[10 1e6],'Value',st.fpw,'Step',50,'ValueChangedFcn',@(s,e) onFpw(), ...
+eFpw = uispinner(rA,'Tag','framesPerWindow','Limits',[10 1e6],'Value',st.fpw,'Step',50,'ValueChangedFcn',@(s,e) onFpw(), ...
     'Tooltip','Window length in FRAMES → ceil(nFrames/this) windows; a tiny trailing remainder merges into the last.');
 uilabel(rA,'Text','method','HorizontalAlignment','right');
 % The first item is RELABELLED once the support is resolved — see refreshSupportLabels. A project
@@ -239,7 +252,20 @@ lblExplain = uilabel(rD,'Text','','FontColor',[0.30 0.30 0.45],'WordWrap','on');
 % ---- status line: full width, wraps rather than truncating ----
 lbl = uilabel(g,'Text','','FontColor',[0.2 0.4 0.5],'WordWrap','on','VerticalAlignment','center');
 
-mn = uigridlayout(g,[1 3],'ColumnWidth',{'1.0x','1.5x',290},'Padding',[0 0 0 0],'ColumnSpacing',8);
+mn = uigridlayout(g,[1 4],'ColumnWidth',{330,'1.0x','1.5x',290},'Padding',[0 0 0 0],'ColumnSpacing',8);
+% ---- cell navigator: one row per cell, with whether its sites are saved ----
+cpg = uigridlayout(mn,[2 1],'RowHeight',{20,'1x'},'Padding',[0 0 0 0],'RowSpacing',4);
+lblCells = uilabel(cpg,'Text','Cells — click to open','FontWeight','bold');
+tblCells = uitable(cpg,'Tag','cellTable','ColumnName',{'#','cell','saved','sites'}, ...
+    'ColumnWidth',{30,172,70,40},'RowName',{},'SelectionType','row','Multiselect','off', ...
+    'SelectionChangedFcn',@(s,e) onCellTable(e), ...
+    'Tooltip',['Click a row to open that cell. saved: ✓ = the sites on disk are what you see; ' ...
+               '● unsaved = you have picks that are not saved (they are kept while you look at other ' ...
+               'cells — come back and 💾 Save); — = never saved. sites = how many. The cell ' ...
+               'names drop the prefix and suffix every cell shares, and a name still too long is shortened ' ...
+               'in the MIDDLE so both its start and its end stay readable. The open cell''s full ' ...
+               'name is on the status line. Opening a saved cell switches frames/win to the value ' ...
+               'its sites were picked with.']);
 pnThumbs = uipanel(mn,'Title','Windows — click one to zoom','BorderType','line');
 dc = uigridlayout(mn,[1 2],'ColumnWidth',{'1x',66},'Padding',[0 0 0 0],'ColumnSpacing',4);
 axDet = uiaxes(dc); axDet.Tag='detailAxes'; axDet.Toolbar.Visible='on'; title(axDet,'window detail'); axDet.YDir='reverse';
@@ -263,6 +289,7 @@ tblSites = uitable(rp,'ColumnName',{'#','mito','p','enr×','loc','trk','dw%','st
                'stab = split-half reproducibility (0–1). Click a row to overlay its tracks + highlight it.']);
 btnRem = uibutton(rp,'Text','－ Remove selected','ButtonPushedFcn',@(s,e) removeSelected());
 
+refreshCells();
 onCell();
 
 % =====================================================================
@@ -312,12 +339,20 @@ onCell();
     end
 
     function onCell()
-        st.ci = max(1, find(strcmp(ddCell.Items, ddCell.Value), 1)); if isempty(st.ci), st.ci=1; end
+        stashCurrent();              % the cell being left, on the layout it is on
+        st.ci = ddCell.Value; if isempty(st.ci) || ~isnumeric(st.ci), st.ci = 1; end
+        syncCellTable();
         applyCellCalib(st.ci);      % BEFORE anything reads st.SF: this cell may be a different camera
         st.wnull = {};              % the null is per grid/scale, so a scale change invalidates it
         T = st.Tracks(st.ci);
         [st.aX, st.aY, st.aF, st.aMD, st.haveMD, st.aT] = cellLocs(T, true);   % density is ALWAYS tracked-only (matrix, not the cloud)
         st.nDet = numel(st.aX);                                          % tracked localizations (what the density is built from)
+        % Tracks the caller BLANKED (hand-rejected on the QC tab: frames kept, positions NaN). Counted
+        % so the status line can say they are out, rather than leaving "is my density filtered?" to trust.
+        st.nBlank = 0;
+        if isfield(T,'matrix') && size(T.matrix,3) >= 3
+            st.nBlank = nnz(all(~isfinite(T.matrix(:,:,2)),1) & any(isfinite(T.matrix(:,:,1)),1));
+        end
         st.nAll = st.nDet;                                              % total detections (full cloud) — for the total-vs-tracked readout
         if isstruct(T.allSpots) && isfield(T.allSpots,'X') && ~isempty(T.allSpots.X)
             st.nAll = nnz(isfinite(double(T.allSpots.X(:))) & isfinite(double(T.allSpots.Y(:))));
@@ -346,6 +381,7 @@ onCell();
             end
         end
         st.erMip = erMipMask(char(T.file));     % whole-movie ER support fallback
+        adoptSavedLayout();                     % a saved cell opens on the layout its sites were picked on
         buildWindows();                         % -> selectWindow -> drawDetail sets the full total/tracked/window readout
     end
 
@@ -487,6 +523,7 @@ onCell();
     end
 
     function buildWindows()
+        stashCurrent();          % BEFORE st.win changes: the picks belong to the layout they were made on
         n=st.fpw; f1max=max(st.aF); if ~isfinite(f1max), f1max=0; end
         T=f1max+1;                                            % total frames (0-based span → count)
         step=st.step; if ~(step>0), step=n; end; step=min(step,n);
@@ -515,11 +552,273 @@ onCell();
                  'are NOT analysed. Raise frames/win (or step) so the movie fits in %d windows.'], ...
                 st.nWwanted, st.MAXPANELS, st.dropFrom, T-1, 100*(T-st.dropFrom)/max(T,1), st.MAXPANELS);
         end
+        st.winFpw = st.fpw; st.winStep = st.step;
         st.sites=repmat({zeros(0,NCOL)},1,st.nW);
         st.wrc=cell(1,st.nW); st.wdens=cell(1,st.nW); st.wnull=cell(1,st.nW);
         for kq = 1:numel(st.keys), st.wmask.(st.keys{kq}) = cell(1,st.nW); end   % one cache per channel
         st.cw=1; st.selList=[];
+        st.sitesCell = curBase();
+        rn = restoreSites();
+        if isempty(rn), st.restoreNote = st.layoutNote; elseif isempty(st.layoutNote), st.restoreNote = rn;
+        else, st.restoreNote = [st.layoutNote '  ·  ' rn]; end
+        st.layoutNote = '';
         buildThumbs(); selectWindow(1);
+        if ~isempty(st.restoreNote), set(lbl,'Text',[st.restoreNote '  ·  ' char(lbl.Text)]); end
+    end
+
+    % ---- per-cell site memory (see st.stash / st.savedInfo) ----
+    function b = curBase()
+        [~, b] = fileparts(char(st.Tracks(st.ci).file));
+    end
+
+    function stashCurrent()
+        % Keep the picks on screen if they differ from what is saved; forget them if they match.
+        if isempty(st.sitesCell) || ~isfield(st,'win') || isempty(st.win) || isempty(st.sites), return; end
+        if sitesDirty(st.sitesCell, st.sites, st.win)
+            st.stash(st.sitesCell) = struct('win', st.win, 'sites', {st.sites}, 'fpw', st.winFpw, 'step', st.winStep);
+        elseif isKey(st.stash, st.sitesCell)
+            remove(st.stash, st.sitesCell);
+        end
+    end
+
+    function adoptSavedLayout()
+        % Open a cell on the frames/win and step its picks were made with: your unsaved picks' layout
+        % first, else the saved sites'. Otherwise every saved cell opened blank until the right
+        % frames/win was typed back in by hand. A cell with neither keeps whatever is set now.
+        st.layoutNote = '';
+        base = curBase(); fpw = NaN; stp = NaN; what = '';
+        if isKey(st.stash, base)
+            S = st.stash(base); fpw = S.fpw; stp = S.step; what = 'your unsaved picks';
+        elseif savedN(base) > 0
+            I = savedFor(base); fpw = I.fpw; stp = I.step; what = 'the saved sites';
+        end
+        if ~isfinite(fpw), return; end
+        if ~isfinite(stp), stp = st.step; end
+        if fpw == st.fpw && stp == st.step, return; end
+        st.fpw = fpw; st.step = stp;
+        try, eFpw.Value = fpw; catch, end
+        try, eStep.Value = stp; catch, end
+        st.layoutNote = sprintf('frames/win set to %d (step %d) to match %s', fpw, stp, what);
+    end
+
+    function note = restoreSites()
+        % What to show for the cell just opened, in order: your unsaved picks (same layout), the saved
+        % sites (same layout), nothing. A layout mismatch is SAID rather than silently shown as empty.
+        note = ''; base = curBase();
+        if isKey(st.stash, base)
+            S = st.stash(base);
+            if isequal(S.win, st.win)
+                st.sites = S.sites;
+                note = sprintf('● %d UNSAVED site(s) restored for this cell — 💾 Save to keep them', nSitesIn(S.sites));
+                return
+            end
+            note = sprintf(['● this cell has %d UNSAVED site(s) picked with a different frames/win (%d windows) ' ...
+                            '— set it back to see them'], nSitesIn(S.sites), size(S.win,1));
+        end
+        I = savedFor(base);
+        if I.n == 0, return; end
+        if isequal(I.win, st.win)
+            for w = 1:st.nW, st.sites{w} = I.P(I.w == w, :); end
+            if isempty(note), note = sprintf('✓ loaded %d saved site(s)', I.n); end
+        elseif isempty(I.win)
+            note = sprintf(['%s%d saved site(s) on disk, but their window layout was not saved with them, ' ...
+                            'so they are not shown'], sepIf(note), I.n);
+        else
+            note = sprintf(['%s%d saved site(s) were picked with %d frames/win (%d windows) — set frames/win ' ...
+                            'to %d to load them'], sepIf(note), I.n, I.fpw, size(I.win,1), I.fpw);
+        end
+    end
+    function s = sepIf(t), if isempty(t), s = ''; else, s = [t '  ·  ']; end, end
+    function n = nSitesIn(C), n = sum(cellfun(@(x) size(x,1), C)); end
+
+    function I = savedFor(base)
+        % The sites on disk for a cell, cached. Positions and window from _CSsites.txt (the file the
+        % mapper reads, so it decides what "saved" means); every other column from _CSsites_stats.csv
+        % when it describes the same sites; the window layout from Density_<cell>_CSwindows.mat.
+        if isKey(st.savedInfo, base), I = st.savedInfo(base); return; end
+        I = struct('n',0,'P',zeros(0,NCOL),'w',zeros(0,1),'win',[],'fpw',NaN,'step',NaN);
+        txt = fullfile(anaDir,'csIDs',[base '_CSsites.txt']);
+        if isfile(txt)
+            try
+                R = cs_read_sites(txt);
+                n = numel(R.Xpx); P = nan(n, NCOL);
+                P(:,SC.x) = R.Xpx; P(:,SC.y) = R.Ypx; P(:,SC.manual) = 0;
+                P(:,SC.flag) = 2 - double(R.mito(:));             % 1 = mito, 2 = not (cs_mito_from_dist)
+                sf = fullfile(anaDir,'csIDs',[base '_CSsites_stats.csv']);
+                if isfile(sf)
+                    M = readmatrix(sf, 'NumHeaderLines', 1);
+                    if size(M,1) == n && size(M,2) >= 14 && all(round(M(:,2)) == R.w(:)) ...
+                            && max(abs(M(:,3)-R.Xpx(:))) < 1e-2 && max(abs(M(:,4)-R.Ypx(:))) < 1e-2
+                        P(:,[SC.flag SC.manual SC.peak SC.pval SC.enr SC.nloc SC.ntrk SC.stab SC.dwell SC.area]) = ...
+                            M(:,[5 6 7 8 9 10 11 12 13 14]);
+                    end
+                end
+                I.n = n; I.P = P; I.w = R.w(:);
+            catch
+            end
+            wf = cs_ana_path(anaDir, 'find', ['Density_' base '_CSwindows.mat']);
+            if ~isempty(wf)
+                try
+                    W = load(wf);
+                    if isfield(W,'windows') && isfield(W.windows,'ranges'), I.win = double(W.windows.ranges); end
+                    if isfield(W,'windows') && isfield(W.windows,'framesPerWindow'), I.fpw = W.windows.framesPerWindow; end
+                catch
+                end
+            end
+            % The step is in the provenance stamp, not the windows file.
+            pj = fullfile(anaDir,'csIDs',[base '_CSsites_provenance.json']);
+            if isfile(pj)
+                try, pv = jsondecode(fileread(pj)); if isfield(pv,'stepFrames'), I.step = double(pv.stepFrames); end, catch, end
+            end
+        end
+        st.savedInfo(base) = I;
+        st.savedCount(base) = I.n;
+    end
+
+    function n = savedN(base)
+        % How many sites are on disk — all the cell table needs, so it does not parse every saved
+        % file to draw itself. The full read (savedFor) happens when a cell is opened.
+        if isKey(st.savedInfo, base), I = st.savedInfo(base); n = I.n; return; end
+        if isKey(st.savedCount, base), n = st.savedCount(base); return; end
+        n = 0;
+        txt = fullfile(anaDir,'csIDs',[base '_CSsites.txt']);
+        if isfile(txt)
+            try
+                L = strsplit(strtrim(fileread(txt)), newline);
+                n = max(0, numel(L) - 1);                      % minus the header
+            catch
+            end
+        end
+        st.savedCount(base) = n;
+    end
+
+    function tf = sitesDirty(base, sites, win)
+        % Do the picks on screen differ from the saved ones? Compared on what the saved file holds:
+        % window, position (to its 3 decimals) and the mito flag.
+        live = zeros(0,4);
+        for w = 1:numel(sites)
+            P = sites{w};
+            if ~isempty(P), live = [live; repmat(w,size(P,1),1) P(:,[SC.x SC.y SC.flag])]; end %#ok<AGROW>
+        end
+        if isempty(live)
+            % Nothing on screen. That is unsaved work only if saved sites exist ON THIS LAYOUT — you
+            % removed them. On another layout the saved sites simply cannot be shown here, which is
+            % not a change; calling it "unsaved" sent people looking for picks they never made.
+            if savedN(base) == 0, tf = false; return; end
+            I = savedFor(base);
+            tf = isequal(I.win, win);
+            return
+        end
+        I = savedFor(base);
+        if I.n == 0, tf = true; return; end
+        if ~isequal(I.win, win) || size(live,1) ~= I.n, tf = true; return; end
+        disk = [I.w I.P(:,[SC.x SC.y SC.flag])];
+        a = sortrows([live(:,1) round(live(:,2:3)*1000) live(:,4)]);
+        b = sortrows([disk(:,1) round(disk(:,2:3)*1000) disk(:,4)]);
+        tf = ~(isequal(a(:,[1 4]), b(:,[1 4])) && max(abs(a(:,2:3)-b(:,2:3)),[],'all') <= 1);
+    end
+
+    % ---- the cell table ----
+    function nm = shortNames()
+        % Drop the prefix and suffix every cell shares, so a 250 px column shows the part that differs.
+        nm = cellNames();
+        if numel(nm) < 2, nm = elideMid(nm); return; end
+        pre = nm{1}; suf = nm{1};
+        for q = 2:numel(nm)
+            a = nm{q};
+            k = 0; while k < min(numel(pre),numel(a)) && pre(k+1) == a(k+1), k = k+1; end, pre = pre(1:k);
+            k = 0; while k < min(numel(suf),numel(a)) && suf(end-k) == a(end-k), k = k+1; end, suf = suf(end-k+1:end);
+        end
+        for q = 1:numel(nm)
+            t = nm{q}(numel(pre)+1:end-numel(suf));
+            if isempty(t), t = nm{q}; end
+            nm{q} = t;
+        end
+        nm = elideMid(nm);
+    end
+    function nm = elideMid(nm)
+        % A name that still does not fit loses its MIDDLE: the start usually carries the condition and
+        % the end the plate and cell number, and cutting the end made rows read the same.
+        budget = 24;
+        for q = 1:numel(nm)
+            if numel(nm{q}) > budget
+                nm{q} = [nm{q}(1:11) '…' nm{q}(end-11:end)];
+            end
+        end
+    end
+
+    function refreshCells()
+        n = numel(st.Tracks); D = cell(n,4); nm = shortNames();
+        for q = 1:n
+            D(q,:) = cellRow(q, nm{q});
+        end
+        tblCells.Data = D;
+        styleCells();
+        syncCellTable();
+    end
+
+    function refreshCellRow(q)
+        if isempty(tblCells) || ~isgraphics(tblCells) || q < 1 || q > size(tblCells.Data,1), return; end
+        D = tblCells.Data; D(q,:) = cellRow(q, D{q,2}); tblCells.Data = D;
+        styleCells();
+        syncCellTable();
+    end
+
+    function r = cellRow(q, name)
+        [~, base] = fileparts(char(st.Tracks(q).file));
+        nSaved = savedN(base);
+        if q == st.ci && strcmp(st.sitesCell, base) && isfield(st,'win') && ~isempty(st.win)
+            dirty = sitesDirty(base, st.sites, st.win); nNow = nSitesIn(st.sites);
+        else
+            dirty = isKey(st.stash, base); nNow = NaN;
+            if dirty, Sx = st.stash(base); nNow = nSitesIn(Sx.sites); end
+        end
+        if dirty,          sv = '● unsaved'; ns = nNow;
+        elseif nSaved > 0, sv = '✓';          ns = nSaved;
+        else,            sv = '—';          ns = NaN;
+        end
+        nsTxt = ''; if isfinite(ns), nsTxt = sprintf('%d', ns); end
+        r = {sprintf('%d', q), name, sv, nsTxt};
+    end
+
+    function styleCells()
+        try
+            removeStyle(tblCells);
+            D = tblCells.Data; if isempty(D), return; end
+            un = find(strcmp(D(:,3), '● unsaved'));
+            ok = find(strcmp(D(:,3), '✓'));
+            if ~isempty(ok), addStyle(tblCells, uistyle('FontColor',[0.10 0.50 0.20]), 'row', ok); end
+            if ~isempty(un), addStyle(tblCells, uistyle('FontColor',[0.80 0.40 0.00],'FontWeight','bold'), 'row', un); end
+        catch
+        end
+    end
+
+    function syncCellTable()
+        if isempty(tblCells) || ~isgraphics(tblCells), return; end
+        try, tblCells.Selection = st.ci; catch, end
+        try, scroll(tblCells, 'row', st.ci); catch, end
+        lblCells.Text = sprintf('Cells (%d) — %d saved · click to open', numel(st.Tracks), nSavedCells());
+    end
+
+    function n = nSavedCells()
+        n = 0;
+        if isempty(tblCells) || ~isgraphics(tblCells) || isempty(tblCells.Data), return; end
+        n = nnz(strcmp(tblCells.Data(:,3), '✓'));
+    end
+
+    function onCellDrop(e)
+        prev = st.ci; try, prev = e.PreviousValue; catch, end
+        onCell();
+        if ~isequal(prev, st.ci), refreshCellRow(prev); end
+    end
+
+    function onCellTable(e)
+        try, r = e.Selection(1); catch, return; end
+        if isempty(r) || r < 1 || r > numel(st.Tracks) || r == st.ci, return; end
+        prev = st.ci;
+        ddCell.Value = r;
+        onCell();
+        refreshCellRow(prev);        % the cell just left: saved, or now stashed as unsaved
     end
 
     function rc = windowRaw(w)
@@ -1171,6 +1470,7 @@ onCell();
         end
         tblSites.Data=D;
         lblList.Text=sprintf('Sites in window %d (%d) — click a row to see its tracks',st.cw,n); syncListFromSel();
+        refreshCellRow(st.ci);       % every change to the sites passes through here
     end
     function s=fmtStat(v,f), if isnan(v), s='—'; else, s=sprintf(f,v); end, end
     function s=mitoTag(fl)
@@ -1189,7 +1489,7 @@ onCell();
     % ---- save ----
     function doSave()
       try
-        base=char(st.Tracks(st.ci).file);
+        base=curBase();
         csDir=fullfile(anaDir,'csIDs'); if ~isfolder(csDir), mkdir(csDir); end
         rows=zeros(0,3); widx=zeros(0,1);
         for w=1:st.nW, P=st.sites{w}; for i=1:size(P,1), rows(end+1,:)=[P(i,1) P(i,2) P(i,3)]; widx(end+1,1)=w; end, end %#ok<AGROW>
@@ -1214,7 +1514,8 @@ onCell();
                 'minTracks',st.minTracks,'minSiteLocs',st.minSiteLocs,'contactUm',st.contactUm, ...
                 'framesPerWindow',st.fpw,'stepFrames',st.step,'nWindows',st.nW,'windowRanges',st.win, ...
                 'grid',st.grid,'SF_umPerPx',st.SF,'FOV_um',st.FOV,'binNm',st.binNm, ...
-                'totalDetections',st.nAll,'trackedLocs',st.nDet,'nSites',size(rows,1));
+                'totalDetections',st.nAll,'trackedLocs',st.nDet,'handRejectedTracksExcluded',st.nBlank, ...
+                'nSites',size(rows,1));
             fid2=fopen(fullfile(csDir,[base '_CSsites_provenance.json']),'w');
             fprintf(fid2,'%s', jsonencode(prov,'PrettyPrint',true)); fclose(fid2);
         catch, end
@@ -1231,7 +1532,12 @@ onCell();
             end
             fclose(fid3);
         catch, end
-        set(lbl,'Text',sprintf('Saved %d site(s)/%d windows → %s_CSsites.txt + _CSsites_stats.csv + _CSsites_provenance.json + Density_%s_CSwindows.mat', size(rows,1), st.nW, base, base));
+        % What is on disk just changed: re-read it, and the picks on screen are no longer "unsaved".
+        if isKey(st.savedInfo, base), remove(st.savedInfo, base); end
+        if isKey(st.savedCount, base), remove(st.savedCount, base); end
+        if isKey(st.stash, base), remove(st.stash, base); end
+        refreshCellRow(st.ci);
+        set(lbl,'Text',sprintf('✓ Saved %d site(s)/%d windows → %s_CSsites.txt + _CSsites_stats.csv + _CSsites_provenance.json + Density_%s_CSwindows.mat', size(rows,1), st.nW, base, base));
       catch ME
         set(lbl,'Text',['Save failed: ' ME.message]);
       end
@@ -1246,8 +1552,9 @@ onCell();
         if isfield(st,'nWwanted') && st.nWwanted > st.nW
             wtxt = sprintf('%d of %d windows ⚠ frames %d+ NOT analysed', st.nW, st.nWwanted, st.dropFrom);
         end
-        s=sprintf('%s · detections %d · tracked %d (%.0f%%) · %s · %s', ...
-            char(st.Tracks(st.ci).file), st.nAll, st.nDet, pct, wtxt, ...
+        rej = ''; if st.nBlank > 0, rej = sprintf(' minus %d hand-rejected track(s)', st.nBlank); end
+        s=sprintf('%s · detections %d · density from tracked %d (%.0f%%)%s · %s · %s', ...
+            char(st.Tracks(st.ci).file), st.nAll, st.nDet, pct, rej, wtxt, ...
             tern(st.haveMD,'mito from MITODIST','no MITODIST'));
         % A derived support is reported, never silent: the background denominator was estimated from
         % the same localizations the sites are found in, and a reader of the numbers must know.

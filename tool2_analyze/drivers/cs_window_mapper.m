@@ -48,6 +48,10 @@ tsPath = cs_active_trackstruct(anaDir);        % the ACTIVE build, which may be 
 assert(~isempty(tsPath) && isfile(tsPath), 'cs_window_mapper:noTrackStruct', ...
     'No TrackStruct build in %s', anaDir);
 S = load(tsPath); fn = fieldnames(S); Tracks = S.(fn{1});
+% Hand-rejected tracks are BLANKED (positions NaN, column kept): out of every density and every
+% membership test, while the column numbers that per-site exclusions, CSmatrix and dwell rows are
+% keyed on do not move. Removing them ('apply') would renumber every later track in the cell.
+try, Tracks = cs_track_exclusions('blank', cs_track_exclusions('load', fileparts(regexprep(char(anaDir),'[\\/]+$',''))), Tracks); catch, end
 nCells = numel(Tracks);
 
 % default grid/SF from a rho.tif + cs_config (used when a cell has no CSwindows.mat)

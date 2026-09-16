@@ -32,6 +32,10 @@ tsPath = cs_active_trackstruct(anaDir);        % the ACTIVE build, which may be 
 assert(~isempty(tsPath) && isfile(tsPath),'cs_footprints_build:noTrackStruct', ...
     'No TrackStruct build in %s', anaDir);
 S = load(tsPath); fn = fieldnames(S); Tracks = S.(fn{1});
+% Hand-rejected tracks (QC tab) are BLANKED, not removed: the auto footprint is a half-max of the
+% density, so a rejected track would otherwise still shape it, while every track number the mapper
+% and the Sites tab key on stays where it was. The picker, the Refine tab and the mapper do the same.
+try, Tracks = cs_track_exclusions('blank', cs_track_exclusions('load', fileparts(regexprep(char(anaDir),'[\\/]+$',''))), Tracks); catch, end
 [gridDef, SFdef] = cs_default_gridsf(anaDir);
 
 CSfoot = struct([]);

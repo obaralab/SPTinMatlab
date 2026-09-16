@@ -168,6 +168,39 @@ project whose support is derived from the localizations says so on the status li
 on a project with a real segmentation says nothing, because there the null is sound.
 `cs_picker_support_smoke` asserts both halves of that.
 
+**Every contact-site density is built from one track set, and it is the filtered one.** The
+build's tracked matrix (tracks that passed filtering and curation) with the tracks rejected by hand
+on the QC tab **blanked** — positions set to NaN, columns kept (`cs_track_exclusions('blank')`). The
+picker, the Refine tab, `cs_footprints_build`, `cs_window_mapper`, the `_rho.tif` bootstrap and the
+advisor export all use it. Blanked rather than removed because the mapper, the Sites tab and dwell
+key on track column numbers, and removing a track renumbers every one after it. The detection cloud
+(`allSpots`) is never used for a contact-site density: it holds every single-frame detection that
+never linked. The picker's status line says `density from tracked N minus K hand-rejected track(s)`.
+
+**The picker remembers each cell.** A cell table on the left shows ✓ saved / ● unsaved / — per cell
+and opens a cell on click. Switching cells used to wipe the picks on screen and load nothing, so a
+saved cell reopened empty and unsaved picks were lost. Now unsaved picks are stashed per cell (with
+the window layout they were made on) and a saved cell reloads its sites, all columns, from
+`_CSsites_stats.csv` — provided the window layout matches; otherwise the status line names the
+frames/win that brings them back. `cs_picker_cells_smoke`.
+
+**Refine shows the neighbourhood.** Other sites in the same cell and window are outlined (dashed
+cyan, `s#`, clickable). With localizations on, every track in the window is drawn — non-members
+faintly — because a dot whose track belonged to another site looked unlinked (45 of 69 dots in one
+real view). **✥ Move centre only** moves the centre and keeps the boundary fixed on the map, so
+members, localization count and area do not change. The info panel was in a 30 px row and showed two
+of its six lines; it now takes the free height. `spt_refine_tools_smoke`.
+
+**📦 Export for advisor** (`cs_advisor_export`) writes a fresh `analysis/exports/advisor_<stamp>/`
+per press: the external code's `Density_<cell>.mat/.tif` and `Densities/<cell>_rho.tif`
+(`cs_advisor_density`, its exact grid), a per-window density stack, the picks, per-site tables with
+centre (um and px), window, mito, area, `n_loc_inside`, `n_tracks` inside the SAVED footprint
+(`cs_footprints_resolve` = auto footprints + saved edits/deletions, shared with Refine), boundary
+polygons, and a README with the coordinate conventions. Excluded cells and deleted sites are left
+out; unsaved Refine edits are warned about. It replaced the "(re)save density first" checkbox, which
+wrote density files on every open, from the cloud, without the sites. `cs_advisor_export_smoke`,
+`spt_density_export_smoke`.
+
 **"It is clearly above background — why is it not a site?"** has five possible answers and the
 picker used to give none of them. A spot passes only if it is (1) inside the support mask, (2) above
 the method's threshold, (3) part of a patch of at least `minArea` pixels, (4) over `min enrich` and

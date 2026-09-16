@@ -75,7 +75,7 @@ ddHi=[];                  % where the CLICKED track sits in the pooled D histogr
 ddFitMode=[]; axSweep=[];   % MSD fit-window mode (fixed % / adaptive R²) + the per-track D-vs-fit-window sweep
 qcTracks={}; qcSelIdx=0; qcHi=[]; playerCtl=[];   % click-to-inspect: flat track list, selection, highlight, embedded player
 densCache=struct('base',{},'occ',{});   % per-cell whole-movie occupancy cache (used by ensureMips + saveDensityFiles)
-pnCS=[]; btnPickCS=[]; chkCSsaveDens=[]; eCScontact=[]; lblCS=[];   % Tab 3 Contact-sites handles
+pnCS=[]; btnPickCS=[]; eCScontact=[]; lblCS=[];   % Tab 3 Contact-sites handles
 % ---- downstream analysis results (in-session), read from / written to analysis/ ----
 CSW=[]; DD=[];                                              % mapper (site x window) + dwell results
 siteDensCache=struct('key',{},'dens',{},'raw',{});                  % per (cell,window,src) window-density cache for the inspector
@@ -83,6 +83,9 @@ siteDensCache=struct('key',{},'dens',{},'raw',{});                  % per (cell,
 axRef=[]; lstRefSites=[]; eRefFrac=[]; eRefMaxR=[]; ddRefWin=[]; lblRef=[]; lblRefSrc=[]; lblRefInfo=[];
 axRad=[]; chkRefLocs=[]; ddRefScale=[]; sldRefContrast=[]; btnRefDelete=[]; refCbar=[]; refLockedSrc='all'; sldRefSmooth=[];
 refNullCache=struct('key',{},'nullMax',{},'pmap',{}); refFoot=[]; refSelIdx=0; refRowMap=[];
+chkRefNbr=[]; refDirty=false; refDrawing=false;   % Refine: other-site outlines toggle; unsaved edits (the export warns)
+ctCache=[]; ctCacheKey='';      % buildTracks with hand-rejected tracks BLANKED — see ctTracks
+btnCSexport=[];                 % Contact sites: the advisor export
 refErCache=struct('key',{},'erGrid',{});   % per-(cell,grid) ER support mask resampled to the density grid (radial-null area)
 % Sites tab handles
 eMaxR=[]; eFrac=[]; ddWinFilt=[]; tblSites=[]; axSite=[]; lstMembers=[]; lblSites=[]; lblSitesSrc=[]; siteRowMap=[]; eMinPctIn=[];
@@ -116,7 +119,8 @@ fig.CloseRequestFcn = @(s,e) onAppClose();   % deletes tabs -> track_viewer's pa
 fig.UserData = struct('activeTs',@activeTsNow, 'tracks',@tracksNow, 'loadTracks',@onLoadTracks, ...
     'cmpSetCells',@setCompareCells, 'cmpCellList',@compareCellList, 'cmpLoad',@ensureCompareData, ...
     'exptCtl',@exptCtlNow, 'calibForBuild',@calibForBuild, 'loadTracksFile',@loadTracksFile, ...
-    'engExamples',@onEngageExamples);
+    'engExamples',@onEngageExamples, ...
+    'refMoveCentre',@moveRefCentre, 'refState',@refStateNow);   % Refine: the move without the click
 gl = uigridlayout(fig,[2 1],'RowHeight',{34,'1x'},'Padding',[8 8 8 8],'RowSpacing',6);
 
 % 16 columns, 16 widths, 16 children — keep the three in step. uigridlayout WRAPS a child it has no
@@ -229,6 +233,7 @@ end
         tracksDir = firstExisting({fullfile(d,'tracks'), d});   % tracks/ subfolder, else the folder itself
         matched = [];                                            % pair spt <-> er_seg <-> mito_seg for the overlay
         buildTracks = [];                                        % drop the previous project's tracks so the new one is reloaded
+        ctCache = []; ctCacheKey = '';
         tsName = activeTsName(fullfile(d,'analysis'));            % ...and its ACTIVE BUILD NAME: carrying
         if ~isempty(eTsName) && isgraphics(eTsName)               % Day1_KO.mat into the next project would
             [~,stem] = fileparts(tsName); eTsName.Value = stem;   % open the wrong build, or none at all
@@ -543,6 +548,7 @@ end
         if strcmp(want, tsName) && ~isempty(buildTracks), return; end   % already on it
         setActiveTs(anaDir, want);
         buildTracks = [];                  % force a reload from the newly active file
+        ctCache = []; ctCacheKey = '';
         resetDownstream();                 % sites/dwell/compare belong to the old build
         if ensureTracksLoaded() && ~isempty(buildTracks)
             if ~isempty(ddQCcell) && isgraphics(ddQCcell)
@@ -558,6 +564,7 @@ end
     end
 
     function v = activeTsNow(), v = tsName; end    % test hooks — see fig.UserData
+    function v = refStateNow(), v = struct('foot',refFoot,'sel',refSelIdx,'dirty',refDirty); end
     function v = tracksNow(),   v = buildTracks; end
 
     function p = activeTsPath()                    % '' when no project is set
@@ -580,8 +587,26 @@ end
         if isempty(tsName), tsName = activeTsName(fullfile(projectDir,'analysis')); end
         f = activeTsPath();
         if isfile(f)
-            try, L = load(f); if isfield(L,'Tracks') && ~isempty(L.Tracks), buildTracks = L.Tracks; ok = true; end, catch, end
+            try, L = load(f); if isfield(L,'Tracks') && ~isempty(L.Tracks), buildTracks = L.Tracks; ctCache = []; ctCacheKey = ''; ok = true; end, catch, end
         end
+    end
+
+    function T = ctTracks()
+        % The track set every CONTACT-SITE density is built from: the build (tracks that passed
+        % filtering and curation) with the tracks rejected by hand on the QC tab BLANKED — positions
+        % NaN, columns kept. Blanked, not removed, because the mapper, the Sites tab and dwell key on
+        % track column numbers, and removing a track renumbers every one after it.
+        %
+        % Cached on the build size and the exclusions file's stamp, so rejecting a track on the QC tab
+        % takes it out of the next Refine draw without a reload. resetDownstream drops the cache when
+        % a different build is loaded.
+        T = buildTracks;
+        if isempty(T) || isempty(projectDir), return; end
+        key = sprintf('%d|%s', numel(T), cs_track_exclusions('stamp', projectDir));
+        if ~isempty(ctCache) && strcmp(key, ctCacheKey), T = ctCache; return; end
+        ex = []; try, ex = cs_track_exclusions('load', projectDir); catch, end
+        T = cs_track_exclusions('blank', ex, T);
+        ctCache = T; ctCacheKey = key;
     end
 
     function [X,Y,MD,ED] = densCoords(sel, src)
@@ -636,12 +661,15 @@ end
         % Source: 'Tracked spots only' reproduces the paper's tracked-matrix input; 'All detections (cloud)'
         % uses the full localization cloud instead.
         base = char(buildTracks(k).file);
-        [X,Y] = densCoords(base, src);
-        PixSize = trackBin(k);                                  % nm DENSITY BIN (not the precision)
-        Bins = PixSize*(1:ceil(trackFov(k)/(PixSize/1000))+1);  % nm edges, identical to the advisor's grid
-        okp = isfinite(X) & isfinite(Y);
-        NumLoc = histcounts2(1000*X(okp), 1000*Y(okp), Bins, Bins);
-        sm = imgaussfilt(NumLoc,[2 2])';                        % row = y, col = x (image convention)
+        % The tracked localizations of the FILTERED set (ctTracks), not the detection cloud, unless a
+        % caller explicitly asks for the cloud. The picker and the Refine tab never draw the cloud,
+        % so a density file built from it would not be the density the sites were picked on.
+        if strcmp(src,'All detections (cloud)')
+            [X,Y] = densCoords(base, src);
+        else
+            Tc = ctTracks(); X = Tc(k).matrix(:,:,2); Y = Tc(k).matrix(:,:,3);
+        end
+        sm = cs_advisor_density(X, Y, trackFov(k), trackBin(k));   % the advisor's grid, exactly
         % Densities/<base>_rho.tif — full-range turbo RGB (DensityVisualization.m)
         densDir = fullfile(anaDir,'Densities'); if ~isfolder(densDir), mkdir(densDir); end
         lo = min(sm,[],'all'); hi = max(sm,[],'all'); if ~(hi>lo), hi = lo + 1; end
@@ -678,23 +706,26 @@ end
         uilabel(r,'Text','contact µm','HorizontalAlignment','right');
         eCScontact = uispinner(r,'Limits',[-1 2],'Value',0.15,'Step',0.05, ...
             'Tooltip','A site is mito-contact when nearby localizations'' median signed MITODIST ≤ this (µm). Adjustable in the picker too.');
-        % OFF by default. It writes two EXPORT files per cell that nothing in this pipeline reads,
-        % which on a 93-cell project is 186 files appearing in analysis/ the first time the picker
-        % is opened — for a hand-off nobody asked for yet. Tick it when the export is actually
-        % wanted; the file the mapper needs is written either way.
-        chkCSsaveDens = uicheckbox(r,'Text','(re)save density first','Value',false, ...
-            'Tooltip',['OFF by default. Ticking it also writes the EXPORT copies ' ...
-                       'analysis/density/Density_<cell>.mat and .tif — for the advisor''s external ' ...
-                       'ContactSites code. Nothing in THIS pipeline reads them, so leaving it off ' ...
-                       'costs nothing here and keeps analysis/ from filling with two files per cell. ' ...
-                       'Densities/<cell>_rho.tif is written regardless when it is missing: the ' ...
-                       'mapper needs it, and its row count sets the µm scale factor.']);
+        % The density hand-off is an explicit EXPORT now, not a side effect of opening the picker. The
+        % old "(re)save density first" box wrote Density_<cell>.mat/.tif on open — from the full
+        % detection cloud, not the tracks the picker shows — and wrote them without the contact
+        % sites, which are the thing the files are for.
+        btnCSexport = uibutton(r,'Text','📦 Export for advisor','ButtonPushedFcn',@(s,e) onCSExport(), ...
+            'Tooltip',['Write ONE folder, analysis/exports/advisor_<date-time>/, with every cell that has ' ...
+                       'saved sites: Density_<cell>.mat + .tif and Densities/<cell>_rho.tif in the ' ...
+                       'external ContactSites format, a per-window density stack, the picks ' ...
+                       '(csIDs/<cell>_CSsites.txt), and per-site tables with centre, window, mito, ' ...
+                       'area, localizations and tracks inside the CURRENT (saved) footprint, plus the ' ...
+                       'boundary polygons and a README. Built from the tracked localizations of the ' ...
+                       'filtered build, minus hand-rejected tracks — the same set the picker shows. ' ...
+                       'Cells excluded on the Experiment tab and sites deleted on Refine are left out.']);
         lblCS = uilabel(r,'Text','Build (Build & QC tab), then open the windowed contact-site picker here.','FontColor',[0.2 0.4 0.5]);
         pnCS = uipanel(g,'BorderType','none');
         placeholder(pnCS, 'The windowed contact-site picker opens here when you click ▶ Open windowed picker.');
     end
 
     function onLaunchCS()
+        resetCSExportButton();          % sites may be re-picked and re-saved from here
         if exist('cs_window_picker','file') ~= 2, lblCS.Text = 'cs_window_picker.m is not on the path (expected in drivers/).'; return; end
         if ~ensureTracksLoaded() || isempty(buildTracks)
             lblCS.Text = 'Build (Build & QC tab) or open a project with analysis/TrackStruct.mat first.'; return; end
@@ -709,7 +740,7 @@ end
         % bootstrapped when the folder is empty, which is why density files appear on a project
         % nobody ran density on. The EXTRA Density_<base>.mat/.tif are export-only and follow the
         % checkbox, so a bootstrap writes 93 files rather than 279.
-        wantExtra = ~isempty(chkCSsaveDens) && chkCSsaveDens.Value;
+        wantExtra = false;             % the export copies are the advisor export's job now (onCSExport)
         needDens = isempty(dir(fullfile(anaDir,'Densities','*_rho.tif')));
         if wantExtra || needDens
             if needDens && ~wantExtra
@@ -719,7 +750,7 @@ end
             end
             drawnow;
             for k = 1:numel(buildTracks)
-                try, saveDensityFiles(k, 'All detections (cloud)', anaDir, wantExtra); catch, end
+                try, saveDensityFiles(k, 'Tracked spots only', anaDir, wantExtra); catch, end
             end
         end
         % ER max-occupancy MIP = the ER support the ER-Monte-Carlo null scatters within.
@@ -737,6 +768,55 @@ end
             lblCS.Text = ['Picker error: ' ME.message];
             placeholder(pnCS, 'The windowed contact-site picker opens here when you click ▶ Open windowed picker.');
         end
+    end
+
+    function onCSExport()
+        anaDir = ensureAnaDir(); if isempty(anaDir), lblCS.Text = 'Pick a project first.'; return; end
+        if ~ensureTracksLoaded() || isempty(buildTracks)
+            lblCS.Text = 'Build (Build & QC tab) or open a project with a TrackStruct first.'; return; end
+        if isempty(dir(fullfile(anaDir,'csIDs','*_CSsites.txt')))
+            lblCS.Text = 'No saved contact sites yet — open the picker, pick sites and 💾 Save first.'; return; end
+        % The same cells the picker offers: EXCLUDE on the Experiment tab means out of everything.
+        [keep, nDrop] = engageKeepCells(buildTracks);
+        cells = arrayfun(@(t) baseOf(t.file), buildTracks(keep), 'uni', 0);
+        resetCSExportButton(); btnCSexport.Text = 'Exporting…'; drawnow;
+        try
+            R = cs_advisor_export(anaDir, struct('cells',{cells},'fovUm',FOVUM,'binNm',PRECNM));
+        catch ME
+            resetCSExportButton(); lblCS.Text = ['Export failed: ' ME.message]; return;
+        end
+        msg = sprintf('Exported %d cell(s), %d site(s) → %s', R.nCells, R.nSites, R.outDir);
+        if R.nDeleted > 0,        msg = sprintf('%s · %d deleted site(s) left out', msg, R.nDeleted); end
+        if nDrop > 0,             msg = sprintf('%s · %d excluded cell(s) left out', msg, nDrop); end
+        if R.nRejectedTracks > 0, msg = sprintf('%s · %d hand-rejected track(s) in no density', msg, R.nRejectedTracks); end
+        % Unsaved Refine edits are NOT in the files: the export reads what is saved. Saying so is the
+        % difference between sending your advisor the footprints you refined and the ones you meant to.
+        if refDirty
+            msg = sprintf(['%s · ⚠ the Refine tab has UNSAVED edits and they are NOT in this export — ' ...
+                           '💾 Save there and export again'], msg);
+        end
+        lblCS.Text = msg; logBuild(msg);
+        % The button keeps its verb — it is still the button that exports — and says it worked with a
+        % tick and a colour. It goes back to plain the moment anything it exported changes (a Refine
+        % edit or save, reopening the picker), so a green button never vouches for a stale export.
+        btnCSexport.Text = '✓ Export for advisor';
+        btnCSexport.BackgroundColor = tern(refDirty, [0.98 0.88 0.70], [0.83 0.93 0.83]);
+        btnCSexport.FontWeight = 'bold';
+        btnCSexport.Tooltip = sprintf('Last export: %d cell(s), %d site(s) → %s', R.nCells, R.nSites, R.outDir);
+    end
+
+    function markRefDirty()
+        refDirty = true; resetCSExportButton();
+    end
+
+    function resetCSExportButton()
+        if isempty(btnCSexport) || ~isgraphics(btnCSexport), return; end
+        btnCSexport.Text = '📦 Export for advisor';
+        btnCSexport.BackgroundColor = [0.96 0.96 0.96]; btnCSexport.FontWeight = 'normal';
+    end
+
+    function b = baseOf(f)
+        [~, b] = fileparts(char(f));
     end
 
     function mdir = ensureMips(anaDir)
@@ -780,15 +860,28 @@ end
         lstRefSites = uilistbox(mn,'Items',{'(load first)'},'ValueChangedFcn',@(s,e) onRefSelect());
         % centre: contact-site editor (top) with the radial concentration plot beneath it (full width, no cut-off)
         cnR = uigridlayout(mn,[2 1],'RowHeight',{'1.55x','1x'},'Padding',[0 0 0 0],'RowSpacing',6);
-        axRef = uiaxes(cnR); title(axRef,'contact-site editor (load, then pick a site)'); axRef.Toolbar.Visible='off';
+        axRef = uiaxes(cnR,'Tag','refAxes'); title(axRef,'contact-site editor (load, then pick a site)'); axRef.Toolbar.Visible='off';
         spt_axes_policy(axRef);
         axRad = uiaxes(cnR); box(axRad,'on'); axRad.FontSize = 9; spt_axes_policy(axRad);
         title(axRad,'radial concentration (load, then pick a site)');
         % right: display + auto-outline + manual-draw + delete controls
-        cc = uigridlayout(mn,[14 1],'RowHeight',{24, 16,26, 44, 16,32, 16,26,30,28, 40,28, 30, '1x'}, ...
+        % The info label is the LAST row and takes the elastic height. It used to sit in a 30 px row
+        % with an unused '1x' row after it, so of its six lines only "area" and "tracks" were ever
+        % visible — the localization count added for cross-checking was drawn and clipped away.
+        cc = uigridlayout(mn,[14 1],'RowHeight',{24, 16,26, 44, 16,32, 16,26,26,30,28, 40,28, '1x'}, ...
             'Padding',[0 0 0 0],'RowSpacing',4);
-        chkRefLocs = uicheckbox(cc,'Text','show localizations','Value',false, ...
-            'Tooltip','Overlay this window''s localizations (white dots) on the density.','ValueChangedFcn',@(s,e) redrawRef());
+        ckg = uigridlayout(cc,[1 2],'ColumnWidth',{'1.25x','1x'},'Padding',[0 0 0 0],'ColumnSpacing',4);
+        chkRefLocs = uicheckbox(ckg,'Text','localizations','Value',false, ...
+            'Tooltip',['Overlay this window''s localizations (white dots) on the density. Every dot is ' ...
+                       'on a track: the selected site''s member tracks are drawn in yellow, and every ' ...
+                       'other track in the window as a faint grey line, so a dot is never left looking ' ...
+                       'unlinked just because its track belongs to a different site.'], ...
+            'ValueChangedFcn',@(s,e) redrawRef());
+        chkRefNbr = uicheckbox(ckg,'Text','other sites','Value',true, ...
+            'Tooltip',['Outline every OTHER picked site in this cell and window (dashed cyan, labelled ' ...
+                       's#; red if deleted). Zoom out to see which neighbouring blobs are already sites. ' ...
+                       'Click an outline to jump to that site.'], ...
+            'ValueChangedFcn',@(s,e) redrawRef());
         uilabel(cc,'Text','colour scale','FontWeight','bold','FontColor',[0.35 0.35 0.4]);
         ddRefScale = uidropdown(cc,'Items',{'density (a.u.)','locs / bin','significance (p)'},'Value','density (a.u.)', ...
             'Tooltip',['density = smoothed detection density; locs/bin = raw localization count per 30 nm bin; ' ...
@@ -811,6 +904,11 @@ end
         uibutton(cc,'Text','✎ Draw centre + boundary','FontWeight','bold','BackgroundColor',[0.20 0.45 0.70],'FontColor','w', ...
             'Tooltip','Click the CENTRE, then press-and-drag to trace the contact-site BOUNDARY yourself (Esc cancels). This is the paper''s manual refine.', ...
             'ButtonPushedFcn',@(s,e) onRefDrawCB());
+        uibutton(cc,'Text','✥ Move centre only', ...
+            'Tooltip',['Click where the centre SHOULD be. The boundary stays exactly where it is on the ' ...
+                       'map — so the member tracks and localizations do not change — and only the centre ' ...
+                       'moves: the radial profile and the site-relative coordinates are measured from it.'], ...
+            'ButtonPushedFcn',@(s,e) onRefMoveCentre());
         uibutton(cc,'Text','↺ Reset to auto','ButtonPushedFcn',@(s,e) onRefReset());
         btnRefDelete = uibutton(cc,'Text','🗑 Delete site','FontColor',[0.75 0.1 0.1], ...
             'Tooltip','Mark this contact site for deletion (recorded in CS_footprints.mat; the mapper skips it). Click again to restore.', ...
@@ -822,7 +920,7 @@ end
         uibutton(cc,'Text','✨ Smooth boundary','FontWeight','bold', ...
             'Tooltip','Smooth this contact site''s outline into a clean closed curve (removes the jagged half-max / freehand steps). Click again to smooth more.', ...
             'ButtonPushedFcn',@(s,e) onRefSmooth());
-        lblRefInfo = uilabel(cc,'Text','','WordWrap','on','FontColor',[0.35 0.35 0.42]);
+        lblRefInfo = uilabel(cc,'Text','','WordWrap','on','FontColor',[0.35 0.35 0.42],'VerticalAlignment','top');
     end
 
     function onRefContrast()
@@ -845,7 +943,7 @@ end
         refFoot(refSelIdx).areaUm2 = polyarea(rb(:,1),rb(:,2));
         om = 'halfmax'; if isfield(refFoot,'mode') && ~isempty(refFoot(refSelIdx).mode), om = char(refFoot(refSelIdx).mode); end
         refFoot(refSelIdx).mode = [regexprep(om,'\+smooth$','') '+smooth'];
-        refFoot(refSelIdx).edited = true;
+        refFoot(refSelIdx).edited = true; markRefDirty();
         drawRefSite(refSelIdx); updateRefRow(refSelIdx);
         lblRef.Text = sprintf('Smoothed the contact-site boundary (strength %.2f). 💾 Save when done.', refSmoothAmt());
     end
@@ -858,7 +956,7 @@ end
         % this window's density-source localizations (µm) — for the scatter overlay + radial plot
         X = []; Y = [];
         if isempty(buildTracks) || e.cellIndex<1 || e.cellIndex>numel(buildTracks), return; end
-        T = buildTracks(e.cellIndex);
+        Tc = ctTracks(); T = Tc(e.cellIndex);
         if strcmp(e.densSrc,'tracked')
             sX = reshape(T.matrix(:,:,2),[],1); sY = reshape(T.matrix(:,:,3),[],1); sF = reshape(T.matrix(:,:,1),[],1);
         else
@@ -879,59 +977,23 @@ end
         % the few that were edited. The density SOURCE is LOCKED to whatever the picker (Contact-sites tab) used
         % (cs_footprints_build reads windows.source); no toggle here.
         lblRef.Text='Building contact sites…'; drawnow;
-        try, refFoot = cs_footprints_build(anaDir, struct('save',false,'verbose',false));
+        % cs_footprints_resolve = the auto footprints with every SAVED edit and deletion merged on —
+        % the same function the advisor export reads, so what is refined here is what is exported.
+        try, [refFoot, rinfo] = cs_footprints_resolve(anaDir);
         catch ME, lblRef.Text=['Build error: ' ME.message]; return; end
         if isempty(refFoot), lblRef.Text='No sites found for the cells in TrackStruct.'; return; end
+        refDirty = false;
         refLockedSrc = refFoot(1).densSrc;
         if ~isempty(lblRefSrc) && isgraphics(lblRefSrc)
             lblRefSrc.Text = ['density source: ' srcLabel(refLockedSrc) '  (locked from picker)'];
         end
-        nMerged = 0; nDel = 0;
-        f = fullfile(anaDir,'CS_footprints.mat');
-        if isfile(f)
-            try
-                Lf = load(f);
-                if isfield(Lf,'CSfoot') && ~isempty(Lf.CSfoot)
-                    for q = 1:numel(Lf.CSfoot)
-                        m = matchFoot(refFoot, Lf.CSfoot(q));
-                        if m>0, refFoot(m) = mergeFoot(refFoot(m), Lf.CSfoot(q)); nMerged = nMerged+1; end
-                    end
-                end
-                if isfield(Lf,'CSdeleted') && ~isempty(Lf.CSdeleted)
-                    for q = 1:numel(Lf.CSdeleted)
-                        m = matchFoot(refFoot, Lf.CSdeleted(q));
-                        if m>0, refFoot(m).deleted = true; nDel = nDel+1; end
-                    end
-                end
-            catch, end
-        end
+        nMerged = rinfo.nMerged; nDel = rinfo.nDeleted;
         siteDensCache = struct('key',{},'dens',{},'raw',{}); refNullCache = struct('key',{},'nullMax',{},'pmap',{}); refErCache = struct('key',{},'erGrid',{}); refCbar = [];
         wl = unique([refFoot.window]); ddRefWin.Items = [{'All windows'}, arrayfun(@(w) sprintf('window %d',w), wl,'uni',0)];
         ddRefWin.Value = 'All windows'; refSelIdx = 0;
         fillRefList();
         extra = ''; if nMerged>0 || nDel>0, extra = sprintf(' (resumed %d edit(s), %d deletion(s))', nMerged, nDel); end
         lblRef.Text = sprintf('%d footprint(s)%s — pick a site; adjust / draw / delete; then 💾 Save.', numel(refFoot), extra);
-    end
-
-    function m = matchFoot(FF, ff)
-        % index in FF of the site matching ff (file+csID+window, pickPx-validated); 0 if none
-        m = 0;
-        for i = 1:numel(FF)
-            if strcmp(FF(i).file,ff.file) && FF(i).csID==ff.csID && FF(i).window==ff.window
-                ok = true;
-                if isfield(ff,'pickPx') && numel(ff.pickPx)==2 && isfield(FF(i),'pickPx') && numel(FF(i).pickPx)==2
-                    ok = hypot(FF(i).pickPx(1)-ff.pickPx(1), FF(i).pickPx(2)-ff.pickPx(2)) < 1.5;
-                end
-                if ok, m = i; return; end
-            end
-        end
-    end
-
-    function b = mergeFoot(b, s)
-        for fld = {'center','refboundary','mode','frac','maxRadiusUm','areaUm2'}
-            if isfield(s,fld{1}) && ~isempty(s.(fld{1})), b.(fld{1}) = s.(fld{1}); end
-        end
-        b.edited = true;
     end
 
     function fillRefList()
@@ -993,19 +1055,27 @@ end
         end
         axis(axRef,'image'); hold(axRef,'on');
         [Lx,Ly] = refWindowLocs(e);                                          % this window's localizations (µm)
+        [trk,CSm] = footTrackMembers(e.cellIndex, e.winFrames, cUm, e.refboundary);
         if ~isempty(chkRefLocs) && isgraphics(chkRefLocs) && chkRefLocs.Value && ~isempty(Lx)
+            % A dot with no line through it read as an UNLINKED localization. It never was — every
+            % track in the build has at least the minimum length — it belonged to a track that is not
+            % a member of THIS site, and only members were drawn. On a real cell, 45 of the 69 dots
+            % in one view were like that. Every other track in the window is now drawn faintly.
+            drawOtherTracks(e, trk);
             scatter(axRef, Lx, Ly, 5, [1 1 1], 'filled', 'MarkerFaceAlpha',0.30, 'HitTest','off');
         end
+        if ~isempty(chkRefNbr) && isgraphics(chkRefNbr) && chkRefNbr.Value, drawNeighbours(k); end
         bx = e.refboundary(:,1)+cUm(1); by = e.refboundary(:,2)+cUm(2);
         del = isfield(e,'deleted') && ~isempty(e.deleted) && e.deleted;
         bclr = [1 1 1]; if del, bclr = [1 0.35 0.35]; end                    % deleted -> red, dashed
-        plot(axRef, bx, by, tern(del,'--','-'),'Color',bclr,'LineWidth',1.6);
-        [trk,CSm] = footTrackMembers(e.cellIndex, e.winFrames, cUm, e.refboundary);
+        plot(axRef, bx, by, tern(del,'--','-'),'Color',bclr,'LineWidth',1.6,'HitTest','off');
+        % Member tracks, drawn over the SAME frames as the dots and the membership test — the site's
+        % window. Drawing whole tracks put line segments where no dot was shown.
         for jj = 1:numel(trk)
-            x = CSm(:,jj,2)+cUm(1); y = CSm(:,jj,3)+cUm(2); ok = isfinite(x)&isfinite(y);
-            if nnz(ok)>=2, plot(axRef, x(ok), y(ok), '-','Color',[1 0.95 0.3 0.55],'LineWidth',0.5); end
+            x = CSm(:,jj,2)+cUm(1); y = CSm(:,jj,3)+cUm(2); ok = isfinite(x)&isfinite(y)&inWin(CSm(:,jj,1), e.winFrames);
+            if nnz(ok)>=2, plot(axRef, x(ok), y(ok), '-','Color',[1 0.95 0.3 0.55],'LineWidth',0.5,'HitTest','off'); end
         end
-        plot(axRef, cUm(1), cUm(2), '+','Color',[1 0 1],'MarkerSize',13,'LineWidth',1.6);
+        plot(axRef, cUm(1), cUm(2), '+','Color',[1 0 1],'MarkerSize',13,'LineWidth',1.6,'HitTest','off');
         hold(axRef,'off');
         pad = max(0.6, 1.4*sqrt(max(e.areaUm2,eps)/pi));
         xlim(axRef,[min(bx)-pad max(bx)+pad]); ylim(axRef,[min(by)-pad max(by)+pad]);
@@ -1047,6 +1117,94 @@ end
         end
     end
 
+    function m = inWin(fr, wf)
+        if isinf(wf(1)) && isinf(wf(2)), m = true(size(fr)); else, m = fr>=wf(1) & fr<=wf(2); end
+    end
+
+    function drawOtherTracks(e, memberCols)
+        % Every non-member track with a localization in this window, as ONE faint line object (NaN
+        % between tracks) — a few hundred tracks cost one graphics object rather than hundreds.
+        Tc = ctTracks(); M = Tc(e.cellIndex).matrix;
+        A = M(:,:,2); B = M(:,:,3);
+        ok = isfinite(A) & isfinite(B) & inWin(M(:,:,1), e.winFrames);
+        cols = setdiff(find(any(ok,1)), memberCols);
+        xs = cell(numel(cols),1); ys = xs;
+        for q = 1:numel(cols)
+            j = cols(q); m = ok(:,j);
+            if nnz(m) < 2, continue; end
+            xs{q} = [A(m,j); NaN]; ys{q} = [B(m,j); NaN];
+        end
+        xs = vertcat(xs{:}); ys = vertcat(ys{:});
+        if ~isempty(xs)
+            plot(axRef, xs, ys, '-', 'Color',[0.85 0.85 0.85 0.35], 'LineWidth',0.4, 'HitTest','off', 'Tag','refOtherTracks');
+        end
+    end
+
+    function drawNeighbours(k)
+        % Outline every OTHER picked site in this cell and window, so zooming out answers "is that
+        % blob already a site?". Dashed cyan, labelled with its site number; red if deleted. The
+        % outline and the label are clickable and select that site.
+        e = refFoot(k);
+        sib = find([refFoot.cellIndex] == e.cellIndex & [refFoot.window] == e.window);
+        sib(sib == k) = [];
+        for q = sib(:)'
+            f = refFoot(q); c = f.center(:)';
+            if isempty(f.refboundary), continue; end
+            dq = isfield(f,'deleted') && ~isempty(f.deleted) && f.deleted;
+            clr = [0.35 0.90 1.00]; if dq, clr = [1 0.35 0.35]; end
+            h = plot(axRef, f.refboundary(:,1)+c(1), f.refboundary(:,2)+c(2), '--', ...
+                'Color', clr, 'LineWidth', 1.1, 'Tag', 'refNeighbour');
+            h.ButtonDownFcn = @(~,~) jumpToRef(q);
+            t = text(axRef, c(1), c(2), sprintf('s%d', f.csID), 'Color', clr, 'FontSize', 9, ...
+                'FontWeight', 'bold', 'HorizontalAlignment', 'center', 'Tag', 'refNeighbourLabel');
+            t.ButtonDownFcn = @(~,~) jumpToRef(q);
+        end
+    end
+
+    function jumpToRef(q)
+        if refDrawing || q < 1 || q > numel(refFoot), return; end   % a click meant for drawpoint
+        if isempty(refRowMap) || ~any(refRowMap == q)                % filtered out: show every window
+            if ~isempty(ddRefWin) && isgraphics(ddRefWin), ddRefWin.Value = 'All windows'; end
+            fillRefList();
+        end
+        lstRefSites.Value = q; onRefSelect();
+    end
+
+    function onRefMoveCentre()
+        % Move ONLY the centre. The boundary stays exactly where it is on the map, so membership, the
+        % localization count and the area are all unchanged; the radial profile and the site-relative
+        % coordinates are measured from the new centre. refboundary is stored RELATIVE to the centre,
+        % so keeping it still means shifting it by the opposite of the move.
+        if refSelIdx < 1 || refSelIdx > numel(refFoot), return; end
+        lblRef.Text = 'Click where the CENTRE should be (Esc cancels) — the boundary stays where it is.'; drawnow;
+        r1 = [];
+        refDrawing = true; cleanup = onCleanup(@() setRefDrawing(false));
+        try, r1 = drawpoint(axRef, 'Color', [1 0 1]);
+        catch ME, lblRef.Text = ['Drawing unavailable here: ' ME.message]; return; end
+        if isempty(r1) || ~isvalid(r1) || isempty(r1.Position)
+            lblRef.Text = 'Cancelled (centre unchanged).'; try, delete(r1); catch, end; return;
+        end
+        newC = r1.Position(:)'; try, delete(r1); catch, end
+        moveRefCentre(refSelIdx, newC);
+    end
+
+    function moveRefCentre(k, newC)
+        % The edit itself, separate from the click so it can be driven without a mouse.
+        e = refFoot(k); oldC = e.center(:)'; newC = newC(:)';
+        refFoot(k).refboundary = e.refboundary + (oldC - newC);
+        refFoot(k).center = newC;
+        refFoot(k).mode = [regexprep(char(e.mode), '\+centre$', '') '+centre'];
+        refFoot(k).edited = true; markRefDirty();
+        rb = refFoot(k).refboundary;
+        inside = inpolygon(0, 0, rb(:,1), rb(:,2));
+        drawRefSite(k); updateRefRow(k);
+        lblRef.Text = sprintf('Centre moved %.0f nm; boundary, members and area unchanged.%s 💾 Save when done.', ...
+            1000*hypot(newC(1)-oldC(1), newC(2)-oldC(2)), ...
+            tern(inside, '', ' ⚠ The new centre is OUTSIDE the boundary — the radial profile will read as off-site.'));
+    end
+
+    function setRefDrawing(v), refDrawing = v; end
+
     function pk = localPeak(im, cUm, SF, g)
         % peak of a density image within a small disk (0.4 µm) about the centre
         pk = NaN; if isempty(im), return; end
@@ -1083,7 +1241,7 @@ end
     function onRefDelete()
         if refSelIdx<1 || refSelIdx>numel(refFoot), return; end
         cur = isfield(refFoot(refSelIdx),'deleted') && ~isempty(refFoot(refSelIdx).deleted) && refFoot(refSelIdx).deleted;
-        refFoot(refSelIdx).deleted = ~cur;
+        refFoot(refSelIdx).deleted = ~cur; markRefDirty();
         drawRefSite(refSelIdx); updateRefRow(refSelIdx);
         if ~cur, lblRef.Text = sprintf('Site %d marked for deletion — 💾 Save, then re-run the mapper (Sites tab) to drop it.', refFoot(refSelIdx).csID);
         else,    lblRef.Text = sprintf('Site %d restored.', refFoot(refSelIdx).csID); end
@@ -1099,7 +1257,7 @@ end
         refFoot(refSelIdx).refboundary = fp.refboundary; refFoot(refSelIdx).center = fp.centerUm;
         refFoot(refSelIdx).mode = fp.mode; refFoot(refSelIdx).frac = eRefFrac.Value;
         refFoot(refSelIdx).maxRadiusUm = eRefMaxR.Value; refFoot(refSelIdx).areaUm2 = fp.areaUm2;
-        refFoot(refSelIdx).edited = true;                 % only edited footprints are saved as overrides
+        refFoot(refSelIdx).edited = true; markRefDirty();   % only edited footprints are saved as overrides
         drawRefSite(refSelIdx); updateRefRow(refSelIdx);
     end
 
@@ -1110,6 +1268,7 @@ end
         if refSelIdx<1 || refSelIdx>numel(refFoot), return; end
         lblRef.Text='Click the CENTRE, then press-and-drag to trace the BOUNDARY (Esc cancels)…'; drawnow;
         r1 = [];
+        refDrawing = true; cleanup = onCleanup(@() setRefDrawing(false));   % neighbour outlines ignore clicks meanwhile
         try, r1 = drawpoint(axRef,'Color',[1 0 1]);
         catch ME, lblRef.Text=['Drawing unavailable here: ' ME.message]; return; end
         if isempty(r1) || ~isvalid(r1) || isempty(r1.Position)
@@ -1127,7 +1286,7 @@ end
         if exist('cs_close_boundary','file')==2, refb = cs_close_boundary(refb); end   % round ONLY the closing seam; keep the traced shape
         refFoot(refSelIdx).center = ctr; refFoot(refSelIdx).refboundary = refb;
         refFoot(refSelIdx).mode = 'freehand'; refFoot(refSelIdx).areaUm2 = polyarea(refb(:,1),refb(:,2));
-        refFoot(refSelIdx).edited = true;
+        refFoot(refSelIdx).edited = true; markRefDirty();
         drawRefSite(refSelIdx); updateRefRow(refSelIdx);
         lblRef.Text='Centre + boundary set by hand. 💾 Save footprints when done.';
     end
@@ -1137,7 +1296,7 @@ end
         if isgraphics(eRefFrac),  eRefFrac.Value=0.5; end
         if isgraphics(eRefMaxR),  eRefMaxR.Value=0.6; end
         onRefParam();                                   % recompute the auto (half-max) contact site
-        refFoot(refSelIdx).edited = false;              % back to auto -> no longer an override
+        refFoot(refSelIdx).edited = false; markRefDirty();   % back to auto -> no longer an override
         drawRefSite(refSelIdx); updateRefRow(refSelIdx);
     end
 
@@ -1165,7 +1324,8 @@ end
         end
         try, save(fullfile(anaDir,'CS_footprints.mat'),'CSfoot','CSdeleted','-v7.3'); %#ok<NASGU>
         catch ME, lblRef.Text=['Save failed: ' ME.message]; return; end
-        CSW = []; DD = [];                        % refinement changes the mapping -> invalidate old results
+        CSW = []; DD = []; refDirty = false;      % refinement changes the mapping -> invalidate old results
+        resetCSExportButton();                    % what was exported is no longer what is saved
         nE = nnz(edFlag & ~delFlag); nD = nnz(delFlag);
         if nE==0 && nD==0
             lblRef.Text = 'No edits/deletions — saved an empty override set; the mapper (Sites tab) uses AUTO footprints for every site.';
@@ -1625,12 +1785,15 @@ end
         % Smoothed density + raw counts for a window (cached per cell/window/src/grid). Raw feeds the
         % locs/bin colour scale and the significance (Monte-Carlo) null.
         Dens = []; Raw = [];
-        key = sprintf('%d|%g|%g|%s|%d', ci, winFrames(1), winFrames(2), src, grid);
+        if isempty(buildTracks) || ci < 1 || ci > numel(buildTracks), return; end
+        % The key carries the exclusions stamp, so a track rejected on the QC tab changes the density.
+        % ctTracks() runs FIRST: it is what refreshes the stamp, and looking up with the previous one
+        % would hand back the density from before the rejection.
+        Tc = ctTracks(); T = Tc(ci);
+        key = sprintf('%d|%g|%g|%s|%d|%s', ci, winFrames(1), winFrames(2), src, grid, ctCacheKey);
         for i = 1:numel(siteDensCache)
             if strcmp(siteDensCache(i).key,key), Dens = siteDensCache(i).dens; Raw = siteDensCache(i).raw; return; end
         end
-        if isempty(buildTracks) || ci < 1 || ci > numel(buildTracks), return; end
-        T = buildTracks(ci);
         if strcmp(src,'tracked')
             sX = reshape(T.matrix(:,:,2),[],1); sY = reshape(T.matrix(:,:,3),[],1); sF = reshape(T.matrix(:,:,1),[],1);
         else
@@ -1686,7 +1849,7 @@ end
         % Live tracked-membership preview for the Refine editor (same test the mapper uses).
         tracks = []; CSmatrix = [];
         if isempty(buildTracks) || ci < 1 || ci > numel(buildTracks), return; end
-        M = buildTracks(ci).matrix; Frame = M(:,:,1); A = M(:,:,2); B = M(:,:,3);
+        Tc = ctTracks(); M = Tc(ci).matrix; Frame = M(:,:,1); A = M(:,:,2); B = M(:,:,3);
         Ar = A-center(1); Br = B-center(2); okxy = isfinite(A)&isfinite(B);
         inP = false(size(A)); inP(okxy) = inpolygon(Ar(okxy), Br(okxy), refb(:,1), refb(:,2));
         if isinf(winFrames(1))&&isinf(winFrames(2)), inW = true(size(Frame)); else, inW = Frame>=winFrames(1)&Frame<=winFrames(2); end
@@ -2385,7 +2548,9 @@ end
         % The cells the picker offers. Excluded cells are dropped here rather than greyed out in its
         % dropdown: the picker also has "Detect all", which would otherwise pick sites in a cell the
         % Experiment tab says not to analyse, and those sites go on to the mapper and to Dwell.
-        T = buildTracks;
+        % Hand-rejected tracks are blanked (ctTracks), so the picker's density — and every loc/trk
+        % count it shows — is built from the same filtered set as Refine, the mapper and the export.
+        T = ctTracks();
         if isempty(T), return; end
         [keep, nDrop] = engageKeepCells(T);
         if nDrop > 0
@@ -3216,6 +3381,7 @@ end
         % switch or a Load never leaks a prior dataset's footprints/densities/results into the new one.
         try, dwellStopTimer(); catch, end   % stop any running Dwell animation before wiping results
         CSW = []; DD = []; cmpKeptSites = []; cmpLast = []; cmpCells = []; siteDensCache = struct('key',{},'dens',{},'raw',{}); refNullCache = struct('key',{},'nullMax',{},'pmap',{});
+        ctCache = []; ctCacheKey = ''; refDirty = false;   % a different build: its blanked copy is stale
         dwellAnim = [];
         refFoot = []; refSelIdx = 0; refRowMap = []; siteSelIdx = 0; siteRowMap = []; siteMemberSel = 0;
         if ~isempty(refCbar) && isgraphics(refCbar), delete(refCbar); end; refCbar = [];
@@ -3431,6 +3597,7 @@ end
         n = numel(Tracks); D = cell(n, 3 + nCh + 5); tot = 0;
         anyCh = false(1, nCh);
         buildTracks = Tracks;                                    % set FIRST: the calibration accessors read it
+        ctCache = []; ctCacheKey = '';
         for k = 1:n
             L = double(Tracks(k).lengths(:)); nt = numel(L); tot = tot + nt;
             marks = cell(1, nCh);

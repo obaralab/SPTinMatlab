@@ -7,6 +7,8 @@ function out = cs_track_exclusions(action, varargin)
 %   tf   = cs_track_exclusions('has',    ex, file, col)
 %   keep = cs_track_exclusions('mask',   ex, Tracks)        % {nCells} logical, true = keep
 %   Tsub = cs_track_exclusions('apply',  ex, Tracks)        % the same array with rejects removed
+%   Tbl  = cs_track_exclusions('blank',  ex, Tracks)        % rejects' POSITIONS -> NaN, columns kept
+%   stmp = cs_track_exclusions('stamp',  projectDir)        % changes whenever the file does (cache key)
 %   n    = cs_track_exclusions('count',  ex)
 %
 % WHY A LIST AND NOT A REBUILD. Removing a bad track by rebuilding would discard every other
@@ -34,6 +36,8 @@ switch lower(char(action))
     case 'has',    out = doHas(varargin{:});
     case 'mask',   out = doMask(varargin{:});
     case 'apply',  out = doApply(varargin{:});
+    case 'blank',  out = doBlank(varargin{:});
+    case 'stamp',  out = doStamp(varargin{:});
     case 'count',  out = numel(varargin{1});
     case 'file',   out = exFile(varargin{1});
     otherwise, error('cs_track_exclusions:action','unknown action "%s"', char(action));
@@ -116,6 +120,35 @@ for k = 1:numel(Tracks)
     end
     keep{k} = m;
 end
+end
+
+function T = doBlank(ex, Tracks)
+% Rejected tracks with their POSITIONS set to NaN and every column left where it was.
+%
+% For code that builds DENSITIES and FOOTPRINTS. 'apply' removes columns, which renumbers every
+% track after the first rejection — and the contact-site path keys its per-site exclusions, member
+% lists, CSmatrix and dwell rows by column. A blanked track contributes no localization to any
+% density and cannot be a member of any site (every membership test requires finite x,y), while
+% every other track keeps its number. Frames are left alone: nothing reads a frame without a
+% position, and keeping them keeps the matrix's layout exactly as built.
+T = Tracks;
+if isempty(ex), return; end
+keep = doMask(ex, Tracks);
+for k = 1:numel(T)
+    m = keep{k};
+    if isempty(m) || all(m), continue; end
+    T(k).matrix(:, ~m, 2:3) = NaN;
+end
+end
+
+function s = doStamp(projectDir)
+% A string that changes whenever the exclusions file does. Density caches key on it, so a track
+% rejected on the QC tab drops out of the Refine density on the next draw rather than after a reload.
+s = 'none';
+f = exFile(projectDir);
+if isempty(f) || ~isfile(f), return; end
+d = dir(f);
+s = sprintf('%s|%d|%.10f', f, d.bytes, d.datenum);
 end
 
 function Tsub = doApply(ex, Tracks)
