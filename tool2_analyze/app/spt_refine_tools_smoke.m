@@ -16,6 +16,11 @@ function spt_refine_tools_smoke()
 %   5. THE EXPORT WARNS ABOUT UNSAVED EDITS, and after Save carries the moved centre.
 %   6. HAND-REJECTED TRACKS ARE OUT OF THE REFINE DENSITY: the "window locs" total is the blanked
 %      matrix's, not the build's.
+%   7. THE VIEW IS THE USER'S. An edit redraws the same site without re-framing it; "view ± µm"
+%      zooms out without the mouse and holds for every site; opening a neighbour from its outline
+%      keeps the zoom level. (That the scroll wheel works at all is spt_refine_zoom_smoke.)
+%   8. THE EXPORT IS NAMED IN A DIALOG that refuses a name already used and shows the folder it will
+%      write, and the export carries BOTH site sets.
 %
 % Synthetic; reads no dataset.
 
@@ -127,12 +132,37 @@ assert(tot == nnz(isfinite(Xb) & inW), ...
     'Refine counts %d window localizations; without the rejected track there are %d (with it, %d)', ...
     tot, nnz(isfinite(Xb) & inW), nnz(isfinite(X) & inW));
 
+%% (7) the view is the user's ----------------------------------------------------------------------------
+spv = one(findobj(f,'Tag','refView'), 'view spinner');
+spv.Value = 3; spv.ValueChangedFcn(spv, struct()); drawnow;
+eK = f.UserData.refState().foot(k1);
+assert(abs(diff(ax.XLim) - 6) < 1e-9 && abs(mean(ax.XLim) - eK.center(1)) < 1e-9, ...
+    'view ± 3 µm gave x %s; it should be 6 µm wide around the site centre %.3f', mat2str(ax.XLim,4), eK.center(1));
+lst.Value = s2.sel; lst.ValueChangedFcn(lst, struct()); drawnow;
+assert(abs(diff(ax.XLim) - 6) < 1e-9, 'the ± 3 µm view did not hold for the next site (%s)', mat2str(ax.XLim,4));
+spv.Value = 0; spv.ValueChangedFcn(spv, struct()); drawnow;
+lst.Value = k1; lst.ValueChangedFcn(lst, struct()); drawnow;
+fitW = diff(ax.XLim);
+% zoom out by hand (what the wheel does), then open a neighbour FROM ITS OUTLINE: same zoom level
+xlim(ax, mean(ax.XLim) + [-4 4]); ylim(ax, mean(ax.YLim) + [-4 4]); drawnow;
+nb = findobj(ax,'Tag','refNeighbour'); nb(1).ButtonDownFcn(nb(1), struct()); drawnow;
+sN = f.UserData.refState();
+assert(abs(diff(ax.XLim) - 8) < 1e-9 && abs(mean(ax.XLim) - sN.foot(sN.sel).center(1)) < 1e-9, ...
+    ['opening a neighbour from its outline changed the zoom to %s — it should keep the 8 µm view ' ...
+     'you found it in, centred on the neighbour'], mat2str(ax.XLim,4));
+lst.Value = k1; lst.ValueChangedFcn(lst, struct()); drawnow;
+assert(abs(diff(ax.XLim) - fitW) < 1e-9, 'choosing a site from the LIST did not fit it again');
+
 %% (4) move centre moves only the centre ------------------------------------------------------------------
 e0 = s2.foot(k1);
 abs0 = e0.refboundary + e0.center;
 ttl0 = char(string(ax.Title.String));
 newC = e0.center + [0.04 -0.03];
+xlim(ax, mean(ax.XLim) + [-2.5 2.5]); ylim(ax, mean(ax.YLim) + [-2.5 2.5]); drawnow;
+xlKeep = ax.XLim;
 f.UserData.refMoveCentre(k1, newC); drawnow;
+assert(isequal(ax.XLim, xlKeep), ...
+    'an edit re-framed the view (%s -> %s); zooming out and then editing snapped back in', mat2str(xlKeep,4), mat2str(ax.XLim,4));
 s4 = f.UserData.refState(); e1 = s4.foot(k1);
 assert(max(abs(e1.center - newC)) < 1e-12, 'the centre did not move to where it was put');
 assert(max(abs((e1.refboundary + e1.center) - abs0), [], 'all') < 1e-12, ...
@@ -145,7 +175,17 @@ assert(endsWith(char(e1.mode), '+centre') && e1.edited && s4.dirty, ...
 
 %% (5) the export warns about unsaved edits, and carries the saved centre ------------------------------------
 selectTab(f, 'Contact sites');
-press(f, 'Export for advisor');
+mkdir(fullfile(ana,'exports','taken')); fclose(fopen(fullfile(ana,'exports','taken','x.txt'),'w'));
+dlgLog = struct('refusedTaken',false,'preview','');
+tmr = timer('StartDelay',1.0,'TimerFcn',@(~,~) answerDialog());
+start(tmr);
+press(f, 'Export for advisor');                 % opens the dialog; the timer answers it
+stop(tmr); delete(tmr);
+assert(dlgLog.refusedTaken, ...
+    'the name dialog let "taken" through although exports/taken already holds files');
+assert(contains(dlgLog.preview, 'exports/first_run'), ...
+    'the dialog did not show the folder it would write (it said "%s")', dlgLog.preview);
+assert(isfolder(fullfile(ana,'exports','first_run')), 'the export did not go to the name typed in the dialog');
 lblCS = one(findobj(f,'Type','uilabel'), 'contact-sites status', @(x) contains(string(x.Text),'Exported'));
 assert(contains(string(lblCS.Text), 'UNSAVED'), ...
     'exported while the Refine tab held an unsaved edit, and said nothing: "%s"', lblCS.Text);
@@ -160,16 +200,17 @@ assert(~f.UserData.refState().dirty, 'Save left the Refine tab marked unsaved');
 assert(~startsWith(string(btn.Text), "✓"), ...
     'saving new footprints left the export button saying the (now stale) export succeeded');
 selectTab(f, 'Contact sites');
-press(f, 'Export for advisor');
+f.UserData.csExport('second_run'); drawnow;
 assert(~contains(string(lblCS.Text), 'UNSAVED'), 'after Save the export still warns: "%s"', lblCS.Text);
 assert(isequal(btn.BackgroundColor, [0.83 0.93 0.83]), 'a clean export did not turn the button green');
 % The folder THIS export wrote, from the button's own report — not the newest folder on disk:
 % dir() timestamps have one-second resolution, so two exports a second apart can tie.
 outDir = strtrim(extractAfter(string(btn.Tooltip), "→ "));
 assert(strlength(outDir) > 0 && isfolder(outDir), 'the export button does not say where it wrote: "%s"', btn.Tooltip);
-d = dir(fullfile(ana,'exports','advisor_*'));
-assert(numel(d) == 2 && numel(unique({d.name})) == 2, 'two exports should make two folders; found %d', numel(d));
-C = readtable(fullfile(outDir, 'sites', 'cellA_contactsites.csv'));
+assert(endsWith(outDir, "second_run"), 'the second export went to %s', outDir);
+assert(isfile(fullfile(outDir,'sites','cellA_contactsites.csv')) && isfile(fullfile(outDir,'contactsites_all.csv')), ...
+    'the export is missing the contact-site (picker) tables');
+C = readtable(fullfile(outDir, 'sites', 'cellA_refinedsites.csv'));
 r = C(C.csID==1,:);
 assert(height(r) == 1, 'site 1 appears %d times in the export', height(r));
 assert(abs(r.x_um - newC(1)) < 1e-9 && abs(r.y_um - newC(2)) < 1e-9, ...
@@ -185,6 +226,23 @@ assert(~startsWith(string(btn.Text), "✓"), 'reopening the picker left the expo
 fprintf('info panel %g px · 2 same-window outlines, toggle + click work · %d member + %d other tracks = every track with locs · centre moved, boundary fixed · export warns, then carries it\n', ...
     info.Position(4), nMem, nOtherDrawn);
 fprintf('\nREFINE-TOOLS SMOKE PASSED.\n');
+
+    function answerDialog()
+        dqFig = findall(groot, 'Type','figure', 'Name','Export for advisor');
+        if isempty(dqFig), return; end
+        dqFig = dqFig(1);
+        dqEdit = findall(dqFig, 'Type','uieditfield'); dqGo = findall(dqFig, 'Type','uibutton', 'Text','Export');
+        dqLbl = findall(dqFig, 'Type','uilabel');
+        dqEdit.Value = 'taken'; dqEdit.ValueChangedFcn(dqEdit, struct()); drawnow;
+        dlgLog.refusedTaken = strcmp(dqGo.Enable, 'off');
+        dqGo.ButtonPushedFcn(dqGo, struct()); drawnow;          % must NOT close: the name is taken
+        if ~isgraphics(dqFig), dlgLog.refusedTaken = false; return; end
+        dqEdit.Value = 'first run'; dqEdit.ValueChangedFcn(dqEdit, struct()); drawnow;
+        dqTxt = arrayfun(@(x) char(string(x.Text)), dqLbl, 'uni', 0);
+        dlgLog.preview = strjoin(dqTxt(contains(dqTxt,'Will write')), ' ');
+        dqGo.ButtonPushedFcn(dqGo, struct());
+    end
+
 end
 
 % ================================================================================================

@@ -191,12 +191,23 @@ real view). **✥ Move centre only** moves the centre and keeps the boundary fix
 members, localization count and area do not change. The info panel was in a 30 px row and showed two
 of its six lines; it now takes the free height. `spt_refine_tools_smoke`.
 
-**📦 Export for advisor** (`cs_advisor_export`) writes a fresh `analysis/exports/advisor_<stamp>/`
-per press: the external code's `Density_<cell>.mat/.tif` and `Densities/<cell>_rho.tif`
-(`cs_advisor_density`, its exact grid), a per-window density stack, the picks, per-site tables with
-centre (um and px), window, mito, area, `n_loc_inside`, `n_tracks` inside the SAVED footprint
-(`cs_footprints_resolve` = auto footprints + saved edits/deletions, shared with Refine), boundary
-polygons, and a README with the coordinate conventions. Excluded cells and deleted sites are left
+**Refine zoom.** Creating a colorbar on a uiaxes silently disables scroll-zoom — `Interactions`
+still lists zoom and pan and nothing responds — and Refine creates one on its first draw, so the
+editor could not be zoomed at all. `spt_axes_policy` is re-applied after the colorbar exists and on
+every draw. Only a real wheel gesture can see this; `spt_refine_zoom_smoke` scrolls with
+`matlab.uitest` (it opens a window) and fails with the re-arm removed. The view is also kept across
+redraws of the same site, a `view ± µm` spinner zooms without the mouse, and opening a neighbour
+from its outline keeps the zoom level.
+
+**📦 Export for advisor** (`cs_advisor_export`) asks for a folder name (`cs_advisor_export_name`
+makes it folder-safe; a used name is refused — exports are never written over) and writes
+`analysis/exports/<name>/`: the external code's `Density_<cell>.mat/.tif` and `Densities/<cell>_rho.tif`
+(`cs_advisor_density`, its exact grid), a per-window density stack, the picks, and TWO site tables per cell: `_contactsites` (every pick as
+the picker found it, deleted ones flagged, the picker's `detect_*` statistics, and the automatic
+outline's `auto_*` area and counts) and `_refinedsites` (the final set: saved edits applied, deleted
+sites out, with `n_loc_inside`/`n_tracks` inside the refined outline). `cs_footprints_resolve`
+returns both the merged and the automatic footprints and is shared with Refine. Polygons in the
+.mat files; a README with the coordinate conventions. Excluded cells and deleted sites are left
 out; unsaved Refine edits are warned about. It replaced the "(re)save density first" checkbox, which
 wrote density files on every open, from the cloud, without the sites. `cs_advisor_export_smoke`,
 `spt_density_export_smoke`.

@@ -1,8 +1,8 @@
-function [F, info] = cs_footprints_resolve(anaDir, opts)
+function [F, info, Fauto] = cs_footprints_resolve(anaDir, opts)
 %CS_FOOTPRINTS_RESOLVE  Every picked contact site with its SAVED refinement applied — the footprint
 %set as it currently stands, not as the picker first proposed it.
 %
-%   [F, info] = cs_footprints_resolve(anaDir, opts)
+%   [F, info, Fauto] = cs_footprints_resolve(anaDir, opts)
 %
 % Builds the auto footprint for every site in csIDs/*_CSsites.txt (cs_footprints_build), then merges
 % analysis/CS_footprints.mat onto it: edited footprints replace the auto ones (centre, boundary,
@@ -14,6 +14,8 @@ function [F, info] = cs_footprints_resolve(anaDir, opts)
 % refined boundary on whatever site now has that number.
 %
 % info: .nMerged .nDeleted .nStale (saved edits whose pick no longer matches any site)
+% Fauto: the same sites BEFORE anything saved was applied — the automatic outline around each pick,
+%        with .deleted / .edited copied over so a caller can say what became of each one.
 %
 % Used by the Refine tab and by the advisor export, so what you refine is what gets exported.
 
@@ -22,11 +24,13 @@ if ~isfield(opts,'save'),    opts.save = false;    end
 if ~isfield(opts,'verbose'), opts.verbose = false; end
 F = cs_footprints_build(anaDir, opts);
 info = struct('nMerged',0,'nDeleted',0,'nStale',0);
+Fauto = F;
 if isempty(F), return; end
 for q = 1:numel(F)
     if ~isfield(F,'edited')  || isempty(F(q).edited),  F(q).edited  = false; end
     if ~isfield(F,'deleted') || isempty(F(q).deleted), F(q).deleted = false; end
 end
+Fauto = F;
 f = fullfile(anaDir, 'CS_footprints.mat');
 if ~isfile(f), return; end
 try, L = load(f); catch, return; end
@@ -44,6 +48,7 @@ if isfield(L,'CSdeleted') && ~isempty(L.CSdeleted)
         else,     info.nStale = info.nStale + 1; end
     end
 end
+for q = 1:numel(F), Fauto(q).edited = F(q).edited; Fauto(q).deleted = F(q).deleted; end
 end
 
 % =================================================================================================

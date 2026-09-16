@@ -83,7 +83,7 @@ siteDensCache=struct('key',{},'dens',{},'raw',{});                  % per (cell,
 axRef=[]; lstRefSites=[]; eRefFrac=[]; eRefMaxR=[]; ddRefWin=[]; lblRef=[]; lblRefSrc=[]; lblRefInfo=[];
 axRad=[]; chkRefLocs=[]; ddRefScale=[]; sldRefContrast=[]; btnRefDelete=[]; refCbar=[]; refLockedSrc='all'; sldRefSmooth=[];
 refNullCache=struct('key',{},'nullMax',{},'pmap',{}); refFoot=[]; refSelIdx=0; refRowMap=[];
-chkRefNbr=[]; refDirty=false; refDrawing=false;   % Refine: other-site outlines toggle; unsaved edits (the export warns)
+chkRefNbr=[]; refDirty=false; refDrawing=false; eRefView=[]; refViewSite=0; refKeepSpan=false;   % Refine: other-site outlines toggle; unsaved edits (the export warns)
 ctCache=[]; ctCacheKey='';      % buildTracks with hand-rejected tracks BLANKED — see ctTracks
 btnCSexport=[];                 % Contact sites: the advisor export
 refErCache=struct('key',{},'erGrid',{});   % per-(cell,grid) ER support mask resampled to the density grid (radial-null area)
@@ -120,7 +120,8 @@ fig.UserData = struct('activeTs',@activeTsNow, 'tracks',@tracksNow, 'loadTracks'
     'cmpSetCells',@setCompareCells, 'cmpCellList',@compareCellList, 'cmpLoad',@ensureCompareData, ...
     'exptCtl',@exptCtlNow, 'calibForBuild',@calibForBuild, 'loadTracksFile',@loadTracksFile, ...
     'engExamples',@onEngageExamples, ...
-    'refMoveCentre',@moveRefCentre, 'refState',@refStateNow);   % Refine: the move without the click
+    'refMoveCentre',@moveRefCentre, 'refState',@refStateNow, ...   % Refine: the move without the click
+    'csExport',@onCSExport);                                        % export under a given name, no dialog
 gl = uigridlayout(fig,[2 1],'RowHeight',{34,'1x'},'Padding',[8 8 8 8],'RowSpacing',6);
 
 % 16 columns, 16 widths, 16 children — keep the three in step. uigridlayout WRAPS a child it has no
@@ -770,7 +771,10 @@ end
         end
     end
 
-    function onCSExport()
+    function onCSExport(preset)
+        % preset: the export folder NAME, skipping the dialog. The button passes nothing and asks;
+        % the smokes pass one, because a modal dialog cannot be answered headlessly.
+        if nargin < 1, preset = ''; end
         anaDir = ensureAnaDir(); if isempty(anaDir), lblCS.Text = 'Pick a project first.'; return; end
         if ~ensureTracksLoaded() || isempty(buildTracks)
             lblCS.Text = 'Build (Build & QC tab) or open a project with a TrackStruct first.'; return; end
@@ -779,13 +783,19 @@ end
         % The same cells the picker offers: EXCLUDE on the Experiment tab means out of everything.
         [keep, nDrop] = engageKeepCells(buildTracks);
         cells = arrayfun(@(t) baseOf(t.file), buildTracks(keep), 'uni', 0);
+        name = cs_advisor_export_name(preset);
+        if isempty(name)
+            name = askExportName(anaDir);
+            if isempty(name), lblCS.Text = 'Export cancelled — nothing was written.'; return; end
+        end
         resetCSExportButton(); btnCSexport.Text = 'Exporting…'; drawnow;
         try
-            R = cs_advisor_export(anaDir, struct('cells',{cells},'fovUm',FOVUM,'binNm',PRECNM));
+            R = cs_advisor_export(anaDir, struct('cells',{cells},'fovUm',FOVUM,'binNm',PRECNM,'name',name));
         catch ME
             resetCSExportButton(); lblCS.Text = ['Export failed: ' ME.message]; return;
         end
-        msg = sprintf('Exported %d cell(s), %d site(s) → %s', R.nCells, R.nSites, R.outDir);
+        msg = sprintf('Exported %d cell(s): %d contact site(s), %d refined site(s) (%d edited) → %s', ...
+            R.nCells, R.nContact, R.nSites, R.nRefinedEdited, R.outDir);
         if R.nDeleted > 0,        msg = sprintf('%s · %d deleted site(s) left out', msg, R.nDeleted); end
         if nDrop > 0,             msg = sprintf('%s · %d excluded cell(s) left out', msg, nDrop); end
         if R.nRejectedTracks > 0, msg = sprintf('%s · %d hand-rejected track(s) in no density', msg, R.nRejectedTracks); end
@@ -802,11 +812,60 @@ end
         btnCSexport.Text = '✓ Export for advisor';
         btnCSexport.BackgroundColor = tern(refDirty, [0.98 0.88 0.70], [0.83 0.93 0.83]);
         btnCSexport.FontWeight = 'bold';
-        btnCSexport.Tooltip = sprintf('Last export: %d cell(s), %d site(s) → %s', R.nCells, R.nSites, R.outDir);
+        btnCSexport.Tooltip = sprintf('Last export: %d cell(s), %d contact / %d refined site(s) → %s', ...
+            R.nCells, R.nContact, R.nSites, R.outDir);
     end
 
     function markRefDirty()
         refDirty = true; resetCSExportButton();
+    end
+
+    function name = askExportName(anaDir)
+        % Ask for the export folder's name, showing exactly the folder that will be written. A name
+        % already used is refused in the dialog — exports are never written over — so the user
+        % picks another rather than finding out after pressing Export.
+        name = '';
+        expRoot = cs_ana_path(anaDir, 'export');
+        deflt = ['advisor_' char(datetime('now','Format','yyyyMMdd-HHmmss'))];
+        dlg = uifigure('Name','Export for advisor','Position',[180 180 540 200],'WindowStyle','modal');
+        dlg.UserData = false; dlg.CloseRequestFcn = @(s,e) uiresume(dlg);
+        dg = uigridlayout(dlg,[4 1],'RowHeight',{22,30,44,32},'Padding',[12 12 12 12],'RowSpacing',6);
+        uilabel(dg,'Text','Name this export (a folder under analysis/exports/):','FontWeight','bold');
+        efName = uieditfield(dg,'Value',deflt, ...
+            'ValueChangingFcn',@(s,e) expNameCheck(e.Value), 'ValueChangedFcn',@(s,e) expNameCheck(s.Value));
+        lblName = uilabel(dg,'Text','','WordWrap','on');
+        dbr = uigridlayout(dg,[1 3],'ColumnWidth',{'1x',90,110},'Padding',[0 0 0 0],'ColumnSpacing',6);
+        uilabel(dbr,'Text','');
+        uibutton(dbr,'Text','Cancel','ButtonPushedFcn',@(s,e) uiresume(dlg));
+        btnGo = uibutton(dbr,'Text','Export','FontWeight','bold','ButtonPushedFcn',@(s,e) expNameGo());
+        expNameCheck(deflt);
+        focus(efName);
+        uiwait(dlg);
+        if isgraphics(dlg)
+            if dlg.UserData, name = cs_advisor_export_name(efName.Value); end
+            delete(dlg);
+        end
+
+        function ok = expNameCheck(v)
+            nm = cs_advisor_export_name(v); ok = false;
+            if isempty(nm)
+                lblName.Text = 'Type a name.'; lblName.FontColor = [0.75 0.10 0.10];
+            elseif isfolder(fullfile(expRoot, nm)) && numel(dir(fullfile(expRoot, nm))) > 2
+                lblName.Text = sprintf(['exports/%s already exists. Exports are never written over, so ' ...
+                    'what you sent stays what you sent — choose another name.'], nm);
+                lblName.FontColor = [0.75 0.10 0.10];
+            else
+                t = sprintf('Will write analysis/exports/%s/', nm);
+                if ~strcmp(nm, strtrim(char(v)))
+                    t = [t '  (characters a folder name cannot hold became _)'];
+                end
+                lblName.Text = t; lblName.FontColor = [0.20 0.40 0.50]; ok = true;
+            end
+            btnGo.Enable = tern(ok, 'on', 'off');
+        end
+        function expNameGo()
+            if expNameCheck(efName.Value), dlg.UserData = true; uiresume(dlg); end
+        end
     end
 
     function resetCSExportButton()
@@ -868,7 +927,7 @@ end
         % The info label is the LAST row and takes the elastic height. It used to sit in a 30 px row
         % with an unused '1x' row after it, so of its six lines only "area" and "tracks" were ever
         % visible — the localization count added for cross-checking was drawn and clipped away.
-        cc = uigridlayout(mn,[14 1],'RowHeight',{24, 16,26, 44, 16,32, 16,26,26,30,28, 40,28, '1x'}, ...
+        cc = uigridlayout(mn,[15 1],'RowHeight',{24, 26, 16,26, 44, 16,32, 16,26,26,30,28, 40,28, '1x'}, ...
             'Padding',[0 0 0 0],'RowSpacing',4);
         ckg = uigridlayout(cc,[1 2],'ColumnWidth',{'1.25x','1x'},'Padding',[0 0 0 0],'ColumnSpacing',4);
         chkRefLocs = uicheckbox(ckg,'Text','localizations','Value',false, ...
@@ -882,6 +941,16 @@ end
                        's#; red if deleted). Zoom out to see which neighbouring blobs are already sites. ' ...
                        'Click an outline to jump to that site.'], ...
             'ValueChangedFcn',@(s,e) redrawRef());
+        vwg = uigridlayout(cc,[1 3],'ColumnWidth',{64,'1x',50},'Padding',[0 0 0 0],'ColumnSpacing',4);
+        uilabel(vwg,'Text','view ± µm','HorizontalAlignment','right');
+        eRefView = uispinner(vwg,'Tag','refView','Limits',[0 40],'Value',0,'Step',0.5, ...
+            'ValueChangedFcn',@(s,e) onRefView(), ...
+            'Tooltip',['Half-width of the view around the site centre, in µm, kept for every site you ' ...
+                       'open. 0 = fit the site. Use it to zoom OUT to the neighbourhood without the ' ...
+                       'mouse; the scroll wheel works too, and the view you scroll to is kept while you ' ...
+                       'edit the same site.']);
+        uibutton(vwg,'Text','fit','Tooltip','Back to fitting the site (view ± 0).', ...
+            'ButtonPushedFcn',@(s,e) setRefView(0));
         uilabel(cc,'Text','colour scale','FontWeight','bold','FontColor',[0.35 0.35 0.4]);
         ddRefScale = uidropdown(cc,'Items',{'density (a.u.)','locs / bin','significance (p)'},'Value','density (a.u.)', ...
             'Tooltip',['density = smoothed detection density; locs/bin = raw localization count per 30 nm bin; ' ...
@@ -921,6 +990,11 @@ end
             'Tooltip','Smooth this contact site''s outline into a clean closed curve (removes the jagged half-max / freehand steps). Click again to smooth more.', ...
             'ButtonPushedFcn',@(s,e) onRefSmooth());
         lblRefInfo = uilabel(cc,'Text','','WordWrap','on','FontColor',[0.35 0.35 0.42],'VerticalAlignment','top');
+    end
+
+    function setRefView(v)
+        if ~isempty(eRefView) && isgraphics(eRefView), eRefView.Value = v; end
+        onRefView();
     end
 
     function onRefContrast()
@@ -982,7 +1056,7 @@ end
         try, [refFoot, rinfo] = cs_footprints_resolve(anaDir);
         catch ME, lblRef.Text=['Build error: ' ME.message]; return; end
         if isempty(refFoot), lblRef.Text='No sites found for the cells in TrackStruct.'; return; end
-        refDirty = false;
+        refDirty = false; refViewSite = 0;
         refLockedSrc = refFoot(1).densSrc;
         if ~isempty(lblRefSrc) && isgraphics(lblRefSrc)
             lblRefSrc.Text = ['density source: ' srcLabel(refLockedSrc) '  (locked from picker)'];
@@ -1034,6 +1108,12 @@ end
         if k<1 || k>numel(refFoot), return; end
         if ~ensureTracksLoaded(), lblRef.Text='TrackStruct not loaded.'; return; end
         e = refFoot(k); SF = e.SF; g = e.grid; cUm = e.center;
+        % The view you zoomed to is KEPT when the same site is redrawn (any edit, a colour-scale or
+        % contrast change). Before, every redraw re-framed to the site, so zooming out to find a
+        % neighbour and then pressing anything snapped straight back in.
+        xl0 = axRef.XLim; yl0 = axRef.YLim;
+        keepView = (k == refViewSite) && ~refKeepSpan;
+        keepSpan = refKeepSpan; refKeepSpan = false;
         [Dens,Raw] = windowDens(e.cellIndex, e.winFrames, SF, g, e.densSrc);
         scaleMode = 'density (a.u.)'; if ~isempty(ddRefScale) && isgraphics(ddRefScale), scaleMode = ddRefScale.Value; end
         contrast = 1; if ~isempty(sldRefContrast) && isgraphics(sldRefContrast), contrast = sldRefContrast.Value; end
@@ -1051,6 +1131,10 @@ end
             try
                 if isempty(refCbar) || ~isgraphics(refCbar), refCbar = colorbar(axRef); end
                 refCbar.Label.String = cbLab;
+                % Creating a colorbar SILENTLY disables scroll-zoom on a uiaxes: Interactions still
+                % reports zoom and pan, but the wheel does nothing (spt_refine_zoom_smoke). This is
+                % why the editor could not be zoomed out. Re-arming after the colorbar exists fixes it.
+                spt_axes_policy(axRef);
             catch, end
         end
         axis(axRef,'image'); hold(axRef,'on');
@@ -1077,8 +1161,22 @@ end
         end
         plot(axRef, cUm(1), cUm(2), '+','Color',[1 0 1],'MarkerSize',13,'LineWidth',1.6,'HitTest','off');
         hold(axRef,'off');
-        pad = max(0.6, 1.4*sqrt(max(e.areaUm2,eps)/pi));
-        xlim(axRef,[min(bx)-pad max(bx)+pad]); ylim(axRef,[min(by)-pad max(by)+pad]);
+        half = 0; if ~isempty(eRefView) && isgraphics(eRefView), half = eRefView.Value; end
+        if keepView
+            xlim(axRef, xl0); ylim(axRef, yl0);                        % your zoom, untouched
+        elseif keepSpan
+            % Opened from an outline click: same zoom level, centred on the site just opened, so
+            % stepping between neighbours does not throw away the zoomed-out view you found them in.
+            hx = diff(xl0)/2; hy = diff(yl0)/2;
+            xlim(axRef, cUm(1) + [-hx hx]); ylim(axRef, cUm(2) + [-hy hy]);
+        elseif half > 0
+            xlim(axRef, cUm(1) + [-half half]); ylim(axRef, cUm(2) + [-half half]);
+        else
+            pad = max(0.6, 1.4*sqrt(max(e.areaUm2,eps)/pi));
+            xlim(axRef,[min(bx)-pad max(bx)+pad]); ylim(axRef,[min(by)-pad max(by)+pad]);
+        end
+        refViewSite = k;
+        spt_axes_policy(axRef);        % re-armed every draw: cheap, and nothing above may undo it
         xlabel(axRef,'x (µm)'); ylabel(axRef,'y (µm)');
         delTag = ''; if del, delTag = '  [DELETED]'; end
         titleTxt = sprintf('cell %d · site %d · win %d · %s · %.4f µm² · %d trk%s', e.cellIndex, e.csID, e.window, char(e.mode), e.areaUm2, numel(trk), delTag);
@@ -1167,7 +1265,14 @@ end
             if ~isempty(ddRefWin) && isgraphics(ddRefWin), ddRefWin.Value = 'All windows'; end
             fillRefList();
         end
+        refKeepSpan = true;
         lstRefSites.Value = q; onRefSelect();
+    end
+
+    function onRefView()
+        % A zoom that does not depend on the mouse: half-width of the view around the site centre,
+        % kept for every site you open. 0 = fit the site, as before.
+        refViewSite = 0; redrawRef();
     end
 
     function onRefMoveCentre()
@@ -3381,7 +3486,7 @@ end
         % switch or a Load never leaks a prior dataset's footprints/densities/results into the new one.
         try, dwellStopTimer(); catch, end   % stop any running Dwell animation before wiping results
         CSW = []; DD = []; cmpKeptSites = []; cmpLast = []; cmpCells = []; siteDensCache = struct('key',{},'dens',{},'raw',{}); refNullCache = struct('key',{},'nullMax',{},'pmap',{});
-        ctCache = []; ctCacheKey = ''; refDirty = false;   % a different build: its blanked copy is stale
+        ctCache = []; ctCacheKey = ''; refDirty = false; refViewSite = 0;   % a different build: its blanked copy is stale
         dwellAnim = [];
         refFoot = []; refSelIdx = 0; refRowMap = []; siteSelIdx = 0; siteRowMap = []; siteMemberSel = 0;
         if ~isempty(refCbar) && isgraphics(refCbar), delete(refCbar); end; refCbar = [];

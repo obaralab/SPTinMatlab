@@ -15,6 +15,11 @@ function cs_advisor_export_smoke()
 %      states it. A bare pixel number is ambiguous between two grids that differ by half a pixel.
 %   5. THE BUNDLE IS COMPLETE: per-window density pages, the picks file, the combined table, README.
 %   6. THE CELL FILTER BITES: asking for a cell with no saved sites exports nothing and says why.
+%   7. BOTH SITE SETS ARE THERE. contactsites = every pick as the picker found it (a site deleted on
+%      Refine is still listed, flagged), with the picker's own detection numbers joined on and the
+%      AUTOMATIC outline recounted; refinedsites = the final set. Neither may be mistaken for the other.
+%   8. THE NAME IS THE USER'S, AND NOTHING IS OVERWRITTEN. A typed name is made folder-safe, and
+%      exporting again under a name already used refuses rather than mixing two runs in one folder.
 %
 % Synthetic; reads no dataset.
 
@@ -49,6 +54,14 @@ for j = 1:size(picks,1)
         picks(j,1)/SF, picks(j,2)/SF, picks(j,3), 1, 0);
 end
 fclose(fid);
+fid = fopen(fullfile(ana,'csIDs','cellA_CSsites_stats.csv'),'w');
+fprintf(fid,'site,window,x_px,y_px,mito,manual,peak,pval,enrich,nLocs,nTracks,stability,dwell_pct,area_um2\n');
+for j = 1:size(picks,1)
+    fprintf(fid,'%d,%d,%.3f,%.3f,1,%d,%g,%g,%g,%d,%d,%g,%g,%g\n', j, picks(j,3), picks(j,1)/SF, picks(j,2)/SF, ...
+        j==3, 10+j, 0.01*j, 5+j, 100+j, 7+j, 0.9, 40+j, 0.2+j/100);
+end
+fclose(fid);
+fid = fopen(fullfile(ana,'csIDs','cellA_CSsites_provenance.json'),'w'); fprintf(fid,'{"method":"local"}'); fclose(fid);
 windows = struct('framesPerWindow',30,'nWindows',2,'ranges',win,'grid',n,'SF_umPerPx',SF, ...
                  'frameInterval',0.02,'source','tracked'); %#ok<NASGU>
 save(cs_ana_path(ana,'density','Density_cellA_CSwindows.mat'),'windows');
@@ -63,18 +76,19 @@ CSfoot = ed; %#ok<NASGU>
 CSdeleted = struct('file',F0(i2).file,'csID',F0(i2).csID,'window',F0(i2).window,'pickPx',F0(i2).pickPx); %#ok<NASGU>
 save(fullfile(ana,'CS_footprints.mat'),'CSfoot','CSdeleted','-v7.3');
 
-R = cs_advisor_export(ana, struct('fovUm',fov,'binNm',bin));
+R = cs_advisor_export(ana, struct('fovUm',fov,'binNm',bin,'name','run 1: first/look'));
 out = R.outDir;
 fprintf('exported to %s\n', out);
 % The default location is analysis/exports/ — an unknown cs_ana_path kind silently lands at the
 % analysis/ root, which is exactly the crowding the subfolders exist to prevent.
-assert(startsWith(out, fullfile(ana,'exports','advisor_')), ...
-    'the bundle was written to %s, not under analysis/exports/', out);
+assert(strcmp(out, fullfile(ana,'exports','run_1_first_look')), ...
+    'the bundle was written to %s; the typed name "run 1: first/look" should give exports/run_1_first_look', out);
 
 %% (5) the bundle is complete ----------------------------------------------------------------------------
 need = {'Density_cellA.mat','Density_cellA.tif','Densities/cellA_rho.tif','Density_cellA_windows.tif', ...
         'Density_cellA_CSwindows.mat','csIDs/cellA_CSsites.txt','sites/cellA_contactsites.csv', ...
-        'sites/cellA_contactsites.mat','contactsites_all.csv','README.txt'};
+        'sites/cellA_contactsites.mat','sites/cellA_refinedsites.csv','sites/cellA_refinedsites.mat', ...
+        'contactsites_all.csv','refinedsites_all.csv','README.txt'};
 for q = 1:numel(need)
     assert(isfile(fullfile(out, need{q})), 'the bundle is missing %s', need{q});
 end
@@ -100,7 +114,7 @@ assert(L.imG(cloudPx(2), cloudPx(1)) == 0, ...
 fprintf('density: filtered tracked set (%d locs) · rejected track out · cloud out\n', di.nLoc);
 
 %% (2)+(3) sites: saved refinement, recountable, deleted one left out ----------------------------------
-C = readtable(fullfile(out,'sites','cellA_contactsites.csv'), 'TextType','string');
+C = readtable(fullfile(out,'sites','cellA_refinedsites.csv'), 'TextType','string');
 assert(height(C) == 2, 'the table has %d site(s); 3 picked, 1 deleted -> 2', height(C));
 assert(~any(C.csID == 2), 'the DELETED site 2 was exported');
 assert(R.nDeleted == 1, 'R.nDeleted = %d, wanted 1', R.nDeleted);
@@ -121,24 +135,57 @@ assert(nlAll > nl && ntAll == nt + 1, ...
 %% (4) coordinates say what they are ----------------------------------------------------------------------
 assert(abs(r1.x_px - r1.x_um/SF) < 1e-9 && abs(r1.SF_um_per_px - SF) < 1e-12, ...
     'x_px %.4f is not x_um / SF (%.4f)', r1.x_px, r1.x_um/SF);
-M = load(fullfile(out,'sites','cellA_contactsites.mat'));
-b1 = M.contactsites([M.contactsites.csID] == 1);
+M = load(fullfile(out,'sites','cellA_refinedsites.mat'));
+b1 = M.refinedsites([M.refinedsites.csID] == 1);
 assert(max(abs(b1.boundary_um - (ed.refboundary + ed.center)), [], 'all') < 1e-9, ...
     'the exported boundary is not the refined one in absolute um');
 rd = fileread(fullfile(out,'README.txt'));
 assert(contains(rd,'x_um / SF') && contains(rd,'1 track(s) rejected'), ...
     'the README does not state the pixel convention and the rejected-track count');
-A = readtable(fullfile(out,'contactsites_all.csv'));
-assert(height(A) == R.nSites, 'contactsites_all.csv has %d rows, R.nSites = %d', height(A), R.nSites);
+A = readtable(fullfile(out,'refinedsites_all.csv'));
+assert(height(A) == R.nSites, 'refinedsites_all.csv has %d rows, R.nSites = %d', height(A), R.nSites);
+
+%% (7) the contact sites, as the picker found them ---------------------------------------------------------
+P = readtable(fullfile(out,'sites','cellA_contactsites.csv'), 'TextType','string');
+assert(height(P) == 3, 'contactsites has %d rows; 3 sites were picked', height(P));
+assert(P.deleted_in_refine(P.csID==2) == 1 && P.refined(P.csID==1) == 1 && P.refined(P.csID==3) == 0, ...
+    'contactsites does not record what became of each pick (deleted / refined)');
+assert(isequal(P.detect_n_loc(:)', [101 102 103]) && isequal(P.detect_enrich(:)', [6 7 8]) ...
+        && P.manual(P.csID==3) == 1 && all(P.detect_method == "local"), ...
+    'the picker''s own statistics were not joined onto the right sites');
+a1 = F0(i1);
+assert(abs(P.auto_area_um2(P.csID==1) - a1.areaUm2) < 1e-9, ...
+    'site 1''s AUTO area is %.5f; the automatic outline''s is %.5f', P.auto_area_um2(P.csID==1), a1.areaUm2);
+assert(abs(P.auto_area_um2(P.csID==1) - r1.area_um2) > 1e-6, ...
+    'the automatic and refined areas of site 1 are the same — the contact-site table is showing the refinement');
+[nlA, ntA] = recount(Tb, a1.center, a1.refboundary, win(1,:));
+assert(P.auto_n_loc_inside(P.csID==1) == nlA && P.auto_n_tracks(P.csID==1) == ntA, ...
+    'site 1 auto counts %d / %d; a recount of the automatic outline gives %d / %d', ...
+    P.auto_n_loc_inside(P.csID==1), P.auto_n_tracks(P.csID==1), nlA, ntA);
+assert(abs(P.pick_x_um(P.csID==1) - 5) < 2e-3 && abs(P.pick_y_um(P.csID==1) - 5) < 2e-3, ...
+    'the pick is at (%.4f, %.4f) um; it was made at (5, 5)', P.pick_x_um(P.csID==1), P.pick_y_um(P.csID==1));
+M2 = load(fullfile(out,'sites','cellA_contactsites.mat'));
+assert(isfield(M2.contactsites,'auto_boundary_um'), 'the contact-site .mat has no automatic outline');
+A2 = readtable(fullfile(out,'contactsites_all.csv'));
+assert(height(A2) == R.nContact && R.nContact == 3, 'contactsites_all.csv has %d rows, R.nContact = %d', height(A2), R.nContact);
+
+%% (8) an existing name is refused ------------------------------------------------------------------------------
+try
+    cs_advisor_export(ana, struct('fovUm',fov,'binNm',bin,'name','run_1_first_look'));
+    error('smoke:noRefusal', 'exporting again under an existing name wrote into it');
+catch ME
+    assert(strcmp(ME.identifier, 'cs_advisor_export:exists'), ...
+        'exporting under an existing name failed for the wrong reason: %s', ME.message);
+end
+assert(strcmp(cs_advisor_export_name('  ../..//x  '), 'x'), 'a name can climb out of exports/: "%s"', cs_advisor_export_name('  ../..//x  '));
 
 %% (6) the cell filter ----------------------------------------------------------------------------------------
-R2 = cs_advisor_export(ana, struct('fovUm',fov,'binNm',bin,'cells',{{'cellB'}}, ...
-    'outDir', fullfile(proj,'analysis','exports','advisor_filter')));
+R2 = cs_advisor_export(ana, struct('fovUm',fov,'binNm',bin,'cells',{{'cellB'}},'name','filter_check'));
 assert(R2.nCells == 0 && any(contains(R2.skipped,'cellB')), ...
     'exporting only cellB (no saved sites) gave %d cell(s) and no reason', R2.nCells);
 
-fprintf('site 1: %d loc / %d trk inside the refined disc (%d / %d with the rejected track) · site 2 deleted, left out\n', ...
-    nl, nt, nlAll, ntAll);
+fprintf('site 1: %d loc / %d trk inside the refined disc (%d / %d with the rejected track) · auto outline %d / %d · site 2 deleted: flagged in contactsites, absent from refinedsites\n', ...
+    nl, nt, nlAll, ntAll, nlA, ntA);
 fprintf('\nADVISOR-EXPORT SMOKE PASSED.\n');
 end
 
