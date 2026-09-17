@@ -4,7 +4,7 @@ function R = cs_advisor_export(anaDir, opts)
 %
 %   R = cs_advisor_export(anaDir, opts)
 %
-% opts  .name            folder name under analysis/exports/ (default advisor_<yyyymmdd-HHMMSS>)
+% opts  .name            folder name under analysis/exports/ (default export_<yyyymmdd-HHMMSS>)
 %       .outDir          full path instead of a name. Either way the folder must NOT already hold
 %                        files: what you sent stays what you sent, and nothing is overwritten.
 %       .cells           cellstr of cell base names to include (default: every cell with saved sites)
@@ -50,9 +50,9 @@ if isempty(outDir)
     if isempty(name)
         % No name given: a fresh stamped folder. Two exports inside the same second would otherwise
         % share one.
-        outDir = fullfile(root, ['advisor_' stamp]);
+        outDir = fullfile(root, ['export_' stamp]);
         q = 1;
-        while isfolder(outDir), q = q + 1; outDir = fullfile(root, sprintf('advisor_%s_%d', stamp, q)); end
+        while isfolder(outDir), q = q + 1; outDir = fullfile(root, sprintf('export_%s_%d', stamp, q)); end
     else
         outDir = fullfile(root, cs_advisor_export_name(name));
     end
@@ -253,72 +253,141 @@ else,      imwrite(img, f, 'Compression', 'none'); end
 end
 
 function writeReadme(outDir, R, finfo, tsName, stamp, incDel)
+% The README travels with the files, so it has to answer every question about them on its own:
+% what each file is, what every column means and in which units, and what was left out.
 fid = fopen(fullfile(outDir, 'README.txt'), 'w');
 c = onCleanup(@() fclose(fid));
-p = @(varargin) fprintf(fid, varargin{:});
-p('Contact-site export  -  %s\n', stamp);
-p('Build: %s   Cells: %d   Contact sites: %d   Refined sites: %d (%d edited)\n\n', ...
-    tsName, R.nCells, R.nContact, R.nSites, R.nRefinedEdited);
-p('LOCALIZATIONS\n');
-p('  Every density and every count here is built from the TRACKED localizations of the build -\n');
-p('  the tracks that passed filtering and curation - minus %d track(s) rejected by hand on the QC tab.\n', R.nRejectedTracks);
-p('  Detections that never linked into a track are NOT included.\n\n');
-p('FILES (per cell)\n');
-p('  Density_<cell>.mat          imG = 30 * smoothed localization counts (whole movie)\n');
-p('  Density_<cell>.tif          uint16(imG)\n');
-p('  Densities/<cell>_rho.tif    the same, rendered through the turbo colormap\n');
-p('  Density_<cell>_windows.tif  the same density per time WINDOW, one page per window (page w = window w)\n');
-p('  Density_<cell>_CSwindows.mat  windows.ranges = [first last] frame of each window\n');
-p('  csIDs/<cell>_CSsites.txt    the picks: idx X Y XM YM Slice(=window) Counter(1=mito, 2=not) Count\n');
-p('  sites/<cell>_contactsites.csv/.mat   CONTACT SITES - every pick as the picker found it (%d)\n', R.nContact);
-p('  sites/<cell>_refinedsites.csv/.mat   REFINED SITES - the final set after Refine (%d, %d edited)\n', R.nSites, R.nRefinedEdited);
-p('  contactsites_all.csv, refinedsites_all.csv   every cell in one table each\n\n');
-p('CONTACT SITES vs REFINED SITES\n');
-p('  contactsites: one row per pick, INCLUDING picks later deleted on Refine (deleted_in_refine = 1).\n');
-p('    pick_*          where the site was picked\n');
-p('    detect_*        the picker''s own numbers for that site (detect_method says which detector):\n');
-p('                    peak density, p, enrichment,\n');
-p('                    localizations and tracks in the DETECTED blob, split-half stability, dwell %%, blob area\n');
-p('    auto_*          the automatic (half-max) outline around the pick: centre, area, and the\n');
-p('                    localizations / tracks inside it\n');
-p('    refined         1 if the site was later refined by hand\n');
-p('  refinedsites: one row per site in the final set - deleted sites are left out. Sites that were\n');
-p('    never refined are included with their automatic outline and edited = 0, so this table is\n');
-p('    the complete set to analyse.\n');
-p('  The detect_n_loc and auto_n_loc_inside counts differ by design: one is the thresholded blob the\n');
-p('  picker detected, the other the half-max outline the mapper uses.\n\n');
-p('DENSITY GRID\n');
-p('  n = ceil(FOV / bin) pixels per side. Bin edges are bin*(1:n+1) nm, so column c holds x in\n');
-p('  [c*bin, (c+1)*bin) nm; smoothing is imgaussfilt(counts, [2 2]); the image is transposed so\n');
-p('  row = y and column = x.\n\n');
-p('SITE COORDINATES\n');
-p('  *_um             microns - unambiguous; use these if in doubt\n');
-p('  x_um, y_um       refined site centre (refinedsites); auto_x_um/auto_y_um for the automatic outline\n');
-p('  x_px, y_px       the same centre in density pixels, x_um / SF with SF = FOV / n\n');
-p('                   (the convention the ContactSites mapper uses: pixel c <-> c*SF um).\n');
-p('                   That is up to half a pixel from the histogram column above.\n');
-p('  pick_x_px/y_px   where the site was originally picked (refinedsites: the picker''s own pixels;\n');
-p('                   contactsites: converted to this grid, with pick_x_um/pick_y_um alongside)\n');
-p('  grid_picker_px   the grid the site was picked on. If it differs from grid_px, the pick pixels\n');
-p('                   are on a different grid from these density files - use the um columns.\n\n');
-p('SITE MEASUREMENTS\n');
-p('  n_loc_inside     localizations inside the refined boundary during its window\n');
-p('  n_tracks         distinct tracks with at least one of those localizations\n');
-p('  area_um2         area of the boundary polygon\n');
-p('  footprint        how the boundary was made: halfmax = automatic; freehand / +smooth / +centre = refined\n');
-p('  edited           true if the boundary was refined by hand\n');
-p('  mito             true if the site was classified as touching mitochondria\n\n');
+L = {
+sprintf('CONTACT-SITE EXPORT   %s', stamp)
+sprintf('Build: %s   Cells: %d   Contact sites: %d   Refined sites: %d (%d refined by hand)', ...
+        tsName, R.nCells, R.nContact, R.nSites, R.nRefinedEdited)
+''
+'=== WHAT THE NUMBERS ARE BUILT FROM ==='
+'Every density image and every localization / track count in this folder uses the TRACKED'
+'localizations of the build: tracks that passed filtering and curation,'
+sprintf('minus %d track(s) rejected by hand on the QC tab.', R.nRejectedTracks)
+'Detections that never linked into a track are not included anywhere.'
+'Frame numbers are 0-based, as in the tracking output.'
+'<cell> below is the cell''s file name, e.g. HVK-3C-Plate4-328-011-b_ch24_spt.'
+''
+'=== FILES, PER CELL ==='
+'Density_<cell>.mat'
+'    Variable imG: an n x n double image, row = y, column = x.'
+'    imG = 30 x (localization counts per bin, Gaussian-smoothed with sigma = 2 bins), whole movie.'
+'    sum(imG(:))/30 = the number of localizations in the image (smoothing keeps the total).'
+'    This is the format the external ContactSites code reads.'
+'Density_<cell>.tif'
+'    The same image as uint16 - same values, rounded.'
+'Densities/<cell>_rho.tif'
+'    The same image as 8-bit RGB through the turbo colormap, scaled from the cell''s own minimum to'
+'    its own maximum. For LOOKING only: colours are not comparable between cells. Use imG for numbers.'
+'Density_<cell>_windows.tif'
+'    The same density built separately for each picker time window: one page per window, page w ='
+'    window w. Sites were picked on these, and a site from window 2 need not be visible on the'
+'    whole-movie image. With a single window this page equals Density_<cell>.tif.'
+'Density_<cell>_CSwindows.mat'
+'    Variable windows: .ranges = [first last] frame of each window, .framesPerWindow, .nWindows,'
+'    .grid and .SF_umPerPx of the picker, .frameInterval (s), .source (density source).'
+'csIDs/<cell>_CSsites.txt'
+'    The picks, tab-separated: idx  X  Y  XM  YM  Slice  Counter  Count'
+'    X,Y = pick in the picker''s pixels (XM,YM the same); Slice = window; Counter 1 = mito, 2 = not.'
+'sites/<cell>_contactsites.csv   + .mat (variable contactsites)'
+'    CONTACT SITES: every pick, as the picker found it. See the column list below.'
+'    The .mat adds auto_boundary_um and auto_boundary_px: the automatic outline polygon, K x 2.'
+'sites/<cell>_refinedsites.csv   + .mat (variable refinedsites)'
+'    REFINED SITES: the final set after Refine. See the column list below.'
+'    The .mat adds boundary_um and boundary_px: the refined outline polygon, K x 2, closed.'
+''
+'=== FILES, WHOLE EXPORT ==='
+'contactsites_all.csv    every cell''s contactsites rows in one table'
+'refinedsites_all.csv    every cell''s refinedsites rows in one table'
+'README.txt              this file'
+''
+'=== CONTACT SITES vs REFINED SITES ==='
+'contactsites has one row per pick, INCLUDING picks deleted later on Refine (deleted_in_refine = 1).'
+'It describes each site twice: as the picker DETECTED it (detect_*), and with the AUTOMATIC'
+'half-max outline drawn around the pick (auto_*), which is what the mapper uses for a site that'
+'was never refined.'
+'refinedsites has one row per site in the FINAL set: deleted sites are left out, refined sites'
+'carry their refined outline, and never-refined sites carry the automatic one with edited = 0.'
+'It is the complete set to analyse.'
+''
+'=== COLUMNS IN BOTH TABLES ==='
+'file              cell file name'
+'cellIndex         the cell''s position in the build (the "c#" on the Refine tab)'
+'csID              site number within the cell (the "s#" on the Refine tab; row order of CSsites.txt)'
+'window            picker time window the site belongs to'
+'frame0, frame1    first and last frame of that window (0-based, inclusive)'
+'mito              1 = classified as touching mitochondria, 0 = not'
+'SF_um_per_px      microns per density pixel, = fov_um / grid_px'
+'grid_px           side of the density images in this folder, in pixels'
+'grid_picker_px    side of the grid the site was picked on (equal to grid_px unless the calibration changed)'
+'fov_um            field of view of this cell, microns'
+'bin_nm            density bin size, nanometres'
+''
+'=== COLUMNS IN contactsites ==='
+'pick_x_um, pick_y_um    where the site was picked, microns'
+'pick_x_px, pick_y_px    the same, in pixels of THIS folder''s grid (= pick_um / SF_um_per_px)'
+'manual                  1 = added by hand in the picker, 0 = found by the detector'
+'detect_method           detector used: local (local background), ermc (Monte-Carlo null), relative'
+'detect_peak             peak of the picker''s density inside the site, localizations per bin after'
+'                        smoothing with sigma = 8 px (a wider kernel than imG: not directly comparable)'
+'detect_pval             p against the Monte-Carlo null; EMPTY for local and relative, which give no p'
+'detect_enrich           detect_peak / median density over the support (the "enr x" column in the picker)'
+'detect_n_loc            localizations inside the DETECTED blob (for a manual site: within the contact disc)'
+'detect_n_tracks         distinct tracks among them'
+'detect_stability        split-half reproducibility, 0-1 (empty for a manual site)'
+'detect_dwell_pct        median, over those tracks, of the % of each track''s window localizations inside the blob'
+'                        (high = molecules stay; low = they pass through)'
+'detect_area_um2         area of the detected blob (for a manual site: the contact disc)'
+'auto_x_um, auto_y_um    centre of the automatic outline'
+'auto_area_um2           area of the automatic outline'
+'auto_n_loc_inside       localizations inside the automatic outline during the window'
+'auto_n_tracks           distinct tracks among them'
+'refined                 1 = this site was later refined by hand on the Refine tab'
+'deleted_in_refine       1 = this site was deleted on the Refine tab (it is not in refinedsites)'
+''
+'detect_n_loc and auto_n_loc_inside differ by design: the first counts the thresholded blob the'
+'picker detected on its smoother density, the second the half-max outline.'
+''
+'=== COLUMNS IN refinedsites ==='
+'x_um, y_um        site centre, microns (the refined centre if it was moved)'
+'x_px, y_px        the same centre in pixels of this folder''s grid (= x_um / SF_um_per_px)'
+'pick_x_px, pick_y_px   where the site was originally picked, in the picker''s pixels'
+'area_um2          area of the outline'
+'n_loc_inside      localizations inside the outline during the site''s window'
+'n_tracks          distinct tracks among them'
+'footprint         how the outline was made: halfmax = automatic; freehand = drawn by hand;'
+'                  +smooth = smoothed; +centre = centre moved with the outline kept'
+'edited            1 = refined by hand, 0 = automatic outline'
+'deleted           always 0 here (deleted sites are left out)'
+''
+'=== COORDINATES ==='
+'Use the _um columns if in doubt: they mean the same thing everywhere.'
+'Pixel columns follow the ContactSites mapper''s convention: pixel c is centred on c x SF microns'
+'(1-based, MATLAB indexing). The density images are histograms whose column c holds'
+'x in [c x bin, (c+1) x bin) nm, so an image column and a _px value can differ by up to half a'
+'pixel. If grid_picker_px differs from grid_px, the picker''s pixel numbers (CSsites.txt and'
+'refinedsites pick_*_px) are on a different grid from these images - use microns.'
+''
+'=== LEFT OUT ==='
+};
 if incDel
-    p('Sites deleted during refinement ARE included, with deleted = true (%d).\n', R.nDeleted);
+    L{end+1} = sprintf('Sites deleted on Refine are INCLUDED in refinedsites with deleted = 1 (%d).', R.nDeleted);
 else
-    p('Sites deleted during refinement are left out of refinedsites (%d) and flagged in contactsites.\n', R.nDeleted);
+    L{end+1} = sprintf('%d site(s) deleted on Refine: flagged in contactsites, absent from refinedsites.', R.nDeleted);
 end
+L{end+1} = 'Cells marked EXCLUDE on the Experiment tab, and cells with no saved sites, are not exported.';
+L{end+1} = 'Refine edits that were not SAVED are not in these files.';
 if finfo.nStale > 0
-    p('WARNING: %d saved refinement(s) no longer match any picked site (the picks moved) and were ignored.\n', finfo.nStale);
+    L{end+1} = sprintf(['WARNING: %d saved refinement(s) no longer match any picked site (the picks ' ...
+                        'moved since) and were ignored.'], finfo.nStale);
 end
 if ~isempty(R.skipped)
-    p('\nSKIPPED\n'); for q = 1:numel(R.skipped), p('  %s\n', R.skipped{q}); end
+    L{end+1} = ''; L{end+1} = '=== SKIPPED ===';
+    for q = 1:numel(R.skipped), L{end+1} = R.skipped{q}; end %#ok<AGROW>
 end
+fprintf(fid, '%s\n', L{:});
 end
 
 function v = getf(s,f,d), if isstruct(s)&&isfield(s,f)&&~isempty(s.(f)), v=s.(f); else, v=d; end, end

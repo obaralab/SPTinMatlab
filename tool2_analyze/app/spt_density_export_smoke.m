@@ -9,7 +9,7 @@ function spt_density_export_smoke()
 %   density/Density_<base>.mat/tif EXPORT ONLY, for an external ContactSites codebase. These used to
 %                                  be written on open, behind a "(re)save density first" checkbox,
 %                                  from the full detection cloud and without the sites they are for.
-%                                  They are now the job of "Export for advisor" (cs_advisor_export_smoke).
+%                                  They are now the job of the "Export" button (cs_advisor_export_smoke).
 %
 % WHAT IS ASSERTED:
 %   1. THE CHECKBOX IS GONE and the export button is there instead.
@@ -60,7 +60,8 @@ ck = findobj(f,'Type','uicheckbox');
 assert(~any(arrayfun(@(x) contains(string(x.Text),'save density'), ck)), ...
     'the "(re)save density first" checkbox is back; the density hand-off is the export button''s job');
 bx = findobj(f,'Type','uibutton');
-assert(any(arrayfun(@(x) contains(string(x.Text),'Export for advisor'), bx)), 'the advisor export button is missing');
+bxe = findobj(f,'Type','uibutton','Tag','csExport');
+assert(~isempty(bxe) && strcmp(string(bxe(1).Text), "📦 Export"), 'the Export button is missing or mislabelled');
 
 %% (2)+(3) opening writes the required file and no export copy -----------------------------------------
 press(f,'Open windowed picker');

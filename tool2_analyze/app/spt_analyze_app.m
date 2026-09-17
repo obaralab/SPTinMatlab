@@ -711,8 +711,8 @@ end
         % old "(re)save density first" box wrote Density_<cell>.mat/.tif on open — from the full
         % detection cloud, not the tracks the picker shows — and wrote them without the contact
         % sites, which are the thing the files are for.
-        btnCSexport = uibutton(r,'Text','📦 Export for advisor','ButtonPushedFcn',@(s,e) onCSExport(), ...
-            'Tooltip',['Write ONE folder, analysis/exports/advisor_<date-time>/, with every cell that has ' ...
+        btnCSexport = uibutton(r,'Text','📦 Export','Tag','csExport','ButtonPushedFcn',@(s,e) onCSExport(), ...
+            'Tooltip',['Write ONE named folder under analysis/exports/ with every cell that has ' ...
                        'saved sites: Density_<cell>.mat + .tif and Densities/<cell>_rho.tif in the ' ...
                        'external ContactSites format, a per-window density stack, the picks ' ...
                        '(csIDs/<cell>_CSsites.txt), and per-site tables with centre, window, mito, ' ...
@@ -809,7 +809,7 @@ end
         % The button keeps its verb — it is still the button that exports — and says it worked with a
         % tick and a colour. It goes back to plain the moment anything it exported changes (a Refine
         % edit or save, reopening the picker), so a green button never vouches for a stale export.
-        btnCSexport.Text = '✓ Export for advisor';
+        btnCSexport.Text = '✓ Export';
         btnCSexport.BackgroundColor = tern(refDirty, [0.98 0.88 0.70], [0.83 0.93 0.83]);
         btnCSexport.FontWeight = 'bold';
         btnCSexport.Tooltip = sprintf('Last export: %d cell(s), %d contact / %d refined site(s) → %s', ...
@@ -826,8 +826,8 @@ end
         % picks another rather than finding out after pressing Export.
         name = '';
         expRoot = cs_ana_path(anaDir, 'export');
-        deflt = ['advisor_' char(datetime('now','Format','yyyyMMdd-HHmmss'))];
-        dlg = uifigure('Name','Export for advisor','Position',[180 180 540 200],'WindowStyle','modal');
+        deflt = ['export_' char(datetime('now','Format','yyyyMMdd-HHmmss'))];
+        dlg = uifigure('Name','Export contact sites','Position',[180 180 540 200],'WindowStyle','modal');
         dlg.UserData = false; dlg.CloseRequestFcn = @(s,e) uiresume(dlg);
         dg = uigridlayout(dlg,[4 1],'RowHeight',{22,30,44,32},'Padding',[12 12 12 12],'RowSpacing',6);
         uilabel(dg,'Text','Name this export (a folder under analysis/exports/):','FontWeight','bold');
@@ -870,7 +870,7 @@ end
 
     function resetCSExportButton()
         if isempty(btnCSexport) || ~isgraphics(btnCSexport), return; end
-        btnCSexport.Text = '📦 Export for advisor';
+        btnCSexport.Text = '📦 Export';
         btnCSexport.BackgroundColor = [0.96 0.96 0.96]; btnCSexport.FontWeight = 'normal';
     end
 

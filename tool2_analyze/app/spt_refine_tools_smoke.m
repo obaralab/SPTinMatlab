@@ -179,7 +179,7 @@ mkdir(fullfile(ana,'exports','taken')); fclose(fopen(fullfile(ana,'exports','tak
 dlgLog = struct('refusedTaken',false,'preview','');
 tmr = timer('StartDelay',1.0,'TimerFcn',@(~,~) answerDialog());
 start(tmr);
-press(f, 'Export for advisor');                 % opens the dialog; the timer answers it
+pressTag(f, 'csExport');                        % opens the dialog; the timer answers it
 stop(tmr); delete(tmr);
 assert(dlgLog.refusedTaken, ...
     'the name dialog let "taken" through although exports/taken already holds files');
@@ -189,7 +189,8 @@ assert(isfolder(fullfile(ana,'exports','first_run')), 'the export did not go to 
 lblCS = one(findobj(f,'Type','uilabel'), 'contact-sites status', @(x) contains(string(x.Text),'Exported'));
 assert(contains(string(lblCS.Text), 'UNSAVED'), ...
     'exported while the Refine tab held an unsaved edit, and said nothing: "%s"', lblCS.Text);
-btn = one(findobj(f,'Type','uibutton'), 'export button', @(x) contains(string(x.Text),'Export for advisor'));
+btn = one(findobj(f,'Tag','csExport'), 'export button', @(x) true);
+assert(strcmp(erase(string(btn.Text), "✓ "), "Export"), 'the export button reads "%s"; it should say Export', btn.Text);
 assert(startsWith(string(btn.Text), "✓") && contains(string(btn.Tooltip), '1 cell'), ...
     'the export button did not show that it worked: "%s" / "%s"', btn.Text, btn.Tooltip);
 assert(isequal(btn.BackgroundColor, [0.98 0.88 0.70]), ...
@@ -228,7 +229,7 @@ fprintf('info panel %g px · 2 same-window outlines, toggle + click work · %d m
 fprintf('\nREFINE-TOOLS SMOKE PASSED.\n');
 
     function answerDialog()
-        dqFig = findall(groot, 'Type','figure', 'Name','Export for advisor');
+        dqFig = findall(groot, 'Type','figure', 'Name','Export contact sites');
         if isempty(dqFig), return; end
         dqFig = dqFig(1);
         dqEdit = findall(dqFig, 'Type','uieditfield'); dqGo = findall(dqFig, 'Type','uibutton', 'Text','Export');
@@ -257,6 +258,12 @@ b = findobj(h,'Type','uibutton');
 q = b(arrayfun(@(x) contains(string(x.Text), txt), b));
 q = q(arrayfun(@(x) isVisibleTab(x), q));
 assert(~isempty(q), 'button "%s" not found on the open tab', txt);
+cb = q(1).ButtonPushedFcn; cb(q(1), struct()); drawnow;
+end
+
+function pressTag(h, tag)
+q = findobj(h,'Type','uibutton','Tag',tag);
+assert(~isempty(q), 'no button tagged %s', tag);
 cb = q(1).ButtonPushedFcn; cb(q(1), struct()); drawnow;
 end
 

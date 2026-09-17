@@ -199,7 +199,7 @@ every draw. Only a real wheel gesture can see this; `spt_refine_zoom_smoke` scro
 redraws of the same site, a `view ± µm` spinner zooms without the mouse, and opening a neighbour
 from its outline keeps the zoom level.
 
-**📦 Export for advisor** (`cs_advisor_export`) asks for a folder name (`cs_advisor_export_name`
+**📦 Export** (`cs_advisor_export`) asks for a folder name (`cs_advisor_export_name`
 makes it folder-safe; a used name is refused — exports are never written over) and writes
 `analysis/exports/<name>/`: the external code's `Density_<cell>.mat/.tif` and `Densities/<cell>_rho.tif`
 (`cs_advisor_density`, its exact grid), a per-window density stack, the picks, and TWO site tables per cell: `_contactsites` (every pick as
