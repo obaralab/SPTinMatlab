@@ -18,6 +18,10 @@ function cs_advisor_export_smoke()
 %   7. BOTH SITE SETS ARE THERE. contactsites = every pick as the picker found it (a site deleted on
 %      Refine is still listed, flagged), with the picker's own detection numbers joined on and the
 %      AUTOMATIC outline recounted; refinedsites = the final set. Neither may be mistaken for the other.
+%   9. THE EXPORT IS SELF-CONTAINED. The tracks go out (hand-rejected ones not), every site lists its
+%      member tracks by their number in tracks/, and the shipped analyse_export_one_cell.m — which
+%      depends on NO pipeline file — reloads each cell from the export alone and reproduces every
+%      site's counts exactly. Without the tracks the export was pictures and summaries.
 %   8. THE NAME IS THE USER'S, AND NOTHING IS OVERWRITTEN. A typed name is made folder-safe, and
 %      exporting again under a name already used refuses rather than mixing two runs in one folder.
 %
@@ -88,7 +92,8 @@ assert(strcmp(out, fullfile(ana,'exports','run_1_first_look')), ...
 need = {'Density_cellA.mat','Density_cellA.tif','Densities/cellA_rho.tif','Density_cellA_windows.tif', ...
         'Density_cellA_CSwindows.mat','csIDs/cellA_CSsites.txt','sites/cellA_contactsites.csv', ...
         'sites/cellA_contactsites.mat','sites/cellA_refinedsites.csv','sites/cellA_refinedsites.mat', ...
-        'contactsites_all.csv','refinedsites_all.csv','README.txt'};
+        'contactsites_all.csv','refinedsites_all.csv','README.txt', ...
+        'tracks/cellA_tracks.mat','tracks/cellA_localizations.csv','analyse_export_one_cell.m'};
 for q = 1:numel(need)
     assert(isfile(fullfile(out, need{q})), 'the bundle is missing %s', need{q});
 end
@@ -169,6 +174,41 @@ assert(isfield(M2.contactsites,'auto_boundary_um'), 'the contact-site .mat has n
 A2 = readtable(fullfile(out,'contactsites_all.csv'));
 assert(height(A2) == R.nContact && R.nContact == 3, 'contactsites_all.csv has %d rows, R.nContact = %d', height(A2), R.nContact);
 
+%% (9) self-contained: tracks, member lists, and the script ----------------------------------------------
+Tk = load(fullfile(out,'tracks','cellA_tracks.mat')); tk = Tk.tracks;
+nKept = size(TA.matrix,2) - 1;                           % every track but the rejected one
+assert(size(tk.x_um,2) == nKept && ~ismember(rejCol, tk.build_col), ...
+    'tracks/ holds %d track(s) (rejected col %d present: %d); wanted %d without it', ...
+    size(tk.x_um,2), rejCol, ismember(rejCol, tk.build_col), nKept);
+assert(nnz(isfinite(tk.x_um)) == nnz(isfinite(Tb.matrix(:,:,2))), 'tracks/ does not hold every kept localization');
+assert(isequal(tk.x_um(:,1), TA.matrix(:,tk.build_col(1),2)), 'track 1 is not build column %d', tk.build_col(1));
+Lc = readtable(fullfile(out,'tracks','cellA_localizations.csv'));
+assert(height(Lc) == nnz(isfinite(tk.x_um)) && all(ismember({'track','build_col','frame','x_um','y_um'}, Lc.Properties.VariableNames)), ...
+    'the localizations CSV does not list every localization with track/frame/x/y');
+% member lists: the .mat vector indexes tracks/, and the CSV string says the same thing
+rs = M.refinedsites([M.refinedsites.csID] == 1);
+in = false(size(tk.x_um)); okT = isfinite(tk.x_um) & tk.frame >= win(1,1) & tk.frame <= win(1,2);
+in(okT) = inpolygon(tk.x_um(okT), tk.y_um(okT), rs.boundary_um(:,1), rs.boundary_um(:,2));
+assert(isequal(rs.member_tracks(:)', find(any(in,1))), 'site 1''s member_tracks do not index its members in tracks/');
+assert(strcmp(C.member_tracks(C.csID==1), "[" + strjoin(string(rs.member_tracks)," ") + "]"), ...
+    'the CSV member list "%s" does not match the .mat', C.member_tracks(C.csID==1));
+assert(startsWith(P.auto_member_tracks(P.csID==1), "["), 'auto_member_tracks is not the bracketed text form');
+% the script: no pipeline dependency, and it reproduces every site from the export alone
+scr = fullfile(out, 'analyse_export_one_cell.m');
+deps = matlab.codetools.requiredFilesAndProducts(scr);
+assert(isscalar(deps) && strcmp(deps{1}, scr), ...
+    'analyse_export_one_cell.m depends on pipeline files, so it will not run on a machine without them: %s', strjoin(deps, ', '));
+oldVis = get(groot,'DefaultFigureVisible'); set(groot,'DefaultFigureVisible','off');
+restoreVis = onCleanup(@() set(groot,'DefaultFigureVisible',oldVis));
+scriptOut = evalc('runExportScript(scr)');
+close all force
+assert(contains(scriptOut, 'recount exactly') && isfile(fullfile(out,'results_per_site.csv')), ...
+    'the shipped script did not complete: %s', scriptOut);
+Rs = readtable(fullfile(out,'results_per_site.csv'));
+assert(height(Rs) == R.nSites && Rs.n_loc_inside(Rs.csID==1) == nl, ...
+    'the script''s results (%d rows, site 1 = %d loc) disagree with the export (%d rows, %d loc)', ...
+    height(Rs), Rs.n_loc_inside(Rs.csID==1), R.nSites, nl);
+
 %% (8) an existing name is refused ------------------------------------------------------------------------------
 try
     cs_advisor_export(ana, struct('fovUm',fov,'binNm',bin,'name','run_1_first_look'));
@@ -207,6 +247,11 @@ T = struct('file',name,'matrix',cat(3,Fr,X,Y),'frameInterval',0.02, ...
     'lengths',repmat(nF,nT,1),'trackIDs',(1:nT)', ...
     'allSpots',struct('X',[X(:); cx],'Y',[Y(:); cy],'FRAME',[Fr(:); zeros(400,1)]), ...
     'calib',struct('fovUm',fov,'binNm',bin,'pixSizeUm',0.16,'dt_s',0.02,'precNm',bin));
+end
+
+function runExportScript(scr)
+% run() executes the script in THIS workspace, away from the smoke's own variables.
+run(scr);
 end
 
 function [nl, nt] = recount(T, c, rb, wf)

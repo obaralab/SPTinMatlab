@@ -85,7 +85,7 @@ axRad=[]; chkRefLocs=[]; ddRefScale=[]; sldRefContrast=[]; btnRefDelete=[]; refC
 refNullCache=struct('key',{},'nullMax',{},'pmap',{}); refFoot=[]; refSelIdx=0; refRowMap=[];
 chkRefNbr=[]; refDirty=false; refDrawing=false; eRefView=[]; refViewSite=0; refKeepSpan=false;   % Refine: other-site outlines toggle; unsaved edits (the export warns)
 ctCache=[]; ctCacheKey='';      % buildTracks with hand-rejected tracks BLANKED — see ctTracks
-btnCSexport=[];                 % Contact sites: the advisor export
+btnCSexport=[]; btnRefExport=[];   % the Export button, on Contact sites and on Refine
 refErCache=struct('key',{},'erGrid',{});   % per-(cell,grid) ER support mask resampled to the density grid (radial-null area)
 % Sites tab handles
 eMaxR=[]; eFrac=[]; ddWinFilt=[]; tblSites=[]; axSite=[]; lstMembers=[]; lblSites=[]; lblSitesSrc=[]; siteRowMap=[]; eMinPctIn=[];
@@ -121,7 +121,7 @@ fig.UserData = struct('activeTs',@activeTsNow, 'tracks',@tracksNow, 'loadTracks'
     'exptCtl',@exptCtlNow, 'calibForBuild',@calibForBuild, 'loadTracksFile',@loadTracksFile, ...
     'engExamples',@onEngageExamples, ...
     'refMoveCentre',@moveRefCentre, 'refState',@refStateNow, ...   % Refine: the move without the click
-    'csExport',@onCSExport);                                        % export under a given name, no dialog
+    'csExport',@onCSExport, 'refExport',@onRefExport);              % export under a given name, no dialog
 gl = uigridlayout(fig,[2 1],'RowHeight',{34,'1x'},'Padding',[8 8 8 8],'RowSpacing',6);
 
 % 16 columns, 16 widths, 16 children — keep the three in step. uigridlayout WRAPS a child it has no
@@ -712,14 +712,8 @@ end
         % detection cloud, not the tracks the picker shows — and wrote them without the contact
         % sites, which are the thing the files are for.
         btnCSexport = uibutton(r,'Text','📦 Export','Tag','csExport','ButtonPushedFcn',@(s,e) onCSExport(), ...
-            'Tooltip',['Write ONE named folder under analysis/exports/ with every cell that has ' ...
-                       'saved sites: Density_<cell>.mat + .tif and Densities/<cell>_rho.tif in the ' ...
-                       'external ContactSites format, a per-window density stack, the picks ' ...
-                       '(csIDs/<cell>_CSsites.txt), and per-site tables with centre, window, mito, ' ...
-                       'area, localizations and tracks inside the CURRENT (saved) footprint, plus the ' ...
-                       'boundary polygons and a README. Built from the tracked localizations of the ' ...
-                       'filtered build, minus hand-rejected tracks — the same set the picker shows. ' ...
-                       'Cells excluded on the Experiment tab and sites deleted on Refine are left out.']);
+            'Tooltip',exportTip());
+        btnCSexport.UserData = exportTip();
         lblCS = uilabel(r,'Text','Build (Build & QC tab), then open the windowed contact-site picker here.','FontColor',[0.2 0.4 0.5]);
         pnCS = uipanel(g,'BorderType','none');
         placeholder(pnCS, 'The windowed contact-site picker opens here when you click ▶ Open windowed picker.');
@@ -788,7 +782,7 @@ end
             name = askExportName(anaDir);
             if isempty(name), lblCS.Text = 'Export cancelled — nothing was written.'; return; end
         end
-        resetCSExportButton(); btnCSexport.Text = 'Exporting…'; drawnow;
+        resetCSExportButton(); for hb = exportButtons(), hb.Text = 'Exporting…'; end, drawnow;
         try
             R = cs_advisor_export(anaDir, struct('cells',{cells},'fovUm',FOVUM,'binNm',PRECNM,'name',name));
         catch ME
@@ -809,11 +803,56 @@ end
         % The button keeps its verb — it is still the button that exports — and says it worked with a
         % tick and a colour. It goes back to plain the moment anything it exported changes (a Refine
         % edit or save, reopening the picker), so a green button never vouches for a stale export.
-        btnCSexport.Text = '✓ Export';
-        btnCSexport.BackgroundColor = tern(refDirty, [0.98 0.88 0.70], [0.83 0.93 0.83]);
-        btnCSexport.FontWeight = 'bold';
-        btnCSexport.Tooltip = sprintf('Last export: %d cell(s), %d contact / %d refined site(s) → %s', ...
+        last = sprintf('Last export: %d cell(s), %d contact / %d refined site(s) → %s', ...
             R.nCells, R.nContact, R.nSites, R.outDir);
+        for hb = exportButtons()
+            hb.Text = '✓ Export';
+            hb.BackgroundColor = tern(refDirty, [0.98 0.88 0.70], [0.83 0.93 0.83]);
+            hb.FontWeight = 'bold';
+            hb.Tooltip = sprintf('%s\n\n%s', hb.UserData, last);
+        end
+        if ~isempty(lblRef) && isgraphics(lblRef), lblRef.Text = msg; end
+    end
+
+    function onRefExport(presetName, presetChoice)
+        % Export from the Refine tab. Here unsaved edits are the LIKELY case, so the question is asked
+        % before anything is written rather than warned about afterwards: the export reads what is
+        % saved. presetName / presetChoice answer the two dialogs for the smokes.
+        if nargin < 1, presetName = ''; end
+        if nargin < 2, presetChoice = ''; end
+        if refDirty
+            choice = presetChoice;
+            if isempty(choice)
+                choice = uiconfirm(ancestor(lblRef,'figure'), ...
+                    ['This tab has UNSAVED edits, and the export reads what is saved. Save them first, ' ...
+                     'or export the sites as they were last saved?'], 'Export', ...
+                    'Options', {'Save, then export','Export what is saved','Cancel'}, ...
+                    'DefaultOption', 1, 'CancelOption', 3, 'Icon', 'warning');
+            end
+            switch choice
+                case 'Save, then export', onRefSave();
+                case 'Export what is saved' % carry on; the status line will say what was left out
+                otherwise, lblRef.Text = 'Export cancelled — nothing was written.'; return
+            end
+        end
+        onCSExport(presetName);
+        if ~isempty(lblCS) && isgraphics(lblCS), lblRef.Text = lblCS.Text; end
+    end
+
+    function hs = exportButtons()
+        hs = gobjects(1,0);
+        if ~isempty(btnCSexport)  && isgraphics(btnCSexport),  hs(end+1) = btnCSexport;  end
+        if ~isempty(btnRefExport) && isgraphics(btnRefExport), hs(end+1) = btnRefExport; end
+    end
+
+    function t = exportTip()
+        t = ['Write ONE named folder under analysis/exports/ with every cell that has saved sites: ' ...
+             'the contact sites as the picker found them, the refined sites, the filtered tracks they ' ...
+             'were counted from, the density (.mat + .tif, per window too), the picks, a README ' ...
+             'describing every file and column, and analyse_export_one_cell.m, which reloads a cell ' ...
+             'from those files alone. Built from the tracked localizations of the filtered build minus ' ...
+             'hand-rejected tracks. Cells excluded on the Experiment tab are left out; Refine edits ' ...
+             'count only once saved.'];
     end
 
     function markRefDirty()
@@ -869,9 +908,10 @@ end
     end
 
     function resetCSExportButton()
-        if isempty(btnCSexport) || ~isgraphics(btnCSexport), return; end
-        btnCSexport.Text = '📦 Export';
-        btnCSexport.BackgroundColor = [0.96 0.96 0.96]; btnCSexport.FontWeight = 'normal';
+        for hb = exportButtons()
+            hb.Text = '📦 Export';
+            hb.BackgroundColor = [0.96 0.96 0.96]; hb.FontWeight = 'normal';
+        end
     end
 
     function b = baseOf(f)
@@ -902,7 +942,7 @@ end
     % mapper just uses the auto footprints.
     function buildRefineTab(parent)
         g = uigridlayout(parent,[2 1],'RowHeight',{34,'1x'},'Padding',[10 10 10 10],'RowSpacing',6);
-        r = uigridlayout(g,[1 7],'ColumnWidth',{216, 214, 64,150, 96, '1x', 0},'Padding',[0 0 0 0],'ColumnSpacing',8);
+        r = uigridlayout(g,[1 7],'ColumnWidth',{216, 214, 64,150, 96, 100, '1x'},'Padding',[0 0 0 0],'ColumnSpacing',8);
         uibutton(r,'Text','▶ Load / build contact sites','FontWeight','bold','BackgroundColor',[0.18 0.45 0.70],'FontColor','w', ...
             'Tooltip','Build the auto (half-max) contact-site outline for every picked site (or resume an existing CS_footprints.mat), then adjust them here.', ...
             'ButtonPushedFcn',@(s,e) onRefLoad());
@@ -912,8 +952,11 @@ end
         ddRefWin = uidropdown(r,'Items',{'All windows'},'Value','All windows','ValueChangedFcn',@(s,e) fillRefList());
         uibutton(r,'Text','💾 Save','ButtonPushedFcn',@(s,e) onRefSave(), ...
             'Tooltip','Write analysis/CS_footprints.mat — the mapper (Sites tab) then uses THESE contact sites (and skips any you deleted).');
+        % The same Export as on the Contact sites tab, here because this is where refining ends.
+        btnRefExport = uibutton(r,'Text','📦 Export','Tag','refExport','ButtonPushedFcn',@(s,e) onRefExport(), ...
+            'Tooltip',exportTip());
+        btnRefExport.UserData = exportTip();
         lblRef = uilabel(r,'Text','Pick sites (Contact-sites tab), then Load / build contact sites to refine.','FontColor',[0.2 0.4 0.5]);
-        uilabel(r,'Text','');
         % main: [ site list | (density editor over radial plot) | controls ]
         mn = uigridlayout(g,[1 3],'ColumnWidth',{'0.55x','1.5x',238},'Padding',[0 0 0 0],'ColumnSpacing',8);
         lstRefSites = uilistbox(mn,'Items',{'(load first)'},'ValueChangedFcn',@(s,e) onRefSelect());

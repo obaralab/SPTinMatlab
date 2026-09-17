@@ -266,6 +266,8 @@ mark{ background:var(--accent-soft); color:inherit; border-radius:3px; padding:0
   <a href="#t3exportdensity">&nbsp;&nbsp;&nbsp;&nbsp;The density files</a>
   <a href="#t3exporttwo">&nbsp;&nbsp;&nbsp;&nbsp;Contact sites vs refined sites</a>
   <a href="#t3exportcolsboth">&nbsp;&nbsp;&nbsp;&nbsp;Export columns, one by one</a>
+  <a href="#t3exportds">&nbsp;&nbsp;&nbsp;&nbsp;Export data structures</a>
+  <a href="#t3exportscript">&nbsp;&nbsp;&nbsp;&nbsp;Re-running on an export, one cell at a time</a>
   <a href="#t3exportcoords">&nbsp;&nbsp;&nbsp;&nbsp;Export coordinates</a>
   <a href="#t3sites">Tool 3 · Sites — the mapper, membership and the raw-movie player</a>
   <a href="#t3mapper">&nbsp;&nbsp;▶ Run mapper — the controls and what the run does</a>
@@ -2071,17 +2073,18 @@ ref(r) = ρ · A_ER(r)                                               % A_ER(r) =
 <hr>
 
 <h3 id="t3export">📦 Export — contact sites, refined sites and densities in one folder</h3>
-<p>On the <b>Contact sites</b> tab. Each press asks you to <b>name</b> the export — a folder under <code>analysis/exports/</code>, prefilled with <code>export_&lt;date-time&gt;</code> — and shows the exact folder it will write. Characters a folder name cannot hold become <code>_</code>. A name already used is refused in the dialog: <b>an export is never written over</b>, so what you sent stays what you sent. Every export folder also carries a <code>README.txt</code> with everything in this section, so the files explain themselves to whoever receives them.</p>
-<p>The button shows <b>✓</b> and turns green when the export worked (amber if the Refine tab still had unsaved edits — see below), its tooltip names the folder, and it goes back to plain as soon as anything it exported changes: a Refine edit or save, or reopening the picker. On a 29-cell plate with 472 picks it takes about 18 s and writes about 160 MB.</p>
+<p>On the <b>Contact sites</b> tab and on the <b>Refine</b> tab (both run the same export; on Refine, if you have unsaved edits it first asks whether to save them). Each press asks you to <b>name</b> the export — a folder under <code>analysis/exports/</code>, prefilled with <code>export_&lt;date-time&gt;</code> — and shows the exact folder it will write. Characters a folder name cannot hold become <code>_</code>. A name already used is refused in the dialog: <b>an export is never written over</b>, so what you sent stays what you sent. Every export folder also carries a <code>README.txt</code> with everything in this section, so the files explain themselves to whoever receives them.</p>
+<p>The button shows <b>✓</b> and turns green when the export worked (amber if the Refine tab still had unsaved edits — see below), its tooltip names the folder, and it goes back to plain as soon as anything it exported changes: a Refine edit or save, or reopening the picker. On a 29-cell plate with 472 picks it takes about 19 s and writes about 175 MB, 15 MB of which is the tracks.</p>
 
 <h4 id="t3exportwhat">What goes in, and what is left out</h4>
 <table>
   <tr><th></th><th>Included</th><th>Left out</th></tr>
   <tr><td><b>Cells</b></td><td>every cell with saved sites (<code>csIDs/&lt;cell&gt;_CSsites.txt</code>)</td><td>cells marked EXCLUDE on the Experiment tab; cells never saved in the picker</td></tr>
   <tr><td><b>Localizations</b></td><td>the build's <b>tracked</b> localizations — tracks that passed filtering and curation</td><td>tracks rejected by hand on the QC tab; detections that never linked into a track</td></tr>
-  <tr><td><b>Sites</b></td><td>every pick (in <code>contactsites</code>) and the final set as <b>saved</b> on Refine (in <code>refinedsites</code>)</td><td>sites deleted on Refine are left out of <code>refinedsites</code> (still listed, flagged, in <code>contactsites</code>); Refine edits that were <b>not saved</b></td></tr>
+  <tr><td><b>Tracks</b></td><td>the tracks themselves — every localization's frame, x and y — so every number can be recomputed from the export alone</td><td>hand-rejected tracks</td></tr>
+  <tr><td><b>Sites</b></td><td>every pick (in <code>contactsites</code>) and the final set as <b>saved</b> on Refine (in <code>refinedsites</code>), each with its centre, outline polygon, window, counts and <b>member-track list</b></td><td>sites deleted on Refine are left out of <code>refinedsites</code> (still listed, flagged, in <code>contactsites</code>); Refine edits that were <b>not saved</b></td></tr>
 </table>
-<div class="warn">The export reads what is <b>saved</b>. If the Refine tab has unsaved edits when you press Export, the status line says so and the button turns amber: press <kbd>💾 Save</kbd> on Refine and export again under a new name.</div>
+<div class="warn">The export reads what is <b>saved</b>. From the Refine tab, unsaved edits make it ask first — <b>Save, then export</b> / <b>Export what is saved</b> / <b>Cancel</b>. From the Contact sites tab it exports what is saved, says so on the status line, and turns the button amber.</div>
 
 <h4 id="t3exportlayout">The folder</h4>
 <pre><code>analysis/exports/&lt;name&gt;/
@@ -2095,7 +2098,10 @@ ref(r) = ρ · A_ER(r)                                               % A_ER(r) =
   Densities/&lt;cell&gt;_rho.tif           the density as a colour picture
   csIDs/&lt;cell&gt;_CSsites.txt           the picks
   sites/&lt;cell&gt;_contactsites.csv/.mat
-  sites/&lt;cell&gt;_refinedsites.csv/.mat</code></pre>
+  sites/&lt;cell&gt;_refinedsites.csv/.mat
+  tracks/&lt;cell&gt;_tracks.mat          the filtered tracks (frame, x, y)
+  tracks/&lt;cell&gt;_localizations.csv   the same, one row per localization
+  analyse_export_one_cell.m           reloads and re-analyses one cell at a time (base MATLAB)</code></pre>
 <p><code>&lt;cell&gt;</code> is the cell's file name, e.g. <code>HVK-3C-Plate4-328-011-b_ch24_spt</code>. The density and pick files use the names and formats the external ContactSites code expects, so it can read them directly.</p>
 
 <h4 id="t3exportdensity">The density files</h4>
@@ -2180,6 +2186,79 @@ ref(r) = ρ · A_ER(r)                                               % A_ER(r) =
   <tr><td><code>deleted</code></td><td>always 0 (deleted sites are left out)</td><td>0</td></tr>
 </table>
 <p>In the example the refined centre is 0.73 µm from the pick in y (17.431 vs 16.705 µm) — the hand-drawn outline moved the site onto a different part of the blob. Comparing <code>pick_*</code> with <code>x_um</code>/<code>y_um</code> is how you find sites that moved during refinement.</p>
+
+<h4 id="t3exportds">The data structures (what <code>load</code> gives you)</h4>
+<p>Not only centres and outlines: each site carries its window, area, counts and the list of tracks inside it, and the tracks themselves are exported, so anything can be recomputed. In MATLAB:</p>
+<pre><code>D = load('Density_&lt;cell&gt;.mat')
+  D.imG                  823×823 double   density, row = y, column = x
+
+W = load('Density_&lt;cell&gt;_CSwindows.mat')
+  W.windows.ranges       nWin×2           [first last] frame of each window (0-based)
+  W.windows.framesPerWindow, .nWindows, .grid, .SF_umPerPx, .frameInterval, .source
+
+T = load('tracks/&lt;cell&gt;_tracks.mat')
+  T.tracks.frame         maxLen×nTracks   frame of each localization (0-based), NaN-padded
+  T.tracks.x_um          maxLen×nTracks   x (µm); column j = track j
+  T.tracks.y_um          maxLen×nTracks   y (µm)
+  T.tracks.n_loc         1×nTracks        localizations per track
+  T.tracks.build_col     1×nTracks        the track's column in the pipeline build
+  T.tracks.frameInterval_s, .fov_um, .bin_nm, .file, .note
+
+R = load('sites/&lt;cell&gt;_refinedsites.mat')
+  R.refinedsites         1×nSites struct, one element per refined site:
+    .csID .window .frame0 .frame1 .mito
+    .x_um .y_um .x_px .y_px .pick_x_px .pick_y_px
+    .area_um2 .n_loc_inside .n_tracks
+    .member_tracks       1×n  track numbers (columns of T.tracks.x_um) inside the outline
+    .boundary_um         K×2  outline polygon, absolute [x y] µm, closed
+    .boundary_px         K×2  the same in pixels (µm ÷ SF)
+    .footprint .edited .deleted .file .cellIndex .SF_um_per_px .grid_px .grid_picker_px .fov_um .bin_nm
+
+C = load('sites/&lt;cell&gt;_contactsites.mat')
+  C.contactsites         1×nPicks struct, one element per pick:
+    .csID .window .frame0 .frame1 .mito .manual
+    .pick_x_um .pick_y_um .pick_x_px .pick_y_px
+    .detect_method .detect_peak .detect_pval .detect_enrich .detect_n_loc
+    .detect_n_tracks .detect_stability .detect_dwell_pct .detect_area_um2
+    .auto_x_um .auto_y_um .auto_area_um2 .auto_n_loc_inside .auto_n_tracks
+    .auto_member_tracks  1×n  track numbers inside the automatic outline
+    .auto_boundary_um    K×2  automatic outline, absolute µm
+    .auto_boundary_px    K×2
+    .refined .deleted_in_refine (+ the shared fields)</code></pre>
+<p>In the CSV files the member lists are text in brackets, <code>[3 17 42]</code> (always text, even with one member); <code>str2num</code> turns one back into a vector. The polygons are only in the <code>.mat</code> files.</p>
+
+<h4 id="t3exportscript">Re-running on the exported files, one cell at a time</h4>
+<p>Every export contains <code>analyse_export_one_cell.m</code>. It needs <b>only base MATLAB</b> — not this pipeline — so it runs wherever the folder goes. Open it, set the three lines at the top, and run it:</p>
+<pre><code>exportDir = fileparts(mfilename('fullpath'));   % this folder, or a path
+cellToRun = '';          % '' = every cell, one after another; or e.g. 'HVK-3C-Plate4-328-011-b_ch24_spt'
+makePlots = true;        % one figure per cell</code></pre>
+<p>For each cell it loads the files above, <b>recounts every refined site</b> from <code>tracks/</code> and stops with an error if a count differs from the exported table, measures for each member track the % of its window localizations inside the site and the time that represents (localizations inside × frame interval), plots the density with refined (white) and automatic (cyan, dashed) outlines, and writes one row per site to <code>results_per_site.csv</code>: cell, csID, window, mito, area, n_loc_inside, n_tracks, median % inside, median time inside, localizations per µm².</p>
+<p>The core of it, for one site of one cell:</p>
+<pre><code>folder = '/Users/you/Desktop/CysLig/analysis/exports/my_export';
+name   = 'HVK-3C-Plate4-328-011-b_ch24_spt';
+
+R  = load(fullfile(folder, 'sites',  [name '_refinedsites.mat']));
+T  = load(fullfile(folder, 'tracks', [name '_tracks.mat']));
+tr = T.tracks;
+site = R.refinedsites(1);
+
+inWin  = tr.frame &gt;= site.frame0 &amp; tr.frame &lt;= site.frame1;      % the site's window
+ok     = isfinite(tr.x_um) &amp; inWin;
+inside = false(size(ok));
+inside(ok) = inpolygon(tr.x_um(ok), tr.y_um(ok), ...
+                       site.boundary_um(:,1), site.boundary_um(:,2));
+
+nLoc    = nnz(inside)                  % = site.n_loc_inside
+members = find(any(inside, 1))         % = site.member_tracks
+pctIn   = 100 * sum(inside(:,members),1) ./ sum(ok(:,members),1)   % per member track</code></pre>
+<p>To <b>export</b> just one cell from the MATLAB command line (the app's button exports every saved cell):</p>
+<pre><code>addpath(genpath('/Users/you/Documents/IntegratedPipeline/SPTinMatlab'));
+anaDir = '/Users/you/Desktop/CysLig/analysis';
+R = cs_advisor_export(anaDir, struct( ...
+        'cells', {{'HVK-3C-Plate4-328-011-b_ch24_spt'}}, ...   % one or more cell names
+        'name',  'cell87_only'));                             % folder under analysis/exports/
+disp(R.outDir)</code></pre>
+<p>Loop over <code>cells</code> one name at a time to get one folder per cell. As in the app, a name already used is refused.</p>
 
 <h4 id="t3exportcoords">Coordinates</h4>
 <ul>

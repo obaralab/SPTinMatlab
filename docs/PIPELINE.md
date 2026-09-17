@@ -202,12 +202,17 @@ from its outline keeps the zoom level.
 **📦 Export** (`cs_advisor_export`) asks for a folder name (`cs_advisor_export_name`
 makes it folder-safe; a used name is refused — exports are never written over) and writes
 `analysis/exports/<name>/`: the external code's `Density_<cell>.mat/.tif` and `Densities/<cell>_rho.tif`
-(`cs_advisor_density`, its exact grid), a per-window density stack, the picks, and TWO site tables per cell: `_contactsites` (every pick as
+(`cs_advisor_density`, its exact grid), a per-window density stack, the picks, the filtered TRACKS themselves (`tracks/<cell>_tracks.mat`
+and `_localizations.csv`, so every count is recomputable), and TWO site tables per cell: `_contactsites` (every pick as
 the picker found it, deleted ones flagged, the picker's `detect_*` statistics, and the automatic
 outline's `auto_*` area and counts) and `_refinedsites` (the final set: saved edits applied, deleted
 sites out, with `n_loc_inside`/`n_tracks` inside the refined outline). `cs_footprints_resolve`
-returns both the merged and the automatic footprints and is shared with Refine. Polygons in the
-.mat files; a README with the coordinate conventions. Excluded cells and deleted sites are left
+returns both the merged and the automatic footprints and is shared with Refine. Polygons and
+numeric member-track lists (indices into `tracks/`) in the .mat files; bracketed text lists in the
+CSVs. Every export ships `analyse_export_one_cell.m`, which needs only base MATLAB, reloads one cell
+at a time, recounts every site from `tracks/` and asserts it matches — the smoke checks it has no
+pipeline dependency (`requiredFilesAndProducts`). The Export button is on the Refine tab too, where
+unsaved edits prompt Save / Export saved / Cancel before anything is written. Excluded cells and deleted sites are left
 out; unsaved Refine edits are warned about. It replaced the "(re)save density first" checkbox, which
 wrote density files on every open, from the cloud, without the sites. `cs_advisor_export_smoke`,
 `spt_density_export_smoke`.

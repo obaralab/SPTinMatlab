@@ -28,8 +28,12 @@ function R = cs_advisor_export(anaDir, opts)
 %   sites/<cell>_refinedsites.csv + .mat   the REFINED SITES: every site as it now stands, each saved
 %                                Refine edit applied and deleted sites left out, with the localizations
 %                                and tracks inside the refined outline
-%   (the .mat files add the outline polygons)
+%   (the .mat files add the outline polygons and each site's member-track list)
+%   tracks/<cell>_tracks.mat + _localizations.csv   the filtered tracks themselves - frame, x, y per
+%                                localization - so every number above can be recomputed from the export
 %   contactsites_all.csv, refinedsites_all.csv   every cell in one table each
+%   analyse_export_one_cell.m    base-MATLAB script: loads one cell at a time, recounts every site
+%                                from tracks/ and checks the tables, plots the outlines
 %   README.txt                   what all of the above is, and the coordinate conventions
 %
 % THE LOCALIZATIONS are the build's tracked matrix — the tracks that survived filtering and
@@ -91,7 +95,7 @@ if isfield(opts,'cells') && ~isempty(opts.cells)
 end
 if isempty(bases), return; end
 
-for d = {outDir, fullfile(outDir,'Densities'), fullfile(outDir,'csIDs'), fullfile(outDir,'sites')}
+for d = {outDir, fullfile(outDir,'Densities'), fullfile(outDir,'csIDs'), fullfile(outDir,'sites'), fullfile(outDir,'tracks')}
     if ~isfolder(d{1}), mkdir(d{1}); end
 end
 
@@ -107,6 +111,26 @@ for b = 1:numel(bases)
     end
     M = T.matrix; Fr = M(:,:,1); A = M(:,:,2); B = M(:,:,3);
     okxy = isfinite(A) & isfinite(B);
+
+    % ---- the tracks themselves ---------------------------------------------------------------------
+    % Without them the export is pictures and summaries: nothing in it could be recounted. Only
+    % tracks with positions go out (hand-rejected ones are blanked and so dropped here), numbered
+    % 1..nTracks in export order; build_col keeps the column each came from. member_tracks on every
+    % site uses the EXPORT numbers, so it indexes straight into these arrays.
+    keepCols = find(any(okxy, 1));
+    expNum = zeros(1, size(M,2)); expNum(keepCols) = 1:numel(keepCols);
+    dtS = NaN; if isfield(T,'frameInterval') && ~isempty(T.frameInterval), dtS = double(T.frameInterval); end
+    tracks = struct('file', base, 'frameInterval_s', dtS, 'fov_um', fovUm, 'bin_nm', binNm, ...
+        'frame', Fr(:, keepCols), 'x_um', A(:, keepCols), 'y_um', B(:, keepCols), ...
+        'build_col', keepCols, 'n_loc', sum(okxy(:, keepCols), 1), ...
+        'note', ['Column j = track j (the number in member_tracks). Rows are localizations in time ' ...
+                 'order, NaN-padded. frame is 0-based. Hand-rejected tracks are not included.']); %#ok<NASGU>
+    save(fullfile(outDir, 'tracks', [base '_tracks.mat']), 'tracks');
+    [rr, cc] = find(okxy(:, keepCols));
+    Lt = table(cc, keepCols(cc)', Fr(sub2ind(size(Fr), rr, keepCols(cc)')), ...
+        A(sub2ind(size(A), rr, keepCols(cc)')), B(sub2ind(size(B), rr, keepCols(cc)')), ...
+        'VariableNames', {'track','build_col','frame','x_um','y_um'});
+    writetable(Lt, fullfile(outDir, 'tracks', [base '_localizations.csv']));
 
     % ---- densities: whole movie, and per window -------------------------------------------------
     [sm, di] = cs_advisor_density(A, B, fovUm, binNm);
@@ -143,7 +167,7 @@ for b = 1:numel(bases)
     CSa = struct([]); rowsA = cell(numel(Ai), 1);
     for j = 1:numel(Ai)
         e = Ai(j);
-        [nLoc, nTrk] = countInside(A, B, Fr, okxy, e.center, e.refboundary, e.winFrames);
+        [nLoc, nTrk, mcols] = countInside(A, B, Fr, okxy, e.center, e.refboundary, e.winFrames);
         pk = e.pickPx(:)' * e.SF;                          % the pick, in um, on the grid it was made on
         rec = struct('file',base,'cellIndex',k,'csID',e.csID,'window',e.window, ...
             'frame0',e.winFrames(1),'frame1',e.winFrames(2), ...
@@ -153,10 +177,11 @@ for b = 1:numel(bases)
             'detect_n_loc',det.nloc(j),'detect_n_tracks',det.ntrk(j),'detect_stability',det.stab(j), ...
             'detect_dwell_pct',det.dwell(j),'detect_area_um2',det.area(j), ...
             'auto_x_um',e.center(1),'auto_y_um',e.center(2),'auto_area_um2',e.areaUm2, ...
-            'auto_n_loc_inside',nLoc,'auto_n_tracks',nTrk, ...
+            'auto_n_loc_inside',nLoc,'auto_n_tracks',nTrk,'auto_member_tracks',numList(expNum(mcols)), ...
             'refined',logical(e.edited),'deleted_in_refine',logical(e.deleted), ...
             'SF_um_per_px',di.SF,'grid_px',di.n,'grid_picker_px',gridPick,'fov_um',fovUm,'bin_nm',binNm);
         rowsA{j} = rec;
+        rec.auto_member_tracks = expNum(mcols);              % numeric in the .mat
         rec.auto_boundary_um = e.refboundary + e.center(:)';
         rec.auto_boundary_px = rec.auto_boundary_um / di.SF;
         if isempty(CSa), CSa = rec; else, CSa(end+1) = rec; end %#ok<AGROW>
@@ -169,15 +194,16 @@ for b = 1:numel(bases)
     CSr = struct([]); rowsR = cell(numel(Fkeep), 1);
     for j = 1:numel(Fkeep)
         e = Fkeep(j); c = e.center(:)';
-        [nLoc, nTrk] = countInside(A, B, Fr, okxy, c, e.refboundary, e.winFrames);
+        [nLoc, nTrk, mcols] = countInside(A, B, Fr, okxy, c, e.refboundary, e.winFrames);
         rec = struct('file',base,'cellIndex',k,'csID',e.csID,'window',e.window, ...
             'frame0',e.winFrames(1),'frame1',e.winFrames(2), ...
             'x_um',c(1),'y_um',c(2),'x_px',c(1)/di.SF,'y_px',c(2)/di.SF, ...
             'pick_x_px',e.pickPx(1),'pick_y_px',e.pickPx(2),'mito',logical(e.mito), ...
-            'area_um2',e.areaUm2,'n_loc_inside',nLoc,'n_tracks',nTrk, ...
+            'area_um2',e.areaUm2,'n_loc_inside',nLoc,'n_tracks',nTrk,'member_tracks',numList(expNum(mcols)), ...
             'footprint',char(e.mode),'edited',logical(e.edited),'deleted',logical(e.deleted), ...
             'SF_um_per_px',di.SF,'grid_px',di.n,'grid_picker_px',gridPick,'fov_um',fovUm,'bin_nm',binNm);
         rowsR{j} = rec;
+        rec.member_tracks = expNum(mcols);                   % numeric in the .mat
         rec.boundary_um = e.refboundary + c;
         rec.boundary_px = rec.boundary_um / di.SF;
         if isempty(CSr), CSr = rec; else, CSr(end+1) = rec; end %#ok<AGROW>
@@ -190,6 +216,8 @@ for b = 1:numel(bases)
     R.nSites = R.nSites + numel(Fkeep);
     R.nCells = R.nCells + 1; R.cells{end+1} = base;
 end
+tpl = fullfile(fileparts(mfilename('fullpath')), 'export_template', 'analyse_export_one_cell.m');
+if isfile(tpl), copyfile(tpl, fullfile(outDir, 'analyse_export_one_cell.m')); end
 if ~isempty(allA), writetable(allA, fullfile(outDir, 'contactsites_all.csv')); end
 if ~isempty(allR), writetable(allR, fullfile(outDir, 'refinedsites_all.csv')); end
 writeReadme(outDir, R, finfo, tsName, stamp, incDel);
@@ -207,7 +235,7 @@ if isfield(T,'calib') && isstruct(T.calib)
 end
 end
 
-function [nLoc, nTrk] = countInside(A, B, Fr, okxy, c, rb, wf)
+function [nLoc, nTrk, cols] = countInside(A, B, Fr, okxy, c, rb, wf)
 % Localizations inside the outline during the window, and the distinct tracks they belong to. The
 % same test the mapper uses: inpolygon on the tracked matrix, frames inside the window.
 c = c(:)';
@@ -215,7 +243,14 @@ if isinf(wf(1)) && isinf(wf(2)), inW = true(size(Fr)); else, inW = Fr >= wf(1) &
 inP = false(size(A));
 inP(okxy) = inpolygon(A(okxy)-c(1), B(okxy)-c(2), rb(:,1), rb(:,2));
 mem = inP & inW & okxy;
-nLoc = nnz(mem); nTrk = nnz(any(mem,1));
+nLoc = nnz(mem); cols = find(any(mem,1)); nTrk = numel(cols);
+end
+
+function s = numList(v)
+% A member list as one CSV-safe string, bracketed so it always reads back as TEXT: "[3 17 42]",
+% "[5]", "[]". Unbracketed, a one-member list would read back as a number and the column would
+% change type from row to row. str2num / eval turn it back into a vector.
+s = ['[' strjoin(arrayfun(@(x) sprintf('%d', x), v(:)', 'uni', 0), ' ') ']'];
 end
 
 function all = appendRows(all, rows, csvFile)
@@ -263,7 +298,7 @@ sprintf('Build: %s   Cells: %d   Contact sites: %d   Refined sites: %d (%d refin
         tsName, R.nCells, R.nContact, R.nSites, R.nRefinedEdited)
 ''
 '=== WHAT THE NUMBERS ARE BUILT FROM ==='
-'Every density image and every localization / track count in this folder uses the TRACKED'
+'Every density image, every localization / track count and the tracks/ folder use the TRACKED'
 'localizations of the build: tracks that passed filtering and curation,'
 sprintf('minus %d track(s) rejected by hand on the QC tab.', R.nRejectedTracks)
 'Detections that never linked into a track are not included anywhere.'
@@ -297,10 +332,25 @@ sprintf('minus %d track(s) rejected by hand on the QC tab.', R.nRejectedTracks)
 'sites/<cell>_refinedsites.csv   + .mat (variable refinedsites)'
 '    REFINED SITES: the final set after Refine. See the column list below.'
 '    The .mat adds boundary_um and boundary_px: the refined outline polygon, K x 2, closed.'
+'tracks/<cell>_tracks.mat   (variable tracks)'
+'    The localizations every number here was counted from. Fields:'
+'      frame, x_um, y_um   [maxLength x nTracks]: column j is track j, rows are its localizations in'
+'                          time order, NaN-padded. frame is 0-based.'
+'      build_col           [1 x nTracks] the column each track has in the pipeline''s build'
+'      n_loc               [1 x nTracks] localizations per track'
+'      frameInterval_s, fov_um, bin_nm, file, note'
+'    Track numbers here are the ones in member_tracks / auto_member_tracks.'
+'tracks/<cell>_localizations.csv'
+'    The same, one row per localization: track, build_col, frame, x_um, y_um.'
 ''
 '=== FILES, WHOLE EXPORT ==='
 'contactsites_all.csv    every cell''s contactsites rows in one table'
 'refinedsites_all.csv    every cell''s refinedsites rows in one table'
+'analyse_export_one_cell.m'
+'    Base-MATLAB script (no pipeline code needed). Run it in this folder: it loads one cell at a'
+'    time, recounts every refined site from tracks/, checks the counts against the tables, measures'
+'    how much of each member track is inside, plots the outlines, and writes results_per_site.csv.'
+'    Set cellToRun inside it to analyse a single cell.'
 'README.txt              this file'
 ''
 '=== CONTACT SITES vs REFINED SITES ==='
@@ -344,6 +394,7 @@ sprintf('minus %d track(s) rejected by hand on the QC tab.', R.nRejectedTracks)
 'auto_area_um2           area of the automatic outline'
 'auto_n_loc_inside       localizations inside the automatic outline during the window'
 'auto_n_tracks           distinct tracks among them'
+'auto_member_tracks      those tracks, as track numbers in tracks/ (CSV: text "[3 17 42]"; .mat: a vector)'
 'refined                 1 = this site was later refined by hand on the Refine tab'
 'deleted_in_refine       1 = this site was deleted on the Refine tab (it is not in refinedsites)'
 ''
@@ -357,6 +408,7 @@ sprintf('minus %d track(s) rejected by hand on the QC tab.', R.nRejectedTracks)
 'area_um2          area of the outline'
 'n_loc_inside      localizations inside the outline during the site''s window'
 'n_tracks          distinct tracks among them'
+'member_tracks     those tracks, as track numbers in tracks/ (CSV: text "[3 17 42]"; .mat: a vector)'
 'footprint         how the outline was made: halfmax = automatic; freehand = drawn by hand;'
 '                  +smooth = smoothed; +centre = centre moved with the outline kept'
 'edited            1 = refined by hand, 0 = automatic outline'

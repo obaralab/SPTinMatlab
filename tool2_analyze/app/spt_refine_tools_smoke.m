@@ -217,7 +217,26 @@ assert(height(r) == 1, 'site 1 appears %d times in the export', height(r));
 assert(abs(r.x_um - newC(1)) < 1e-9 && abs(r.y_um - newC(2)) < 1e-9, ...
     'the export has site 1 at (%.4f, %.4f); the saved centre is (%.4f, %.4f)', r.x_um, r.y_um, newC(1), newC(2));
 
+%% (8b) Export is on the Refine tab too, and asks about unsaved edits BEFORE writing ----------------------
+selectTab(f, 'Refine');
+bRef = one(findobj(f,'Tag','refExport'), 'Refine export button', @(x) true);
+assert(isVisibleTab(bRef) && strcmp(erase(string(bRef.Text), "✓ "), "Export"), ...
+    'the Refine tab has no visible Export button ("%s")', bRef.Text);
+st8 = f.UserData.refState();
+f.UserData.refMoveCentre(k1, st8.foot(k1).center + [0.01 0]); drawnow;       % an unsaved edit
+f.UserData.refExport('cancelled_run', 'Cancel'); drawnow;
+assert(~isfolder(fullfile(ana,'exports','cancelled_run')), 'Cancel still wrote an export');
+assert(f.UserData.refState().dirty, 'Cancel saved the edit anyway');
+f.UserData.refExport('third_run', 'Save, then export'); drawnow;
+assert(isfolder(fullfile(ana,'exports','third_run')), '"Save, then export" wrote nothing');
+assert(~f.UserData.refState().dirty, '"Save, then export" left the edit unsaved');
+lblR = one(findobj(f,'Type','uilabel'), 'Refine status', @(x) contains(string(x.Text),'third_run'));
+assert(~contains(string(lblR.Text), 'UNSAVED'), 'the Refine export warned about edits it had just saved: "%s"', lblR.Text);
+assert(startsWith(string(bRef.Text), "✓") && startsWith(string(btn.Text), "✓"), ...
+    'the two Export buttons disagree about the last export ("%s" / "%s")', bRef.Text, btn.Text);
+
 %% (6b) the PICKER gets the same filtered set from the app ------------------------------------------------
+selectTab(f, 'Contact sites');
 press(f, 'Open windowed picker');
 pk = one(findobj(f,'Type','uilabel'), 'picker status line', @(x) contains(string(x.Text),'density from tracked'));
 assert(contains(string(pk.Text), 'minus 1 hand-rejected track'), ...
