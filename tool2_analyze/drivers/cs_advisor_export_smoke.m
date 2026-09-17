@@ -18,6 +18,10 @@ function cs_advisor_export_smoke()
 %   7. BOTH SITE SETS ARE THERE. contactsites = every pick as the picker found it (a site deleted on
 %      Refine is still listed, flagged), with the picker's own detection numbers joined on and the
 %      AUTOMATIC outline recounted; refinedsites = the final set. Neither may be mistaken for the other.
+%  10. THE NUMBERS THAT COMPARE CELLS ARE THERE. Raw counts are not comparable between cells, so
+%      both tables carry prob_mass (share of the cell's localizations) and enrichment (fold over the
+%      cell's OWN background), from the same kernel the mapper uses — and its localization count
+%      must agree with the independent recount.
 %   9. THE EXPORT IS SELF-CONTAINED. The tracks go out (hand-rejected ones not), every site lists its
 %      member tracks by their number in tracks/, and the shipped analyse_export_one_cell.m — which
 %      depends on NO pipeline file — reloads each cell from the export alone and reproduces every
@@ -208,6 +212,24 @@ Rs = readtable(fullfile(out,'results_per_site.csv'));
 assert(height(Rs) == R.nSites && Rs.n_loc_inside(Rs.csID==1) == nl, ...
     'the script''s results (%d rows, site 1 = %d loc) disagree with the export (%d rows, %d loc)', ...
     height(Rs), Rs.n_loc_inside(Rs.csID==1), R.nSites, nl);
+
+%% (10) normalized metrics, and they agree with the counts ------------------------------------------------
+for col = {'prob_mass','peak_prob','local_dens_loc_um2','cell_bg_loc_um2','enrichment','cell_total_loc_win'}
+    assert(ismember(col{1}, C.Properties.VariableNames), 'refinedsites has no %s column', col{1});
+end
+assert(all(isfinite(C.prob_mass)) && all(C.prob_mass > 0 & C.prob_mass <= 1), ...
+    'prob_mass is not a fraction: %s', mat2str(C.prob_mass'));
+assert(abs(r1.prob_mass - r1.n_loc_inside/r1.cell_total_loc_win) < 1e-12, ...
+    'prob_mass %.6g is not n_loc_inside / cell_total_loc_win (%.6g)', r1.prob_mass, r1.n_loc_inside/r1.cell_total_loc_win);
+assert(r1.cell_total_loc_win == nnz(isfinite(Tb.matrix(:,:,2)) & Tb.matrix(:,:,1) >= win(1,1) & Tb.matrix(:,:,1) <= win(1,2)), ...
+    'cell_total_loc_win (%d) is not the cell''s localization count in that window', r1.cell_total_loc_win);
+assert(r1.enrichment > 2 && isfinite(r1.cell_bg_loc_um2) && r1.local_dens_loc_um2 > r1.cell_bg_loc_um2, ...
+    'a planted cluster reports enrichment %.3g over background %.3g', r1.enrichment, r1.cell_bg_loc_um2);
+assert(ismember('auto_prob_mass', P.Properties.VariableNames) && ismember('auto_enrichment', P.Properties.VariableNames), ...
+    'contactsites carries no normalized metrics for the automatic outline');
+assert(P.auto_prob_mass(P.csID==2) > 0, 'a site deleted on Refine still gets its automatic metrics');
+fprintf('normalized: site 1 prob_mass %.4f of %d window locs · enrichment %.1f× over bg %.3g loc/µm²\n', ...
+    r1.prob_mass, r1.cell_total_loc_win, r1.enrichment, r1.cell_bg_loc_um2);
 
 %% (8) an existing name is refused ------------------------------------------------------------------------------
 try

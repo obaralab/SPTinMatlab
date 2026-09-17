@@ -269,6 +269,7 @@ mark{ background:var(--accent-soft); color:inherit; border-radius:3px; padding:0
   <a href="#t3exportcolsboth">&nbsp;&nbsp;&nbsp;&nbsp;Export columns, one by one</a>
   <a href="#t3exportds">&nbsp;&nbsp;&nbsp;&nbsp;Export data structures</a>
   <a href="#t3exportscript">&nbsp;&nbsp;&nbsp;&nbsp;Re-running on an export, one cell at a time</a>
+  <a href="#t3exportnorm">&nbsp;&nbsp;&nbsp;&nbsp;Comparing cells</a>
   <a href="#t3exportcoords">&nbsp;&nbsp;&nbsp;&nbsp;Export coordinates</a>
   <a href="#t3sites">Tool 3 · Sites — the mapper, membership and the raw-movie player</a>
   <a href="#t3mapper">&nbsp;&nbsp;▶ Run mapper — the controls and what the run does</a>
@@ -1878,7 +1879,7 @@ counts = accumarray([Ly Lx], 1, [grid grid]);        % row = y, column = x</code
 
 <h4 id="t3denssmooth">4 · Smoothing</h4>
 <pre><code>dens = imgaussfilt(counts, 8);     % σ = 8 density pixels</code></pre>
-<p>σ = 8 px = <b>240 nm</b> (FWHM ≈ 565 nm). At 30 nm bins the raw counts are almost all 0 or 1 — a molecule seen 200 times in one spot still lands in a handful of separate bins — so the counts are not a usable surface on their own. The smoothing sets the <b>scale the detector looks at</b>, which is why it is a few hundred nm: the size of the structures being found. It is the only place a length scale enters detection; the bin does not.</p>
+<p>σ is given in <b>density pixels</b>, not nanometres: <code>8</code> px here, which is <b>240 nm</b> because a pixel is 29.99 nm (FWHM ≈ 565 nm; <code>imgaussfilt</code> uses a 2·ceil(2σ)+1 = <b>33 × 33 px</b> window, about 1 µm across). <b>The same pixel count means a different physical width if the bin changes</b> — at a 20 nm bin, σ = 8 px would be 160 nm — so the detection scale follows the bin. In this project all 93 cells share one calibration (96.78 nm camera pixel, 30 nm bin, 24.679 µm FOV), so σ is 240 nm in every one of them. At 30 nm bins the raw counts are almost all 0 or 1 — a molecule seen 200 times in one spot still lands in a handful of separate bins — so the counts are not a usable surface on their own. The smoothing sets the <b>scale the detector looks at</b>, which is why it is a few hundred nm: the size of the structures being found. It is the only place a length scale enters detection; the bin does not.</p>
 
 <h4 id="t3densunits">What a density value means</h4>
 <p>The kernel keeps its total, so <b>one localization contributes a bump summing to 1</b>, spread over roughly 2πσ² ≈ 400 pixels, peaking at about <b>0.0027</b>. Reading that backwards gives a feel for any number on the colorbar:</p>
@@ -1890,7 +1891,8 @@ counts = accumarray([Ly Lx], 1, [grid grid]);        % row = y, column = x</code
 </table>
 <p>A worked example, cell 87 · site 5 in this project: its peak density is <code>0.4018</code> → about 150 localizations within ~240 nm, and the site's automatic outline (0.51 µm²) in fact holds <b>172</b>. The two agree because both count the same localizations; they differ in what counts as "inside".</p>
 <p>Every threshold on this tab is a number in these units — the support background, the cutoff, <code>detect_peak</code> and <code>enr×</code> all live on this image. See <a href="#t3method">method · sens · sims</a> for what each detector compares against.</p>
-<div class="warn">The density in an <a href="#t3export">export</a> is the <b>same counts on the same grid but smoothed with σ = 2 bins (60 nm)</b>, because that is the form the external ContactSites code expects. Its pixel values are therefore <em>not</em> comparable with <code>detect_peak</code> or with anything on this tab: a sharper kernel concentrates the same localization into fewer pixels, so its peaks are higher.</div>
+<div class="warn">The density in an <a href="#t3export">export</a> is the <b>same counts on the same grid but smoothed with σ = 2 bins = 60 nm</b> (a 9 × 9 px window), because that is the form the external ContactSites code expects. Its pixel values are therefore <em>not</em> comparable with <code>detect_peak</code> or with anything on this tab: a sharper kernel concentrates the same localization into fewer pixels, so its peaks are higher.</div>
+<div class="note"><b>Density images are absolute, and absolute counts do not compare between cells.</b> A cell with twice the labelling has twice the localizations everywhere, so its density is twice as high without any biology. What compares is <b>normalized</b>: the share of that cell's localizations that sit in a site (<code>prob_mass</code>) and the site's density over <b>that cell's own background</b> (<code>enrichment</code>). Those are what the ContactSites metric kernel computes and what the mapper (Sites tab) reports — and an <a href="#t3export">export</a> carries both for every site. The picker's <b>enr×</b> is the same idea at detection time: peak over the support median, within one window of one cell.</div>
 
 <h3 id="t3method">method · sens · sims — how the cutoff is set</h3>
 <p>Detection thresholds the σ-smoothed density and is <b>confined to the ER support</b> of the window (a site must sit on the ER). All three methods threshold <em>the same density</em> and differ entirely in what they compare it against. The cutoff spinner is shared, so it means a different thing in each — the picker <b>renames its label</b> to say which (<code>cutoff α</code> / <code>cutoff ×peak</code> / <code>cutoff ×local</code>) and its default changes when you switch.</p>
@@ -2144,7 +2146,7 @@ ref(r) = ρ · A_ER(r)                                               % A_ER(r) =
 <h4 id="t3exportdensity">The density files</h4>
 <table>
   <tr><th>File</th><th>Contents</th><th>Use it for</th></tr>
-  <tr><td><code>Density_&lt;cell&gt;.mat</code></td><td>One variable, <code>imG</code>: an <i>n</i> × <i>n</i> double image, <b>row = y, column = x</b>, <i>n</i> = ceil(FOV ÷ bin) — 823 × 823 for a 24.68 µm field at 30 nm. <code>imG = 30 × localization counts per bin</code>, smoothed with a Gaussian of σ = 2 bins, over the <b>whole movie</b>. Smoothing keeps the total, so <code>sum(imG(:))/30</code> is the number of localizations in the image — 28 406 for cell 87.</td><td>Numbers. This is the density to analyse, and it is on the same scale for every cell.</td></tr>
+  <tr><td><code>Density_&lt;cell&gt;.mat</code></td><td>One variable, <code>imG</code>: an <i>n</i> × <i>n</i> double image, <b>row = y, column = x</b>, <i>n</i> = ceil(FOV ÷ bin) — 823 × 823 for a 24.68 µm field at 30 nm. <code>imG = 30 × localization counts per bin</code>, smoothed with a Gaussian of σ = 2 bins, over the <b>whole movie</b>. Smoothing keeps the total, so <code>sum(imG(:))/30</code> is the number of localizations in the image — 28 406 for cell 87.</td><td>Numbers. Same units in every cell — but <b>absolute counts</b>: to compare cells use the normalized site columns (<code>prob_mass</code>, <code>enrichment</code>), not the pixel values.</td></tr>
   <tr><td><code>Density_&lt;cell&gt;.tif</code></td><td>The same image as <code>uint16</code> — the same values, rounded (cell 87 peaks at 260, far below the 65 535 ceiling).</td><td>Opening in Fiji / ImageJ.</td></tr>
   <tr><td><code>Densities/&lt;cell&gt;_rho.tif</code></td><td>The same image as 8-bit RGB through the turbo colormap, stretched from the cell's own minimum to its own maximum.</td><td><b>Looking only.</b> Each cell is stretched to its own range, so a colour means a different density in every cell.</td></tr>
   <tr><td><code>Density_&lt;cell&gt;_windows.tif</code></td><td>The same density built <b>separately for each picker time window</b>: page <i>w</i> = window <i>w</i>.</td><td>Checking a site against the density it was picked on — a site from window 2 need not show on the whole-movie image. With a single window (e.g. 4000 frames/win on a 4000-frame movie) there is one page, identical to <code>Density_&lt;cell&gt;.tif</code>.</td></tr>
@@ -2204,6 +2206,10 @@ ref(r) = ρ · A_ER(r)                                               % A_ER(r) =
   <tr><td><code>auto_area_um2</code></td><td>area of the automatic outline, µm²</td><td>0.507</td></tr>
   <tr><td><code>auto_n_loc_inside</code></td><td>localizations inside the automatic outline during the window</td><td>172</td></tr>
   <tr><td><code>auto_n_tracks</code></td><td>distinct tracks among them</td><td>9</td></tr>
+  <tr><td><code>auto_member_tracks</code></td><td>those tracks, by their number in <code>tracks/</code></td><td><code>[152 170 …]</code></td></tr>
+  <tr><td><code>auto_prob_mass</code></td><td>localizations inside ÷ the cell's localizations in that window — <b>comparable between cells</b></td><td>0.0061</td></tr>
+  <tr><td><code>auto_enrichment</code></td><td>its density ÷ this cell's own background — <b>comparable between cells</b></td><td>3.6</td></tr>
+  <tr><td><code>auto_local_dens_loc_um2</code>, <code>auto_peak_prob</code></td><td>mean density inside (loc/µm²), and the peak normalized by the cell's localization count</td><td>—</td></tr>
   <tr><td><code>refined</code></td><td>1 = this site was later refined by hand on Refine</td><td>1</td></tr>
   <tr><td><code>deleted_in_refine</code></td><td>1 = deleted on Refine; this site is <b>not</b> in <code>refinedsites</code></td><td>0</td></tr>
 </table>
@@ -2218,6 +2224,13 @@ ref(r) = ρ · A_ER(r)                                               % A_ER(r) =
   <tr><td><code>area_um2</code></td><td>area of the outline, µm²</td><td>1.426</td></tr>
   <tr><td><code>n_loc_inside</code></td><td>localizations inside the outline during the site's window — the Refine tab's "<i>N</i> of <i>M</i> window locs inside"</td><td>563</td></tr>
   <tr><td><code>n_tracks</code></td><td>distinct tracks among them — the Refine tab's "trk"</td><td>15</td></tr>
+  <tr><td><code>member_tracks</code></td><td>those tracks, by their number in <code>tracks/</code></td><td><code>[152 170 …]</code></td></tr>
+  <tr><td><code>cell_total_loc_win</code></td><td>the cell's localizations in this site's window — the normalizing count</td><td>28 406</td></tr>
+  <tr><td><code>prob_mass</code></td><td><code>n_loc_inside ÷ cell_total_loc_win</code>: the share of this cell that sits in this site. <b>Comparable between cells.</b></td><td>0.0198</td></tr>
+  <tr><td><code>local_dens_loc_um2</code></td><td>mean smoothed density inside the outline, localizations per µm²</td><td>313.2</td></tr>
+  <tr><td><code>cell_bg_loc_um2</code></td><td>this cell's own background density in that window (mean over occupied bins)</td><td>219.1</td></tr>
+  <tr><td><code>enrichment</code></td><td><code>local_dens ÷ cell_bg</code> — fold over this cell's own baseline. <b>Comparable between cells.</b></td><td>1.43</td></tr>
+  <tr><td><code>peak_prob</code></td><td>peak density inside ÷ <code>cell_total_loc_win</code></td><td>—</td></tr>
   <tr><td><code>footprint</code></td><td>how the outline was made: <code>halfmax</code> = automatic; <code>freehand</code> = drawn by hand; <code>+smooth</code> = smoothed; <code>+centre</code> = centre moved with the outline kept</td><td><code>freehand+smooth</code></td></tr>
   <tr><td><code>edited</code></td><td>1 = refined by hand, 0 = automatic outline</td><td>1</td></tr>
   <tr><td><code>deleted</code></td><td>always 0 (deleted sites are left out)</td><td>0</td></tr>
@@ -2296,6 +2309,16 @@ R = cs_advisor_export(anaDir, struct( ...
         'name',  'cell87_only'));                             % folder under analysis/exports/
 disp(R.outDir)</code></pre>
 <p>Loop over <code>cells</code> one name at a time to get one folder per cell. As in the app, a name already used is refused.</p>
+
+<h4 id="t3exportnorm">Comparing cells</h4>
+<p>Counts are not comparable between cells, and neither are the density images: labelling and expression differ, so a brighter cell has more localizations everywhere. Three columns in the site tables are normalized <b>within each cell</b> and are the ones to compare across cells, conditions or plates:</p>
+<table>
+  <tr><th>Column</th><th>Normalized by</th><th>Reads as</th></tr>
+  <tr><td><code>prob_mass</code></td><td>the cell's localizations in that window</td><td>"1.98 % of this cell's molecules-seconds are in this site"</td></tr>
+  <tr><td><code>enrichment</code></td><td>the cell's own background density</td><td>"1.43× the density of this cell as a whole"</td></tr>
+  <tr><td><code>peak_prob</code></td><td>the cell's localizations in that window</td><td>the same, for the peak instead of the mean</td></tr>
+</table>
+<p>These come from the <b>same metric kernel</b> the ContactSites code and the <a href="#t3sites">Sites</a> mapper use (<code>csDensMetricOne</code>), on the same σ = 8 px density — the exported values match the mapper's to floating-point precision, so a number in the export and the same number on the Sites tab cannot drift apart. <code>n_loc_inside</code>, <code>local_dens_loc_um2</code> and the density images stay absolute: fine within a cell, misleading across cells.</p>
 
 <h4 id="t3exportcoords">Coordinates</h4>
 <ul>

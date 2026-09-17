@@ -21,6 +21,12 @@ function R = cs_advisor_export(anaDir, opts)
 %                                picked on window densities, and a window-2 site need not be visible
 %                                on the whole-movie map
 %   csIDs/<cell>_CSsites.txt     the picks, in the format the external mapper reads
+%   Both site tables carry the NORMALIZED metrics as well as the raw counts, from the same kernel
+%   the mapper uses (csDensMetricOne): prob_mass (localizations inside / the cell's localizations in
+%   that window) and enrichment (the site's density / that cell's own background). Raw counts are
+%   not comparable between cells - a cell with twice the labelling has twice the counts - and these
+%   are what make them comparable.
+%
 %   sites/<cell>_contactsites.csv + .mat   the CONTACT SITES as the picker found them: every pick
 %                                (including ones later deleted on Refine, flagged), the picker's own
 %                                detection statistics, and the AUTOMATIC outline around it with the
@@ -140,7 +146,8 @@ for b = 1:numel(bases)
     lo = min(sm,[],'all'); hi = max(sm,[],'all'); if ~(hi > lo), hi = lo + 1; end
     imwrite(ind2rgb(uint8(round(255*(sm-lo)/(hi-lo))), turbo(256)), fullfile(outDir,'Densities',[base '_rho.tif']));
 
-    [ranges, ~, gridPick] = cs_load_windows(anaDir, base, [Fi.window], Fi(1).grid, Fi(1).SF);
+    [ranges, SFpick, gridPick] = cs_load_windows(anaDir, base, [Fi.window], Fi(1).grid, Fi(1).SF);
+    ccache = containers.Map('KeyType','double','ValueType','any');   % per window, for the metrics
     wtif = fullfile(outDir, ['Density_' base '_windows.tif']);
     for w = 1:size(ranges,1)
         if isinf(ranges(w,1)) && isinf(ranges(w,2)), inW = true(size(Fr));
@@ -168,6 +175,7 @@ for b = 1:numel(bases)
     for j = 1:numel(Ai)
         e = Ai(j);
         [nLoc, nTrk, mcols] = countInside(A, B, Fr, okxy, e.center, e.refboundary, e.winFrames);
+        nm = siteMetrics(ccache, A, B, Fr, e, SFpick, gridPick);
         pk = e.pickPx(:)' * e.SF;                          % the pick, in um, on the grid it was made on
         rec = struct('file',base,'cellIndex',k,'csID',e.csID,'window',e.window, ...
             'frame0',e.winFrames(1),'frame1',e.winFrames(2), ...
@@ -178,6 +186,8 @@ for b = 1:numel(bases)
             'detect_dwell_pct',det.dwell(j),'detect_area_um2',det.area(j), ...
             'auto_x_um',e.center(1),'auto_y_um',e.center(2),'auto_area_um2',e.areaUm2, ...
             'auto_n_loc_inside',nLoc,'auto_n_tracks',nTrk,'auto_member_tracks',numList(expNum(mcols)), ...
+            'auto_prob_mass',nm.prob_mass,'auto_enrichment',nm.enrichment, ...
+            'auto_local_dens_loc_um2',nm.local_dens,'auto_peak_prob',nm.peak_prob, ...
             'refined',logical(e.edited),'deleted_in_refine',logical(e.deleted), ...
             'SF_um_per_px',di.SF,'grid_px',di.n,'grid_picker_px',gridPick,'fov_um',fovUm,'bin_nm',binNm);
         rowsA{j} = rec;
@@ -195,11 +205,14 @@ for b = 1:numel(bases)
     for j = 1:numel(Fkeep)
         e = Fkeep(j); c = e.center(:)';
         [nLoc, nTrk, mcols] = countInside(A, B, Fr, okxy, c, e.refboundary, e.winFrames);
+        nm = siteMetrics(ccache, A, B, Fr, e, SFpick, gridPick);
         rec = struct('file',base,'cellIndex',k,'csID',e.csID,'window',e.window, ...
             'frame0',e.winFrames(1),'frame1',e.winFrames(2), ...
             'x_um',c(1),'y_um',c(2),'x_px',c(1)/di.SF,'y_px',c(2)/di.SF, ...
             'pick_x_px',e.pickPx(1),'pick_y_px',e.pickPx(2),'mito',logical(e.mito), ...
             'area_um2',e.areaUm2,'n_loc_inside',nLoc,'n_tracks',nTrk,'member_tracks',numList(expNum(mcols)), ...
+            'cell_total_loc_win',nm.cell_total,'prob_mass',nm.prob_mass,'peak_prob',nm.peak_prob, ...
+            'local_dens_loc_um2',nm.local_dens,'cell_bg_loc_um2',nm.cell_bg_dens,'enrichment',nm.enrichment, ...
             'footprint',char(e.mode),'edited',logical(e.edited),'deleted',logical(e.deleted), ...
             'SF_um_per_px',di.SF,'grid_px',di.n,'grid_picker_px',gridPick,'fov_um',fovUm,'bin_nm',binNm);
         rowsR{j} = rec;
@@ -233,6 +246,36 @@ if isfield(T,'calib') && isstruct(T.calib)
     if isfield(c,'precNm') && isscalar(c.precNm) && isfinite(c.precNm) && c.precNm > 0, binNm = c.precNm; end
     if isfield(c,'binNm')  && isscalar(c.binNm)  && isfinite(c.binNm)  && c.binNm  > 0, binNm = c.binNm;  end
 end
+end
+
+function m = siteMetrics(ccache, A, B, Fr, e, SF, grid)
+% The NORMALIZED metrics, from the same kernel the mapper runs (csDensMetricOne) on the same
+% density the picker detects on (sigma = 8 px on the picker's grid). Raw counts cannot be compared
+% between cells - labelling and expression differ - so prob_mass (fraction of the cell's
+% localizations in this window) and enrichment (density over the cell's OWN background) are what
+% travel. Computed per window and cached: one density per window, not one per site.
+blank = struct('csID',NaN,'cellIndex',NaN,'file','','mito',false,'n_loc_in',0, ...
+    'cell_total',0,'prob_mass',NaN,'peak_prob',NaN,'peak_prob_raw',NaN,'area_um2',NaN, ...
+    'local_dens',NaN,'cell_bg_dens',NaN,'enrichment',NaN);
+m = blank;
+w = e.window; if isempty(w) || ~isfinite(w), w = 1; end
+if isKey(ccache, w)
+    cc = ccache(w);
+else
+    f0 = e.winFrames(1); f1 = e.winFrames(2);
+    sX = A(:); sY = B(:); sF = Fr(:);
+    [rawCounts, Dens] = cs_window_density(sX, sY, sF, f0, f1, SF, grid, grid, 8);
+    if isinf(f0) && isinf(f1), inw = true(size(sF)); else, inw = sF >= f0 & sF <= f1; end
+    okc = inw & isfinite(sX) & isfinite(sY);
+    occ = rawCounts >= 1; bg = mean(Dens(occ), 'omitnan'); if ~(bg > 0), bg = NaN; end
+    cc = struct('rho', Dens.', 'Hc', rawCounts.', 'cxc', (1:grid)*SF, 'cyc', (1:grid)*SF, ...
+                'rho_bg', bg, 'Xc', sX(okc), 'Yc', sY(okc), 'cellTot', nnz(okc));
+    ccache(w) = cc;      % containers.Map is a handle: this caches for the next site in the window
+end
+cs = struct('csID', e.csID, 'cellIndex', e.cellIndex, 'refCenter', e.center(:)', ...
+            'refboundary', e.refboundary*1000);            % the kernel's contract: nm, rel. centre
+cs = cs_site_set_near(cs, 'mito', e.mito);
+try, m = csDensMetricOne(cs, cc, e.file, blank, SF^2); catch, end
 end
 
 function [nLoc, nTrk, cols] = countInside(A, B, Fr, okxy, c, rb, wf)
@@ -395,6 +438,10 @@ sprintf('minus %d track(s) rejected by hand on the QC tab.', R.nRejectedTracks)
 'auto_n_loc_inside       localizations inside the automatic outline during the window'
 'auto_n_tracks           distinct tracks among them'
 'auto_member_tracks      those tracks, as track numbers in tracks/ (CSV: text "[3 17 42]"; .mat: a vector)'
+'auto_prob_mass          localizations inside the automatic outline / the cell''s localizations in that window'
+'auto_enrichment         its density / the cell''s own background density (fold, dimensionless)'
+'auto_local_dens_loc_um2 mean smoothed density inside it, as localizations per um^2'
+'auto_peak_prob          peak density inside it / the cell''s localizations in that window'
 'refined                 1 = this site was later refined by hand on the Refine tab'
 'deleted_in_refine       1 = this site was deleted on the Refine tab (it is not in refinedsites)'
 ''
@@ -409,10 +456,26 @@ sprintf('minus %d track(s) rejected by hand on the QC tab.', R.nRejectedTracks)
 'n_loc_inside      localizations inside the outline during the site''s window'
 'n_tracks          distinct tracks among them'
 'member_tracks     those tracks, as track numbers in tracks/ (CSV: text "[3 17 42]"; .mat: a vector)'
+'cell_total_loc_win  the cell''s localizations in this site''s window - the normalizing count'
+'prob_mass         n_loc_inside / cell_total_loc_win: the share of the cell that is in this site'
+'peak_prob         peak smoothed density inside / cell_total_loc_win'
+'local_dens_loc_um2  mean smoothed density inside the outline, localizations per um^2'
+'cell_bg_loc_um2   the cell''s own background density in that window (mean over occupied bins), loc/um^2'
+'enrichment        local_dens_loc_um2 / cell_bg_loc_um2 (fold, dimensionless)'
 'footprint         how the outline was made: halfmax = automatic; freehand = drawn by hand;'
 '                  +smooth = smoothed; +centre = centre moved with the outline kept'
 'edited            1 = refined by hand, 0 = automatic outline'
 'deleted           always 0 here (deleted sites are left out)'
+''
+'=== COMPARING CELLS ==='
+'Raw counts are NOT comparable between cells: a cell with twice the labelling has twice the'
+'localizations everywhere. Use the normalized columns, which are computed by the same kernel the'
+'pipeline and the ContactSites code use:'
+'  prob_mass    the share of THIS cell''s localizations that sit in the site (window-matched)'
+'  enrichment   the site''s density over THIS cell''s own background - fold over its own baseline'
+'  peak_prob    the same normalization applied to the peak instead of the mean'
+'local_dens_loc_um2 and n_loc_inside are absolute: fine within a cell, not across cells.'
+'The density IMAGES are absolute counts too (imG = 30 x smoothed counts), not normalized.'
 ''
 '=== COORDINATES ==='
 'Use the _um columns if in doubt: they mean the same thing everywhere.'
