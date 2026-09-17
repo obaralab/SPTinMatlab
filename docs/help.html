@@ -242,6 +242,7 @@ mark{ background:var(--accent-soft); color:inherit; border-radius:3px; padding:0
   <a href="#t3open">&nbsp;&nbsp;Opening the picker — the controls on the host row</a>
   <a href="#t3cellwin">&nbsp;&nbsp;The cell table, saved status, the status line, and the windows</a>
   <a href="#t3channel">&nbsp;&nbsp;The density channel dropdown diffusion-aware</a>
+  <a href="#t3density">&nbsp;&nbsp;How the density is calculated</a>
   <a href="#t3method">&nbsp;&nbsp;method · sens · sims — how the cutoff is set</a>
   <a href="#t3gates">&nbsp;&nbsp;The detection-quality gates</a>
   <a href="#t3detect">&nbsp;&nbsp;Detect win vs Detect all</a>
@@ -1855,6 +1856,42 @@ D distribution — median &lt;med&gt; µm²/s  ·  adaptive fit &lt;min&gt;–&l
 <p>There used to be a <b>channel</b> dropdown here offering <em>Confined (low D)</em> and <em>State-change</em>, which built the density from a diffusion-state subset of the localizations instead of all of them. It is gone: the density is always the tracked localization cloud.</p>
 <p>Both channels read <code>Tracks.confined</code> / <code>Tracks.stateChange</code>, which builds no longer write. Those flags depend on a confinement criterion that is not currently part of the pipeline, so selecting contact sites by diffusion state would have rested on a parameter nobody was setting — and the criterion that had been shipping fired on <b>95 %</b> of tracks that were merely slow throughout, so the channels were selecting largely on noise. See <a href="#t2statechange">Confinement and state changes</a> for how to bring the capability back.</p>
 
+<h3 id="t3density">How the density is calculated</h3>
+<p>Everything on this tab — the maps, the thresholds, the enrichment, the site outlines — is built from one image per window, made in four steps from the localization coordinates. The numbers below are this project's: a 256 × 256 camera at 96.78 nm per pixel, 30 nm bins.</p>
+
+<h4 id="t3densinput">1 · What goes in</h4>
+<p>The <b>tracked</b> localizations of the build, in <b>µm</b> — not camera pixels. Each is a sub-pixel position fitted from the movie, so nothing is rounded to the camera grid on the way in. Tracks rejected by hand on the QC tab are excluded; detections that never linked into a track are never used. Only localizations whose <b>frame</b> falls in the window are binned (a whole-movie window uses all of them).</p>
+
+<h4 id="t3densgrid">2 · The grid — this is the "scaled to the precision" step</h4>
+<p>The density is <b>re-binned at the localization precision</b>, not at the camera pixel size. The camera enters only through the field of view:</p>
+<pre><code>FOV   = image width × camera pixel size = 256 × 0.096782 µm = 24.679 µm
+grid  = ceil(FOV ÷ bin)                 = ceil(24.679 ÷ 0.030) = 823 pixels per side
+SF    = FOV ÷ grid                      = 0.029987 µm = 29.99 nm per density pixel</code></pre>
+<p>So a 256 × 256 movie becomes an <b>823 × 823</b> density image: about <b>3.2 density pixels per camera pixel</b>, and <code>SF</code> comes out just under the bin you asked for because the grid has to be a whole number of pixels. <code>SF</code> is the scale factor every coordinate in this pipeline and in the export is converted with (<code>µm = px × SF</code>).</p>
+<div class="note"><b>Why the bin is tied to the precision.</b> The bin is <code>bin</code> on the top bar, normally set to the localization precision (30 nm here). Bins much <em>smaller</em> than the precision add no information — the same localization uncertainty is just spread over more bins — and cost memory and time; bins much <em>larger</em> throw away resolution you paid for. The bin does not set the detection scale: the smoothing in step 4 does.</div>
+<p>If the project already has a <code>Densities/&lt;cell&gt;_rho.tif</code>, its <b>height</b> is used as the grid instead, so a cell always keeps the grid its saved files were made on. A cell with its own calibration (a different camera on the same plate) gets its own FOV, grid and SF.</p>
+
+<h4 id="t3densbin">3 · Binning</h4>
+<pre><code>Lx = round(x_um / SF);   Ly = round(y_um / SF);      % µm → density pixel, 1-based
+counts = accumarray([Ly Lx], 1, [grid grid]);        % row = y, column = x</code></pre>
+<p>Each localization adds <b>1</b> to exactly one pixel — no weighting by intensity, no spreading. Pixel <i>c</i> is centred on <i>c</i> × SF µm. That is the picker's own convention and the one the mapper reads back; the density files in an <a href="#t3export">export</a> use histogram bins instead, which is where the half-pixel note in that section comes from.</p>
+
+<h4 id="t3denssmooth">4 · Smoothing</h4>
+<pre><code>dens = imgaussfilt(counts, 8);     % σ = 8 density pixels</code></pre>
+<p>σ = 8 px = <b>240 nm</b> (FWHM ≈ 565 nm). At 30 nm bins the raw counts are almost all 0 or 1 — a molecule seen 200 times in one spot still lands in a handful of separate bins — so the counts are not a usable surface on their own. The smoothing sets the <b>scale the detector looks at</b>, which is why it is a few hundred nm: the size of the structures being found. It is the only place a length scale enters detection; the bin does not.</p>
+
+<h4 id="t3densunits">What a density value means</h4>
+<p>The kernel keeps its total, so <b>one localization contributes a bump summing to 1</b>, spread over roughly 2πσ² ≈ 400 pixels, peaking at about <b>0.0027</b>. Reading that backwards gives a feel for any number on the colorbar:</p>
+<table>
+  <tr><th>Reading</th><th>Means</th></tr>
+  <tr><td><code>0.0027</code></td><td>a single localization, alone</td></tr>
+  <tr><td><code>0.40</code></td><td>roughly 150 localizations packed within about σ (240 nm) of that pixel</td></tr>
+  <tr><td>the <b>locs / 30 nm bin</b> colour scale</td><td>the <b>raw</b> counts instead — whole localizations per bin, no smoothing</td></tr>
+</table>
+<p>A worked example, cell 87 · site 5 in this project: its peak density is <code>0.4018</code> → about 150 localizations within ~240 nm, and the site's automatic outline (0.51 µm²) in fact holds <b>172</b>. The two agree because both count the same localizations; they differ in what counts as "inside".</p>
+<p>Every threshold on this tab is a number in these units — the support background, the cutoff, <code>detect_peak</code> and <code>enr×</code> all live on this image. See <a href="#t3method">method · sens · sims</a> for what each detector compares against.</p>
+<div class="warn">The density in an <a href="#t3export">export</a> is the <b>same counts on the same grid but smoothed with σ = 2 bins (60 nm)</b>, because that is the form the external ContactSites code expects. Its pixel values are therefore <em>not</em> comparable with <code>detect_peak</code> or with anything on this tab: a sharper kernel concentrates the same localization into fewer pixels, so its peaks are higher.</div>
+
 <h3 id="t3method">method · sens · sims — how the cutoff is set</h3>
 <p>Detection thresholds the σ-smoothed density and is <b>confined to the ER support</b> of the window (a site must sit on the ER). All three methods threshold <em>the same density</em> and differ entirely in what they compare it against. The cutoff spinner is shared, so it means a different thing in each — the picker <b>renames its label</b> to say which (<code>cutoff α</code> / <code>cutoff ×peak</code> / <code>cutoff ×local</code>) and its default changes when you switch.</p>
 <table>
@@ -2861,6 +2898,7 @@ group,n,mean,sem,median,mode</code></pre>
 <p>The clauses, in order: the cell file; the total detections in <code>allSpots</code>; the tracked count that feeds the density, with its percentage of the total; the window count; whether per-spot mito distance came from the CSV's <code>MITO_DIST_UM</code> or had to be derived; and — once a window is drawn — that window's own tracked count. Two clauses appear only conditionally: <code>· channel &lt;mode&gt; (N locs)</code> when the density channel is not the default <code>tracked</code>, and <code>· N of M windows ⚠ frames K+ NOT analysed</code> in place of the plain window count when the 24-panel cap has cut the movie short. Counts print without thousands separators.</p>
 <p>and every window thumbnail shows its own count, turning <b style="color:#c33">red ⚠</b> if it falls below the <b>min locs/win</b> floor.</p>
 <h3>The density map, in code</h3>
+<p>The full account — grid, binning, smoothing and what a value means — is in <a href="#t3density">How the density is calculated</a>.</p>
 <pre><code>% bin tracked localizations (µm) whose frame is in [t0,t1] onto the grid, then Gaussian-smooth
 Lx = round(X/SF);  Ly = round(Y/SF);            % µm → density pixel  (SF = FOV/grid)
 counts = accumarray([Ly Lx], 1, [H W]);          % row = y, col = x
