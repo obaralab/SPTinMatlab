@@ -121,7 +121,8 @@ fig.UserData = struct('activeTs',@activeTsNow, 'tracks',@tracksNow, 'loadTracks'
     'exptCtl',@exptCtlNow, 'calibForBuild',@calibForBuild, 'loadTracksFile',@loadTracksFile, ...
     'engExamples',@onEngageExamples, ...
     'refMoveCentre',@moveRefCentre, 'refState',@refStateNow, ...   % Refine: the move without the click
-    'csExport',@onCSExport, 'refExport',@onRefExport);              % export under a given name, no dialog
+    'csExport',@onCSExport, 'refExport',@onRefExport, ...            % export under a given name, no dialog
+    'viewAdvisor',@onViewAdvisor);                                  % open a ContactSites folder in the viewer
 gl = uigridlayout(fig,[2 1],'RowHeight',{34,'1x'},'Padding',[8 8 8 8],'RowSpacing',6);
 
 % 16 columns, 16 widths, 16 children — keep the three in step. uigridlayout WRAPS a child it has no
@@ -697,7 +698,7 @@ end
     % (Densities/<cell>_rho.tif sets the pixel↔µm scale; Density_<cell>.tif is the display density).
     function buildContactTab(parent)
         g = uigridlayout(parent,[2 1],'RowHeight',{34,'1x'},'Padding',[10 10 10 10],'RowSpacing',6);
-        r = uigridlayout(g,[1 5],'ColumnWidth',{200, 74,60, 168, '1x'},'Padding',[0 0 0 0],'ColumnSpacing',8);
+        r = uigridlayout(g,[1 6],'ColumnWidth',{200, 74,60, 168, 196, '1x'},'Padding',[0 0 0 0],'ColumnSpacing',8);
         btnPickCS = uibutton(r,'Text','▶ Open windowed picker','FontWeight','bold', ...
             'BackgroundColor',[0.18 0.45 0.70],'FontColor','w', ...
             'Tooltip', ['Open the time-windowed contact-site picker: one density panel per frame window, ' ...
@@ -714,6 +715,11 @@ end
         btnCSexport = uibutton(r,'Text','📦 Export','Tag','csExport','ButtonPushedFcn',@(s,e) onCSExport(), ...
             'Tooltip',exportTip());
         btnCSexport.UserData = exportTip();
+        uibutton(r,'Text','🔍 View advisor format…','Tag','csViewAdvisor','ButtonPushedFcn',@(s,e) onViewAdvisor(), ...
+            'Tooltip',['Open a folder in the lab''s ContactSites layout - an export''s advisor_format/<condition>/ ' ...
+                       'or the published VAPB folder - and browse it cell by cell and site by site: ' ...
+                       'outline, neighbourhood square, EllipseFit, member tracks, the localizations inside, ' ...
+                       'distance vs time, and any binding annotation (cs_advisor_viewer).']);
         lblCS = uilabel(r,'Text','Build (Build & QC tab), then open the windowed contact-site picker here.','FontColor',[0.2 0.4 0.5]);
         pnCS = uipanel(g,'BorderType','none');
         placeholder(pnCS, 'The windowed contact-site picker opens here when you click ▶ Open windowed picker.');
@@ -851,6 +857,30 @@ end
             if isfield(ec, 'condition') && ~isempty(ec(q).condition) && isfield(ec, 'file') && ~isempty(ec(q).file)
                 m(baseOf(ec(q).file)) = char(ec(q).condition);
             end
+        end
+    end
+
+    function f = onViewAdvisor(preset)
+        % preset: open this folder without asking (tests). Otherwise the picker starts in the newest
+        % export's advisor_format folder, where the files a user just wrote are.
+        f = [];
+        if nargin >= 1 && ~isempty(preset), folder = char(preset);
+        else
+            start = pwd;
+            if ~isempty(projectDir)
+                ex = fullfile(projectDir, 'analysis', 'exports');
+                d = dir(fullfile(ex, '*', 'advisor_format', '*', 'CS_final*.mat'));
+                if ~isempty(d), [~, i] = max([d.datenum]); start = d(i).folder;
+                elseif isfolder(ex), start = ex; end
+            end
+            folder = uigetdir(start, 'Pick a ContactSites folder (advisor_format/<condition> or the VAPB folder)');
+            if isequal(folder, 0), return; end
+        end
+        try
+            f = cs_advisor_viewer(folder);
+            lblCS.Text = ['Opened ' folder ' in the ContactSites viewer.'];
+        catch ME
+            lblCS.Text = ['Could not open ' folder ': ' ME.message];
         end
     end
 

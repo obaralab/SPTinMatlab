@@ -17,6 +17,7 @@ function R = cs_advisor_format(outDir, label, cells, opts)
 %   <label>-BindingTable.xlsx    one row per binding interaction
 %   imaging_settings.csv         THIS data's pixel size, image size, field of view, frame interval
 %                                and density bin, per cell - they differ from the VAPB dataset's
+%   open_advisor_format.m        base-MATLAB script: loads the folder and reaches every structure
 %   README_advisor_format.txt    what is filled, what is empty and why, the parameters used, and
 %                                which constants in the original scripts assume a different instrument
 %
@@ -175,6 +176,8 @@ writeCSstats(fullfile(outDir, [lab '-CSstats.xlsx']), cells, Tracks);
 writeEnrichment(fullfile(outDir, [lab '-EnrichmentCoefficients.xlsx']), CS, EC, Tracks);
 writeBindingTable(fullfile(outDir, [lab '-BindingTable.xlsx']));
 writetable(img, fullfile(outDir, 'imaging_settings.csv'));
+tpl = fullfile(fileparts(mfilename('fullpath')), 'export_template', 'open_advisor_format.m');
+if isfile(tpl), copyfile(tpl, fullfile(outDir, 'open_advisor_format.m')); end
 writeReadme(fullfile(outDir, 'README_advisor_format.txt'), lab, CS, EC, boxUm, dtS, img);
 
 R = struct('nCells', nCells, 'nCS', numel(CS), 'nMito', nnz([CS.MitoFlag]), 'label', lab, ...
@@ -410,6 +413,13 @@ sprintf('Use %s, not the full width (%s): this pipeline''s field spans the pixel
 'frame of THIS data; compare them with the VAPB dataset only after converting frames to seconds.'
 sprintf('The %.3f um neighbourhood square is physical: %.1f of this data''s camera pixels,', boxUm, boxUm / median(img.pixel_um, 'omitnan'))
 '12.8 of the VAPB camera''s.'
+''
+'=== OPENING THESE FILES ==='
+'open_advisor_format.m (in this folder, base MATLAB): loads everything and shows, block by block,'
+'how to reach cells, sites, the localizations inside an outline, member tracks, the ellipse, the'
+'enrichment coefficient and any binding annotation. In the SPT pipeline, the Contact sites tab''s'
+'"View advisor format" button opens this folder - or the published VAPB one - in a viewer'
+'(cs_advisor_viewer).'
 ''
 '=== FILLED, WITH THE ORIGINAL DEFINITIONS ==='
 'CS: CS_index file cellIndex csID tracks refCenter refboundary boundaries EllipseFit LocIDs refLocIDs'

@@ -217,6 +217,17 @@ out; unsaved Refine edits are warned about. It replaced the "(re)save density fi
 wrote density files on every open, from the cloud, without the sites. `cs_advisor_export_smoke`,
 `spt_density_export_smoke`.
 
+The export also writes `advisor_format/<condition>/` (`cs_advisor_format`): the refined sites in the
+published VAPB ContactSites layout — `CS_final_v3.mat`, `<cond>_Tracks_finalv3.mat`, `<cond>_EC.mat`,
+the spreadsheets, `imaging_settings.csv` (this data's pixel, field and frame interval, which the
+original scripts hard-code for the VAPB camera) — field for field as the original scripts compute
+them (`cs_advisor_format_smoke` runs those scripts on it when the VAPB folder is on the machine).
+**🔍 View advisor format…** on the Contact sites tab opens such a folder, or the VAPB folder itself,
+in `cs_advisor_viewer` (cells → sites → member tracks; the site with its outline, square, ellipse fit
+and inside/neighbour localizations; distance-vs-time with annotated binding shaded). Each folder
+ships `open_advisor_format.m`, a base-MATLAB script that reaches every structure.
+`cs_advisor_viewer_smoke`.
+
 **"It is clearly above background — why is it not a site?"** has five possible answers and the
 picker used to give none of them. A spot passes only if it is (1) inside the support mask, (2) above
 the method's threshold, (3) part of a patch of at least `minArea` pixels, (4) over `min enrich` and

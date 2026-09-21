@@ -271,6 +271,7 @@ mark{ background:var(--accent-soft); color:inherit; border-radius:3px; padding:0
   <a href="#t3exportscript">&nbsp;&nbsp;&nbsp;&nbsp;Re-running on an export, one cell at a time</a>
   <a href="#t3exportnorm">&nbsp;&nbsp;&nbsp;&nbsp;Comparing cells</a>
   <a href="#t3exportadvisor">&nbsp;&nbsp;&nbsp;&nbsp;advisor_format/ — the lab's published layout</a>
+  <a href="#t3exportopen">&nbsp;&nbsp;&nbsp;&nbsp;Opening an advisor_format folder (viewer + snippet)</a>
   <a href="#t3exportcoords">&nbsp;&nbsp;&nbsp;&nbsp;Export coordinates</a>
   <a href="#t3sites">Tool 3 · Sites — the mapper, membership and the raw-movie player</a>
   <a href="#t3mapper">&nbsp;&nbsp;▶ Run mapper — the controls and what the run does</a>
@@ -2336,6 +2337,7 @@ disp(R.outDir)</code></pre>
   <tr><td><code>&lt;condition&gt;-BindingTable.xlsx</code></td><td>Sheet1</td><td>binding interaction (header only until annotated)</td></tr>
   <tr><td><code>imaging_settings.csv</code></td><td></td><td>cell: pixel size, image size, field of view, frame interval, density bin, and where each came from</td></tr>
   <tr><td><code>README_advisor_format.txt</code></td><td></td><td>everything in this section</td></tr>
+  <tr><td><code>open_advisor_format.m</code></td><td></td><td>a script that loads the folder and reaches every structure — see <a href="#t3exportopen">Opening an advisor_format folder</a></td></tr>
 </table>
 <p><b>Verified against the original code:</b> the original <code>GenerateEnrichmentStruct.m</code>, run on the exported <code>Tracks</code> and <code>CS</code>, reproduces the exported <code>EC</code> exactly. <code>ExportCSstructStatsv3.m</code> runs on the exported <code>CS</code> and gives the same headers and the same values in every column this pipeline computes. <code>CSindiciesByFlag.m</code> agrees with the MCS/OCS indexes. <code>cs_advisor_format_smoke</code> repeats these checks whenever the original folder is on the machine.</p>
 
@@ -2377,6 +2379,35 @@ Everything in the exported files is in µm, nm or frames computed with <b>this d
 <code>imaging_settings.csv</code> in each <code>advisor_format</code> folder records these values per cell, and its README repeats this list with the values to use. Per-frame quantities in <code>Tracks</code> (<code>steps</code>, <code>MSD</code>, <code>CSD</code>) are per frame of this data, so convert frames to seconds before comparing them with the VAPB dataset. The 1.024 µm neighbourhood square is physical: 10.6 of this camera's pixels, 12.8 of the VAPB camera's.</div>
 <div class="note"><b>One deliberate difference from the published spreadsheet.</b> In <code>OutputEnrichmentCoeffDatav2.m</code> the StepEnrichmentByCS columns CSsize, CSarea, CS_Deff and CS_Neighbor follow the global site order, while CellIndex, MitoFlag and the step columns list each cell's mito sites first. So in its output a row's size and area belong to a <b>different site</b> from its step count. In the published VAPB sheet, only 60 of 307 rows line up (row 1 pairs mito site #13's 396 localizations with site #1's area). The per-cell EnrichmentByCell sheet is not affected. Here every column of a row describes the same site.</div>
 <p>Other choices: the neighbourhood square is fixed at 1.024 µm, the size it had on the VAPB grid (the original specifies ±30 density pixels, which would be a different size on a 30 nm grid). A site found in a time window uses only that window's localizations. Hand-rejected tracks are removed, so track numbers count the kept tracks — the same numbers as in <code>tracks/</code>. Deleted sites are not included. <code>file</code> ends in <code>_Tracks</code>, as the original scripts expect.</p>
+
+<h4 id="t3exportopen">Opening an advisor_format folder — in the tool, or in code</h4>
+<p>Both work on an export's <code>advisor_format/&lt;condition&gt;/</code> folder <b>and on the published VAPB folder itself</b>, because the layout is the same. Neither writes anything.</p>
+<p><b>In the tool:</b> Tool 3 · Contact sites → <kbd>🔍 View advisor format…</kbd>. It starts in the most recent export's advisor folder; pick any folder that holds <code>CS_final*.mat</code> and <code>*_Tracks_final*.mat</code>. From the command line: <code>cs_advisor_viewer(folder)</code>.</p>
+<ul>
+  <li><b>Cells</b> table: mito and other sites per cell (by <code>MitoFlag</code>) and <code>MitoEnrichCoeff</code>, computed from <code>EC</code> as in the published sheet.</li>
+  <li><b>Sites</b> table for the selected cell: <code>CS_index</code>, <code>csID</code>, member tracks, localizations inside the outline (<code>refLocIDs</code>) and in the square outside it (<code>neighborIDs</code>), outline area, <code>EllipseFit</code> axes in nm, and the annotated bound tracks (— = not annotated).</li>
+  <li><b>The site view</b> draws what the original analysis measured: the cell's density around the site, the outline (<code>refboundary</code> about <code>refCenter</code>), the 1.024 µm square around the original pick, the ellipse fit, the member tracks, and their inside (red) and neighbour (cyan) localizations. Each layer has a checkbox. The view frames the whole outline even when it is bigger than the square.</li>
+  <li><b>Member tracks</b>: localizations per track, how many are inside, binding events and dwell times. Clicking a track highlights it and plots its distance from <code>refCenter</code> against time — the view <code>DwellTimeManual.m</code> annotates on — with bound intervals shaded.</li>
+  <li><b>Frame interval</b>, top right: read from <code>imaging_settings.csv</code> when the folder has one (an export does). The VAPB folder has none, so it defaults to the 0.011 s its scripts hard-code. It only sets the time axis; annotated dwell times are shown as stored.</li>
+</ul>
+<p><b>In code:</b> each advisor folder has <code>open_advisor_format.m</code>. It uses base MATLAB only, needs nothing from this pipeline, and runs as is in the folder; to point it at another folder, change the <code>folder = …</code> line. Its blocks are independent, so copy the one you need:</p>
+<pre><code>%% load
+CS     = load(fullfile(folder,'CS_final_v3.mat')).CS;          % 1 x nSites
+Tracks = load(fullfile(folder,'VAPB_Tracks_finalv3.mat')).Tracks;  % 1 x nCells (&lt;condition&gt;_Tracks_finalv3.mat in an export)
+EC     = load(fullfile(folder,'VAPB_EC.mat')).EC;              % 1 x nCells
+
+%% one site
+s = CS(k);  T = Tracks(s.cellIndex);
+outline_um = s.refboundary/1000 + s.refCenter;                 % refboundary is nm about refCenter (um)
+fr = T.matrix(:,:,1);  x = T.matrix(:,:,2);  y = T.matrix(:,:,3);
+inside = [fr(s.refLocIDs)   x(s.refLocIDs)   y(s.refLocIDs)];      % frame, x, y inside the outline
+neigh  = [fr(s.neighborIDs) x(s.neighborIDs) y(s.neighborIDs)];    % in the square, outside the outline
+tj = squeeze(s.CSmatrix(:, j, :));                             % member track j, re-centred on refCenter
+
+%% enrichment per cell
+MCSprob = sum(EC(c).MCSsteps)/EC(c).TotalSteps;  OCSprob = sum(EC(c).OCSsteps)/EC(c).TotalSteps;
+MitoEnrichCoeff = MCSprob/OCSprob;                             % blank in the sheet when OCSprob is 0</code></pre>
+<p>The script itself finds the files by pattern (so it works for any condition name), reads the frame interval from <code>imaging_settings.csv</code>, prints every cell, one site, the enrichment per cell and any annotated dwell times, and plots one site. On the VAPB folder it prints 24 cells and 307 sites, and CS 13's annotated tracks (track 122: dwell 2.62 s).</p>
 
 <h4 id="t3exportcoords">Coordinates</h4>
 <ul>
