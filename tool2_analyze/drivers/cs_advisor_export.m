@@ -40,6 +40,14 @@ function R = cs_advisor_export(anaDir, opts)
 %   contactsites_all.csv, refinedsites_all.csv   every cell in one table each
 %   analyse_export_one_cell.m    base-MATLAB script: loads one cell at a time, recounts every site
 %                                from tracks/ and checks the tables, plots the outlines
+%   advisor_format/<condition>/  the same sites in the layout of the lab's published ContactSites
+%                                dataset (CS_final_v3.mat, <cond>_Tracks_finalv3.mat, <cond>_EC.mat,
+%                                BindingInfo.mat and the four spreadsheets) - see cs_advisor_format
+%
+% opts.conditions      containers.Map cell name -> condition (Experiment tab). One advisor_format
+%                      set per condition; with none assigned, one set named after the export.
+% opts.advisorFormat   (true) write advisor_format/
+% opts.advisorBoxUm    (1.024) neighbourhood square for advisor_format, um
 %   README.txt                   what all of the above is, and the coordinate conventions
 %
 % THE LOCALIZATIONS are the build's tracked matrix — the tracks that survived filtering and
@@ -106,6 +114,7 @@ for d = {outDir, fullfile(outDir,'Densities'), fullfile(outDir,'csIDs'), fullfil
 end
 
 allA = []; allR = [];
+advCells = struct('base', {}, 'T', {}, 'sites', {}, 'cond', {});
 for b = 1:numel(bases)
     base = bases{b};
     Fi = F(strcmp({F.file}, base));
@@ -227,16 +236,43 @@ for b = 1:numel(bases)
     R.nContact = R.nContact + numel(Ai);
     R.nRefinedEdited = R.nRefinedEdited + nnz([Fkeep.edited]);
     R.nSites = R.nSites + numel(Fkeep);
+    % the advisor layout: the ORIGINAL tracks with the same columns kept as tracks/ (so track numbers
+    % agree across the whole export), and the refined sites
+    advCells(end+1) = struct('base', base, 'T', cs_track_slice(Tracks(k), keepCols), ... %#ok<AGROW>
+        'sites', Fkeep, 'cond', condOf(opts, base));
     R.nCells = R.nCells + 1; R.cells{end+1} = base;
 end
 tpl = fullfile(fileparts(mfilename('fullpath')), 'export_template', 'analyse_export_one_cell.m');
 if isfile(tpl), copyfile(tpl, fullfile(outDir, 'analyse_export_one_cell.m')); end
 if ~isempty(allA), writetable(allA, fullfile(outDir, 'contactsites_all.csv')); end
+R.advisor = struct('nCells',{},'nCS',{},'nMito',{},'label',{},'files',{});
+if getf(opts, 'advisorFormat', true) && ~isempty(advCells)
+    labels = {advCells.cond};
+    [~, expName] = fileparts(outDir);
+    if all(cellfun(@isempty, labels)), labels(:) = {expName};
+    else, labels(cellfun(@isempty, labels)) = {'unassigned'}; end
+    ul = unique(labels, 'stable');
+    dtAdv = NaN;
+    if isfield(Tracks, 'frameInterval') && ~isempty(Tracks(1).frameInterval), dtAdv = double(Tracks(1).frameInterval); end
+    for q = 1:numel(ul)
+        sel = strcmp(labels, ul{q});
+        R.advisor(q) = cs_advisor_format(fullfile(outDir, 'advisor_format', cs_advisor_export_name(ul{q})), ...
+            ul{q}, advCells(sel), struct('boxUm', getf(opts, 'advisorBoxUm', 1.024), 'frameInterval_s', dtAdv));
+    end
+end
 if ~isempty(allR), writetable(allR, fullfile(outDir, 'refinedsites_all.csv')); end
 writeReadme(outDir, R, finfo, tsName, stamp, incDel);
 end
 
 % =================================================================================================
+function c = condOf(opts, base)
+% The cell's condition from the Experiment tab, '' when none is assigned.
+c = '';
+if ~isfield(opts, 'conditions') || isempty(opts.conditions), return; end
+m = opts.conditions;
+if isa(m, 'containers.Map') && isKey(m, base), c = char(m(base)); end
+end
+
 function [fovUm, binNm] = cellCalib(T, opts)
 % The cell's own calibration first — a plate can mix cameras — then the project fallback.
 fovUm = getf(opts,'fovUm',NaN); binNm = getf(opts,'binNm',NaN);
@@ -394,6 +430,12 @@ sprintf('minus %d track(s) rejected by hand on the QC tab.', R.nRejectedTracks)
 '    time, recounts every refined site from tracks/, checks the counts against the tables, measures'
 '    how much of each member track is inside, plots the outlines, and writes results_per_site.csv.'
 '    Set cellToRun inside it to analyse a single cell.'
+'advisor_format/<condition>/'
+'    The same refined sites in the layout of the lab''s published ContactSites dataset (VAPB):'
+'    CS_final_v3.mat, <condition>_Tracks_finalv3.mat, <condition>_EC.mat, BindingInfo.mat,'
+'    CS_details_v2.xlsx, <condition>-CSstats.xlsx, <condition>-EnrichmentCoefficients.xlsx,'
+'    <condition>-BindingTable.xlsx. Its own README_advisor_format.txt says what is filled, what is'
+'    empty and why. One folder per condition (Experiment tab).'
 'README.txt              this file'
 ''
 '=== CONTACT SITES vs REFINED SITES ==='

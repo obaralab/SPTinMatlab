@@ -270,6 +270,7 @@ mark{ background:var(--accent-soft); color:inherit; border-radius:3px; padding:0
   <a href="#t3exportds">&nbsp;&nbsp;&nbsp;&nbsp;Export data structures</a>
   <a href="#t3exportscript">&nbsp;&nbsp;&nbsp;&nbsp;Re-running on an export, one cell at a time</a>
   <a href="#t3exportnorm">&nbsp;&nbsp;&nbsp;&nbsp;Comparing cells</a>
+  <a href="#t3exportadvisor">&nbsp;&nbsp;&nbsp;&nbsp;advisor_format/ — the lab's published layout</a>
   <a href="#t3exportcoords">&nbsp;&nbsp;&nbsp;&nbsp;Export coordinates</a>
   <a href="#t3sites">Tool 3 · Sites — the mapper, membership and the raw-movie player</a>
   <a href="#t3mapper">&nbsp;&nbsp;▶ Run mapper — the controls and what the run does</a>
@@ -2140,7 +2141,8 @@ ref(r) = ρ · A_ER(r)                                               % A_ER(r) =
   sites/&lt;cell&gt;_refinedsites.csv/.mat
   tracks/&lt;cell&gt;_tracks.mat          the filtered tracks (frame, x, y)
   tracks/&lt;cell&gt;_localizations.csv   the same, one row per localization
-  analyse_export_one_cell.m           reloads and re-analyses one cell at a time (base MATLAB)</code></pre>
+  analyse_export_one_cell.m           reloads and re-analyses one cell at a time (base MATLAB)
+  advisor_format/&lt;condition&gt;/        the same sites in the lab's published ContactSites layout</code></pre>
 <p><code>&lt;cell&gt;</code> is the cell's file name, e.g. <code>HVK-3C-Plate4-328-011-b_ch24_spt</code>. The density and pick files use the names and formats the external ContactSites code expects, so it can read them directly.</p>
 
 <h4 id="t3exportdensity">The density files</h4>
@@ -2319,6 +2321,46 @@ disp(R.outDir)</code></pre>
   <tr><td><code>peak_prob</code></td><td>the cell's localizations in that window</td><td>the same, for the peak instead of the mean</td></tr>
 </table>
 <p>These come from the <b>same metric kernel</b> the ContactSites code and the <a href="#t3sites">Sites</a> mapper use (<code>csDensMetricOne</code>), on the same σ = 8 px density — the exported values match the mapper's to floating-point precision, so a number in the export and the same number on the Sites tab cannot drift apart. <code>n_loc_inside</code>, <code>local_dens_loc_um2</code> and the density images stay absolute: fine within a cell, misleading across cells.</p>
+
+<h4 id="t3exportadvisor">advisor_format/ — the lab's published ContactSites layout</h4>
+<p>Every export also writes the refined sites in the layout of the published VAPB ContactSites dataset, so they open and read exactly like it. Same file names (the condition replaces "VAPB"), same variables, same fields <b>in the same order</b>, same spreadsheet columns. Every value is computed as the original scripts compute it (<code>SPT_ContactSites_Pipeline/ContactSites_original</code>: <code>ContactSiteMapper.m</code>, <code>CS_refiner_v2_wacom.m</code>, <code>Final/Revision/CS_builder.m</code>, <code>GenerateEnrichmentStruct.m</code>, <code>ExportCSstructStatsv3.m</code>, <code>OutputEnrichmentCoeffDatav2.m</code>, <code>ExtractBindingInfo.m</code>). There is <b>one folder per condition</b> from the Experiment tab. With no conditions assigned there is one folder, named after the export.</p>
+<table>
+  <tr><th>File</th><th>Variable / sheets</th><th>One row / element per</th></tr>
+  <tr><td><code>CS_final_v3.mat</code></td><td><code>CS</code></td><td>contact site</td></tr>
+  <tr><td><code>&lt;condition&gt;_Tracks_finalv3.mat</code></td><td><code>Tracks</code></td><td>cell</td></tr>
+  <tr><td><code>&lt;condition&gt;_EC.mat</code></td><td><code>EC</code></td><td>cell</td></tr>
+  <tr><td><code>BindingInfo.mat</code></td><td><code>BindingInfo</code></td><td>annotated site (none until annotated — see below)</td></tr>
+  <tr><td><code>CS_details_v2.xlsx</code></td><td>Sheet1</td><td>site</td></tr>
+  <tr><td><code>&lt;condition&gt;-CSstats.xlsx</code></td><td>Sheet1</td><td>cell, then a totals and an averages row</td></tr>
+  <tr><td><code>&lt;condition&gt;-EnrichmentCoefficients.xlsx</code></td><td>StepEnrichmentByCS, EnrichmentByCell</td><td>site; cell</td></tr>
+  <tr><td><code>&lt;condition&gt;-BindingTable.xlsx</code></td><td>Sheet1</td><td>binding interaction (header only until annotated)</td></tr>
+  <tr><td><code>README_advisor_format.txt</code></td><td></td><td>everything in this section</td></tr>
+</table>
+<p><b>Verified against the original code:</b> the original <code>GenerateEnrichmentStruct.m</code>, run on the exported <code>Tracks</code> and <code>CS</code>, reproduces the exported <code>EC</code> exactly. <code>ExportCSstructStatsv3.m</code> runs on the exported <code>CS</code> and gives the same headers and the same values in every column this pipeline computes. <code>CSindiciesByFlag.m</code> agrees with the MCS/OCS indexes. <code>cs_advisor_format_smoke</code> repeats these checks whenever the original folder is on the machine.</p>
+
+<p><b>The definitions</b>, as in the original:</p>
+<table>
+  <tr><th>Field</th><th>Definition</th><th>From</th></tr>
+  <tr><td><code>boundaries</code>, <code>LocIDs</code>, <code>tracks</code></td><td>a <b>1.024 µm</b> square around the <b>original pick</b>; the localizations in it (linear indices into the cell's <code>matrix</code>) and the tracks they belong to</td><td>ContactSiteMapper</td></tr>
+  <tr><td><code>refCenter</code>, <code>refboundary</code></td><td>the refined centre (µm) and the outline in <b>nm relative to it</b></td><td>CS_refiner_v2_wacom</td></tr>
+  <tr><td><code>CSLocIDs</code>, <code>refLocIDs</code></td><td>localizations of those tracks inside the outline — in the tracks' own M×N space, and the same mapped into the cell's</td><td>CS_refiner_v2_wacom</td></tr>
+  <tr><td><code>neighborIDs</code>, <code>CSneighborIDs</code></td><td>in the square but outside the outline, in both spaces</td><td>CS_builder</td></tr>
+  <tr><td><code>CSmatrix</code>, <code>CSvec</code></td><td>the member tracks (whole tracks) re-centred on <code>refCenter</code>, and their step vectors</td><td>CS_builder</td></tr>
+  <tr><td><code>EllipseFit</code></td><td><code>regionprops</code> of the outline in the refiner's image pixels — <b>3 nm each</b>, pixel 400 = the original pick. <code>MajorAxisLength × 3</code> = nm.</td><td>CS_refiner_v2_wacom</td></tr>
+  <tr><td><code>EC</code></td><td>per cell: number of mito (MCS) and other (OCS) sites, localizations inside each outline (<code>MCSsteps</code>, <code>OCSsteps</code> — a "step" in the original is a localization), all localizations (<code>TotalSteps</code>), and the tracks touching mito sites, other sites, or neither (<code>FreeTracks</code>)</td><td>GenerateEnrichmentStruct</td></tr>
+  <tr><td>EnrichmentByCell</td><td><code>MCSprob = NumMCSstepsCell ÷ TotalStepsPerCell</code>, <code>OCSprob</code> likewise, <code>MitoEnrichCoeff = MCSprob ÷ OCSprob</code> (blank when OCSprob is 0) — Excel formulas in the original, values here. <code>TotalTracks</code> is, as in the original, the number of <b>free</b> tracks.</td><td>OutputEnrichmentCoeffDatav2 + the published sheet</td></tr>
+</table>
+
+<p><b>Present but empty — the original ran analyses this pipeline does not:</b></p>
+<ul>
+  <li><b>Binding and dwell times</b> (<code>CS.trackBinding</code>, <code>NumEntry</code>, <code>NumExit</code>, <code>DwellTimes</code>, <code>BindingInfo.mat</code>, the BindingTable rows, and the binding columns of CS_details). In the original these were <b>annotated by hand</b>. <code>DwellTimeManual.m</code> asks how many binding events each track has and takes clicked entry/exit points, then <code>EntryExitManualClassifierv2.m</code> classifies each one. Because the files are in the original layout, those scripts run on <code>CS_final_v3.mat</code> to fill them.</li>
+  <li><b>JBM tessellation diffusion</b> (<code>Deff</code>, <code>TessIndex</code>, <code>refDeff</code>, <code>neighborDeff</code>, <code>Tracks.JBM/LocIndex/Deff</code>, CS_details Din/Dout, EnrichmentCoefficients CS_Deff/CS_Neighbor).</li>
+  <li><b>ChrisC trajectory segmentation</b> (<code>tracksCCids</code>, <code>segIDs</code>, <code>ChPts</code>, <code>Tracks.CCindex/segNum/segID/cp</code>, CS_details numNPBtracks/numSegIDs/numChPts).</li>
+</ul>
+<p>Empty means <b>not measured</b>. In the spreadsheets those cells are blank; the original script writes 0 for a missing analysis, which reads as "none found".</p>
+<div class="warn"><b>Frame interval.</b> The original dwell scripts hard-code <b>0.011 s per frame</b> (<code>0.011*T</code> in DwellTimeManual.m and EntryExitManualClassifierv2.m). This project's is 0.0267 s. Change it before annotating these files, or every dwell time comes out 2.4× too short.</div>
+<div class="note"><b>One deliberate difference from the published spreadsheet.</b> In <code>OutputEnrichmentCoeffDatav2.m</code> the StepEnrichmentByCS columns CSsize, CSarea, CS_Deff and CS_Neighbor follow the global site order, while CellIndex, MitoFlag and the step columns list each cell's mito sites first. So in its output a row's size and area belong to a <b>different site</b> from its step count. In the published VAPB sheet, only 60 of 307 rows line up (row 1 pairs mito site #13's 396 localizations with site #1's area). The per-cell EnrichmentByCell sheet is not affected. Here every column of a row describes the same site.</div>
+<p>Other choices: the neighbourhood square is fixed at 1.024 µm, the size it had on the VAPB grid (the original specifies ±30 density pixels, which would be a different size on a 30 nm grid). A site found in a time window uses only that window's localizations. Hand-rejected tracks are removed, so track numbers count the kept tracks — the same numbers as in <code>tracks/</code>. Deleted sites are not included. <code>file</code> ends in <code>_Tracks</code>, as the original scripts expect.</p>
 
 <h4 id="t3exportcoords">Coordinates</h4>
 <ul>

@@ -784,7 +784,8 @@ end
         end
         resetCSExportButton(); for hb = exportButtons(), hb.Text = 'Exporting…'; end, drawnow;
         try
-            R = cs_advisor_export(anaDir, struct('cells',{cells},'fovUm',FOVUM,'binNm',PRECNM,'name',name));
+            R = cs_advisor_export(anaDir, struct('cells',{cells},'fovUm',FOVUM,'binNm',PRECNM,'name',name, ...
+                'conditions', exportConditions()));
         catch ME
             resetCSExportButton(); lblCS.Text = ['Export failed: ' ME.message]; return;
         end
@@ -837,6 +838,20 @@ end
         end
         onCSExport(presetName);
         if ~isempty(lblCS) && isgraphics(lblCS), lblRef.Text = lblCS.Text; end
+    end
+
+    function m = exportConditions()
+        % Cell -> condition from the Experiment tab, for the advisor_format/ sets (one per condition,
+        % like the lab's one-folder-per-protein layout). Only ASSIGNED conditions: a cell with none is
+        % grouped with the other unassigned cells rather than becoming a condition of its own.
+        m = containers.Map('KeyType','char','ValueType','char');
+        if isempty(exptCtl) || ~isstruct(exptCtl), return; end
+        try, ec = exptCtl.getCells(); catch, return; end
+        for q = 1:numel(ec)
+            if isfield(ec, 'condition') && ~isempty(ec(q).condition) && isfield(ec, 'file') && ~isempty(ec(q).file)
+                m(baseOf(ec(q).file)) = char(ec(q).condition);
+            end
+        end
     end
 
     function hs = exportButtons()
