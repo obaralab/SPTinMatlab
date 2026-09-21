@@ -215,6 +215,8 @@ for b = 1:numel(bases)
         e = Fkeep(j); c = e.center(:)';
         [nLoc, nTrk, mcols] = countInside(A, B, Fr, okxy, c, e.refboundary, e.winFrames);
         nm = siteMetrics(ccache, A, B, Fr, e, SFpick, gridPick);
+        sgm = NaN; if isfield(e,'sigmaNm') && ~isempty(e.sigmaNm), sgm = e.sigmaNm; end
+        nte = '';  if isfield(e,'note') && ~isempty(e.note), nte = char(e.note); end
         rec = struct('file',base,'cellIndex',k,'csID',e.csID,'window',e.window, ...
             'frame0',e.winFrames(1),'frame1',e.winFrames(2), ...
             'x_um',c(1),'y_um',c(2),'x_px',c(1)/di.SF,'y_px',c(2)/di.SF, ...
@@ -222,7 +224,8 @@ for b = 1:numel(bases)
             'area_um2',e.areaUm2,'n_loc_inside',nLoc,'n_tracks',nTrk,'member_tracks',numList(expNum(mcols)), ...
             'cell_total_loc_win',nm.cell_total,'prob_mass',nm.prob_mass,'peak_prob',nm.peak_prob, ...
             'local_dens_loc_um2',nm.local_dens,'cell_bg_loc_um2',nm.cell_bg_dens,'enrichment',nm.enrichment, ...
-            'footprint',char(e.mode),'edited',logical(e.edited),'deleted',logical(e.deleted), ...
+            'footprint',char(e.mode),'outline_sigma_nm',sgm,'outline_note',nte, ...
+            'edited',logical(e.edited),'deleted',logical(e.deleted), ...
             'SF_um_per_px',di.SF,'grid_px',di.n,'grid_picker_px',gridPick,'fov_um',fovUm,'bin_nm',binNm);
         rowsR{j} = rec;
         rec.member_tracks = expNum(mcols);                   % numeric in the .mat
@@ -453,7 +456,8 @@ sprintf('minus %d track(s) rejected by hand on the QC tab.', R.nRejectedTracks)
 'contactsites has one row per pick, INCLUDING picks deleted later on Refine (deleted_in_refine = 1).'
 'It describes each site twice: as the picker DETECTED it (detect_*), and with the AUTOMATIC'
 'half-max outline drawn around the pick (auto_*), which is what the mapper uses for a site that'
-'was never refined.'
+'was never refined. That outline is the half-max of the density at the project''s outline'
+'smoothing (outline_sigma_nm in refinedsites; 100 nm unless changed on the Refine tab).'
 'refinedsites has one row per site in the FINAL set: deleted sites are left out, refined sites'
 'carry their refined outline, and never-refined sites carry the automatic one with edited = 0.'
 'It is the complete set to analyse.'
@@ -517,7 +521,15 @@ sprintf('minus %d track(s) rejected by hand on the QC tab.', R.nRejectedTracks)
 'enrichment        local_dens_loc_um2 / cell_bg_loc_um2 (fold, dimensionless)'
 'footprint         how the outline was made: halfmax = automatic; freehand = drawn by hand;'
 '                  +smooth = smoothed; +centre = centre moved with the outline kept'
-'edited            1 = refined by hand, 0 = automatic outline'
+'outline_sigma_nm  the smoothing (Gaussian sigma, nm) of the density the outline was made on:'
+'                  the half-max of it (halfmax), or the image it was drawn on (freehand). Finding'
+'                  sites uses 240 nm; outlines use their own, finer scale (100 nm by default, the'
+'                  value at which the automatic outline reproduces the published VAPB hand-drawn'
+'                  median area). Blank = saved before this was recorded (made at 240 nm).'
+'outline_note      why a site should be looked at, e.g. its centre was moved to the outline''s'
+'                  peak when the outlines were regenerated. Usually blank.'
+'edited            1 = a saved outline (drawn, adjusted or regenerated on the Refine tab);'
+'                  0 = the automatic outline, computed at export'
 'deleted           always 0 here (deleted sites are left out)'
 ''
 '=== COMPARING CELLS ==='

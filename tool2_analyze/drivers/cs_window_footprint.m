@@ -17,7 +17,10 @@ function fp = cs_window_footprint(Dens, pickPx, SF, opts)
 %   pickPx  : [xCol yRow] pick in density pixels (sub-pixel ok).
 %   SF      : microns per density pixel.
 %   opts    : .mode ('halfmax'|'box'|'disk', default 'halfmax'), .frac (0.5),
-%             .maxRadiusUm (0.6), .boxHalfWidthUm (0.5), .minBins (2), .nDiskPts (48).
+%             .maxRadiusUm (0.6), .boxHalfWidthUm (0.5), .minBins (2), .nDiskPts (48),
+%             .peakRadiusUm (= maxRadiusUm): the local peak is searched this close to the pick.
+%             Outlines on a finely smoothed density pass a smaller one (cs_outline_sigma), so a
+%             brighter neighbouring site inside the size cap does not set this site's threshold.
 %
 % OUTPUT (struct fp)
 %   .refboundary : [K x 2] polygon (um) RELATIVE to the pick centre (col=x, row=y mapping).
@@ -34,6 +37,7 @@ maxRu = getf(opts,'maxRadiusUm',0.6);
 boxHu = getf(opts,'boxHalfWidthUm',0.5);
 minB  = getf(opts,'minBins',2);
 nDisk = getf(opts,'nDiskPts',48);
+peakR = min(getf(opts,'peakRadiusUm',maxRu), maxRu);
 
 [H,W]   = size(Dens);
 centerUm = pickPx(:)'*SF;              % [x y] um
@@ -58,7 +62,7 @@ switch mode
 end
 
 % ---- halfmax ----
-dloc = Dens; dloc(~disk) = -Inf;
+dloc = Dens; dloc((XX-pickPx(1)).^2 + (YY-pickPx(2)).^2 > max(2, peakR/SF)^2) = -Inf;   % = the cap disk by default
 localPeak = max(dloc(:));
 if ~isfinite(localPeak) || localPeak <= 0
     fp = boxOrDisk(fp, centerUm, boxHu, [], 'box');  fp.bw = boxMask(H,W,pickPx,boxHu/SF); return;

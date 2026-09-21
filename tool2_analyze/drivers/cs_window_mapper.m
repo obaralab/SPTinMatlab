@@ -23,6 +23,9 @@ function CSW = cs_window_mapper(anaDir, opts)
 % opts fields (all optional):
 %   .footprintMode  'halfmax'(default) | 'box' | 'disk'
 %   .fracHalfMax    0.5     .maxRadiusUm 0.6     .boxHalfWidthUm 0.5     .sig 8
+%   .outlineSigmaNm  the project's (cs_outline_sigma, 100 nm by default): the smoothing the AUTO
+%                   outline is made at. .sig stays the density the metrics are measured on (the
+%                   picker's 240 nm); only the outline moved to the finer scale.
 %   .src            'all'(default, allSpots cloud) | 'tracked' (matrix) — density source only
 %   .save           true (write CSW_final.mat + cs_window_metrics.csv)
 %   .verbose        true
@@ -32,6 +35,7 @@ function CSW = cs_window_mapper(anaDir, opts)
 if nargin<2 || ~isstruct(opts), opts = struct(); end
 fpMode = lower(getf(opts,'footprintMode','halfmax'));
 sig    = getf(opts,'sig',8);
+olNm   = getf(opts,'outlineSigmaNm',[]); if isempty(olNm), olNm = cs_outline_sigma(anaDir); end
 src    = lower(getf(opts,'src','all'));
 doSave = getf(opts,'save',true);
 verb   = getf(opts,'verbose',true);
@@ -140,6 +144,8 @@ for i = 1:nCells
 
     % cache the (window -> density) since many sites share a window
     dcache = containers.Map('KeyType','double','ValueType','any');
+    [olSig, olPeak] = cs_outline_sigma('scale', olNm, SF, fpOpts.maxRadiusUm);
+    fpOptsC = fpOpts; fpOptsC.peakRadiusUm = olPeak;
 
     for j = 1:numel(sites.Xpx)
         w  = sites.w(j);  if w<1 || w>size(ranges,1), w = 1; end
@@ -157,13 +163,13 @@ for i = 1:nCells
             dd = dcache(w);
         else
             [rawCounts,Dens] = cs_window_density(sX, sY, sF, f0, f1, SF, grid, grid, sig);
-            dd = struct('raw',rawCounts,'dens',Dens);
+            dd = struct('raw',rawCounts,'dens',Dens,'outline',imgaussfilt(rawCounts, olSig));
             dcache(w) = dd;
         end
         rawCounts = dd.raw; Dens = dd.dens;
 
         % (2) auto footprint (overridden by a refined footprint from the Refine tab, if present)
-        fp = cs_window_footprint(Dens, [sites.Xpx(j) sites.Ypx(j)], SF, fpOpts);
+        fp = cs_window_footprint(dd.outline, [sites.Xpx(j) sites.Ypx(j)], SF, fpOptsC);
         cUm = fp.centerUm; refb = fp.refboundary; fpmode = fp.mode; ellip = fp.EllipseFit;   % um, rel centre
         okey = sprintf('%s|%d|%d', base, j, w);
         if isKey(ovr, okey)

@@ -10,17 +10,24 @@ function CSfoot = cs_footprints_build(anaDir, opts)
 % analysis/CS_footprints.mat, which cs_window_mapper then reads to OVERRIDE the auto footprints.
 %
 % opts: .footprintMode ('halfmax'|'box'|'disk'), .fracHalfMax (0.5), .maxRadiusUm (0.6),
-%       .boxHalfWidthUm (0.5), .sig (8), .src ('all'|'tracked' for the density), .save (false).
+%       .boxHalfWidthUm (0.5), .src ('all'|'tracked' for the density), .save (false),
+%       .outlineSigmaNm (the project's, cs_outline_sigma): the smoothing the outline is made at.
+%       .sig (px) overrides it. It used to default to the picker's 8 px (240 nm), which made
+%       every automatic outline at least 0.25 µm² - see cs_outline_sigma.
 %
 % CSfoot(k): file, cellIndex, csID, window, winFrames, pickPx (density px), center ([x y] um),
-%   refboundary (K x 2 um, rel center), mode, frac, maxRadiusUm, SF, grid, densSrc, mito, areaUm2.
+%   refboundary (K x 2 um, rel center), mode, frac, maxRadiusUm, SF, grid, densSrc, mito, areaUm2,
+%   edited, deleted, sigmaNm (the smoothing the outline was made at; NaN = not recorded),
+%   note ('' or why the site should be looked at, e.g. set by cs_footprints_regenerate).
 
 if nargin<2 || ~isstruct(opts), opts = struct(); end
 fpMode = lower(getf(opts,'footprintMode','halfmax'));
 frac   = getf(opts,'fracHalfMax',0.5);
 maxRu  = getf(opts,'maxRadiusUm',0.6);
 boxHu  = getf(opts,'boxHalfWidthUm',0.5);
-sig    = getf(opts,'sig',8);
+sigPxFix = getf(opts,'sig',[]);                          % explicit px override (tests, old callers)
+sigNm    = getf(opts,'outlineSigmaNm',[]);
+if isempty(sigNm), sigNm = cs_outline_sigma(anaDir); end
 src    = lower(getf(opts,'src','all'));
 doSave = getf(opts,'save',false);
 verb   = getf(opts,'verbose',true);
@@ -51,6 +58,12 @@ for i = 1:numel(Tracks)
     else
         a = Tracks(i).allSpots; sX = a.X(:); sY = a.Y(:); sF = a.FRAME(:);
     end
+    if isempty(sigPxFix)
+        [sig, peakR] = cs_outline_sigma('scale', sigNm, SF, maxRu); sigRec = sigNm;
+    else
+        sig = sigPxFix; peakR = maxRu; sigRec = sigPxFix * SF * 1000;
+    end
+    fpOpts.peakRadiusUm = peakR;
     dcache = containers.Map('KeyType','double','ValueType','any');
     for j = 1:numel(sites.Xpx)
         w = sites.w(j); if w<1 || w>size(ranges,1), w = 1; end
@@ -61,7 +74,8 @@ for i = 1:numel(Tracks)
         e = struct('file',base,'cellIndex',i,'csID',j,'window',w,'winFrames',[f0 f1], ...
             'pickPx',[sites.Xpx(j) sites.Ypx(j)],'center',fp.centerUm,'refboundary',fp.refboundary, ...
             'mode',fp.mode,'frac',frac,'maxRadiusUm',maxRu,'SF',SF,'grid',grid,'densSrc',srcCell, ...
-            'mito',logical(sites.mito(j)),'areaUm2',fp.areaUm2,'edited',false,'deleted',false);
+            'mito',logical(sites.mito(j)),'areaUm2',fp.areaUm2,'edited',false,'deleted',false, ...
+            'sigmaNm',sigRec,'note','');
         if isempty(CSfoot), CSfoot = e; else, CSfoot(end+1) = e; end %#ok<AGROW>
     end
 end

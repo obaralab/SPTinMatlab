@@ -83,7 +83,8 @@ siteDensCache=struct('key',{},'dens',{},'raw',{});                  % per (cell,
 axRef=[]; lstRefSites=[]; eRefFrac=[]; eRefMaxR=[]; ddRefWin=[]; lblRef=[]; lblRefSrc=[]; lblRefInfo=[];
 axRad=[]; chkRefLocs=[]; ddRefScale=[]; sldRefContrast=[]; btnRefDelete=[]; refCbar=[]; refLockedSrc='all'; sldRefSmooth=[];
 refNullCache=struct('key',{},'nullMax',{},'pmap',{}); refFoot=[]; refSelIdx=0; refRowMap=[];
-chkRefNbr=[]; refDirty=false; refDrawing=false; eRefView=[]; refViewSite=0; refKeepSpan=false;   % Refine: other-site outlines toggle; unsaved edits (the export warns)
+chkRefNbr=[]; refDirty=false; refDrawing=false; eRefView=[]; refViewSite=0; refKeepSpan=false;
+eRefSigma=[]; refSigNm=cs_outline_sigma([]);   % Refine: the smoothing outlines are made (and shown) at, nm   % Refine: other-site outlines toggle; unsaved edits (the export warns)
 ctCache=[]; ctCacheKey='';      % buildTracks with hand-rejected tracks BLANKED — see ctTracks
 btnCSexport=[]; btnRefExport=[];   % the Export button, on Contact sites and on Refine
 refErCache=struct('key',{},'erGrid',{});   % per-(cell,grid) ER support mask resampled to the density grid (radial-null area)
@@ -121,6 +122,7 @@ fig.UserData = struct('activeTs',@activeTsNow, 'tracks',@tracksNow, 'loadTracks'
     'exptCtl',@exptCtlNow, 'calibForBuild',@calibForBuild, 'loadTracksFile',@loadTracksFile, ...
     'engExamples',@onEngageExamples, ...
     'refMoveCentre',@moveRefCentre, 'refState',@refStateNow, ...   % Refine: the move without the click
+    'refSetSigma',@setRefSigma, 'refRegen',@onRefRegen, ...          % Refine: outline smoothing, regenerate (no dialog)
     'csExport',@onCSExport, 'refExport',@onRefExport, ...            % export under a given name, no dialog
     'viewAdvisor',@onViewAdvisor);                                  % open a ContactSites folder in the viewer
 gl = uigridlayout(fig,[2 1],'RowHeight',{34,'1x'},'Padding',[8 8 8 8],'RowSpacing',6);
@@ -1015,7 +1017,7 @@ end
         % The info label is the LAST row and takes the elastic height. It used to sit in a 30 px row
         % with an unused '1x' row after it, so of its six lines only "area" and "tracks" were ever
         % visible — the localization count added for cross-checking was drawn and clipped away.
-        cc = uigridlayout(mn,[15 1],'RowHeight',{24, 26, 16,26, 44, 16,32, 16,26,26,30,28, 40,28, '1x'}, ...
+        cc = uigridlayout(mn,[16 1],'RowHeight',{24, 26, 16,26, 44, 16,32,26, 16,26,26,30,28, 40,28, '1x'}, ...
             'Padding',[0 0 0 0],'RowSpacing',4);
         ckg = uigridlayout(cc,[1 2],'ColumnWidth',{'1.25x','1x'},'Padding',[0 0 0 0],'ColumnSpacing',4);
         chkRefLocs = uicheckbox(ckg,'Text','localizations','Value',false, ...
@@ -1056,7 +1058,25 @@ end
                        'contains the pick, grown outward and capped at maxR. frac=0.5 = half the peak; LOWER frac = bigger site, HIGHER = tighter core.']);
         uilabel(fm,'Text','maxR');
         eRefMaxR = uispinner(fm,'Limits',[0.1 3],'Value',0.6,'Step',0.1,'ValueChangedFcn',@(s,e) onRefParam(), ...
-            'Tooltip','Clip the auto contact site to this radius (µm) about the pick.');
+            'Tooltip','Clip the auto contact site to this radius (µm) about the site centre.');
+        % The outline's own smoothing. The picker finds sites at 240 nm, and an outline traced on that
+        % blur cannot be smaller than it: the half-max outline of a single point is 0.25 µm², and the
+        % outlines drawn here came out ~5x the published VAPB ones (cs_outline_sigma).
+        sgm = uigridlayout(cc,[1 3],'ColumnWidth',{52,70,'1x'},'Padding',[0 0 0 0],'ColumnSpacing',4);
+        uilabel(sgm,'Text','outline σ','HorizontalAlignment','right');
+        eRefSigma = uispinner(sgm,'Tag','refSigma','Limits',[20 400],'Value',refSigNm,'Step',10, ...
+            'ValueDisplayFormat','%.0f nm','ValueChangedFcn',@(s,e) onRefSigma(), ...
+            'Tooltip',['Smoothing of the density that contact-site OUTLINES are made on, in nm. The ' ...
+                       'editor shows the density at this scale, and the auto outline (frac, maxR, ' ...
+                       '↺ Reset) is its half-max. Finding sites (the Contact sites tab) stays at 240 nm. ' ...
+                       '100 nm is the value at which the auto outline, run on the published VAPB ' ...
+                       'data, gives its hand-drawn median area (0.090 vs 0.089 µm²). Saved with 💾 Save; ' ...
+                       'existing outlines change only when edited or regenerated.']);
+        uibutton(sgm,'Text','⟳ Regenerate all…','Tag','refRegen','ButtonPushedFcn',@(s,e) onRefRegen(), ...
+            'Tooltip',['Redo EVERY outline as the auto half-max outline at this σ. Each site keeps its ' ...
+                       'centre and window; deleted sites stay deleted. Where the centre falls outside ' ...
+                       'its new outline, it moves to the outline''s peak and the site is flagged ⚠. ' ...
+                       'The current CS_footprints.mat is copied first.']);
         uilabel(cc,'Text','manual refine','FontWeight','bold','FontColor',[0.35 0.35 0.4]);
         uibutton(cc,'Text','✎ Draw centre + boundary','FontWeight','bold','BackgroundColor',[0.20 0.45 0.70],'FontColor','w', ...
             'Tooltip','Click the CENTRE, then press-and-drag to trace the contact-site BOUNDARY yourself (Esc cancels). This is the paper''s manual refine.', ...
@@ -1085,6 +1105,70 @@ end
         onRefView();
     end
 
+    function sp = refSigPx(e)
+        % the outline σ on this site's density grid, px
+        sp = cs_outline_sigma('scale', refSigNm, e.SF, 0.6);
+    end
+
+    function setRefSigma(v)
+        if ~isempty(eRefSigma) && isgraphics(eRefSigma), eRefSigma.Value = v; end
+        onRefSigma();
+    end
+
+    function onRefSigma()
+        % A project setting: the editor redraws at it and new auto outlines use it; outlines already
+        % made keep theirs until edited or regenerated. Saved with 💾 Save.
+        if isempty(eRefSigma) || ~isgraphics(eRefSigma), return; end
+        if eRefSigma.Value == refSigNm, return; end
+        refSigNm = eRefSigma.Value;
+        if ~isempty(refFoot), markRefDirty(); end
+        redrawRef();
+        lblRef.Text = sprintf(['Outline σ = %g nm: the editor shows the density at this scale, and the ' ...
+            'auto outline (frac, maxR, ↺ Reset) uses it. Outlines already made are unchanged — ' ...
+            '⟳ Regenerate all redoes every one; 💾 Save keeps the setting.'], refSigNm);
+    end
+
+    function R = onRefRegen(noAsk)
+        % Every outline redone at the outline σ (cs_footprints_regenerate), then reloaded.
+        R = [];
+        anaDir = ensureAnaDir(); if isempty(anaDir), lblRef.Text = 'Pick a project first.'; return; end
+        if nargin < 1 || ~noAsk
+            n = numel(refFoot); if n == 0, n = NaN; end
+            msg = sprintf(['Replace every contact-site outline with the automatic half-max outline at ' ...
+                '%g nm?\n\nEach site keeps its centre and window; deleted sites stay deleted. Where a ' ...
+                'centre falls outside its new outline, it moves to the outline''s peak and the site is ' ...
+                'flagged ⚠ for you to review.\n\nThe current CS_footprints.mat is copied to ' ...
+                'CS_footprints_before_regen_<time>.mat first.%s'], refSigNm, ...
+                tern(refDirty, sprintf('\n\nUnsaved edits in this tab are DISCARDED — Save first to keep them.'), ''));
+            if isfinite(n), msg = strrep(msg, 'every contact-site outline', sprintf('all %d contact-site outlines', n)); end
+            c = uiconfirm(fig, msg, 'Regenerate outlines', 'Options', {'Regenerate', 'Cancel'}, ...
+                'DefaultOption', 2, 'CancelOption', 2, 'Icon', 'warning');
+            if ~strcmp(c, 'Regenerate'), lblRef.Text = 'Regenerate cancelled — nothing changed.'; return; end
+        end
+        lblRef.Text = sprintf('Regenerating every outline at %g nm…', refSigNm); drawnow;
+        try, R = cs_footprints_regenerate(anaDir, struct('sigmaNm', refSigNm, 'verbose', false));
+        catch ME, lblRef.Text = ['Regenerate failed: ' ME.message]; return; end
+        CSW = []; DD = []; resetCSExportButton();
+        onRefLoad();
+        [~, bn] = fileparts(R.backup); [~, rn] = fileparts(R.report);
+        lblRef.Text = sprintf(['Regenerated %d outline(s) at %g nm: median %.3f → %.3f µm². %d centre(s) ' ...
+            'moved to their outline''s peak (⚠ in the list). Previous outlines: %s.mat · per-site ' ...
+            'report: %s.csv. Re-run the mapper (Sites tab).'], R.n, R.sigmaNm, R.areaOld, R.areaNew, ...
+            R.nMoved, tern(isempty(bn), '(none)', bn), rn);
+    end
+
+    function s = sigmaLine(e)
+        s = '';
+        if ~isfield(e,'sigmaNm') || isempty(e.sigmaNm), return; end
+        if isfinite(e.sigmaNm), s = sprintf('outline made at σ %g nm', e.sigmaNm);
+        else, s = 'outline σ not recorded (saved before it was; 240 nm then)'; end
+        if isfinite(e.sigmaNm) && abs(e.sigmaNm - refSigNm) > 0.5, s = sprintf('%s (showing %g)', s, refSigNm); end
+    end
+
+    function s = noteLine(e)
+        s = ''; if isfield(e,'note') && ~isempty(e.note), s = sprintf('\n⚠ %s', e.note); end
+    end
+
     function onRefContrast()
         if refSelIdx>=1 && refSelIdx<=numel(refFoot), drawRefSite(refSelIdx); end
     end
@@ -1105,6 +1189,7 @@ end
         refFoot(refSelIdx).areaUm2 = polyarea(rb(:,1),rb(:,2));
         om = 'halfmax'; if isfield(refFoot,'mode') && ~isempty(refFoot(refSelIdx).mode), om = char(refFoot(refSelIdx).mode); end
         refFoot(refSelIdx).mode = [regexprep(om,'\+smooth$','') '+smooth'];
+        if isfield(refFoot,'note'), refFoot(refSelIdx).note = ''; end
         refFoot(refSelIdx).edited = true; markRefDirty();
         drawRefSite(refSelIdx); updateRefRow(refSelIdx);
         lblRef.Text = sprintf('Smoothed the contact-site boundary (strength %.2f). 💾 Save when done.', refSmoothAmt());
@@ -1139,6 +1224,8 @@ end
         % the few that were edited. The density SOURCE is LOCKED to whatever the picker (Contact-sites tab) used
         % (cs_footprints_build reads windows.source); no toggle here.
         lblRef.Text='Building contact sites…'; drawnow;
+        refSigNm = cs_outline_sigma(anaDir);     % the project's outline smoothing (100 nm unless saved)
+        if ~isempty(eRefSigma) && isgraphics(eRefSigma), eRefSigma.Value = min(max(refSigNm, 20), 400); end
         % cs_footprints_resolve = the auto footprints with every SAVED edit and deletion merged on —
         % the same function the advisor export reads, so what is refined here is what is exported.
         try, [refFoot, rinfo] = cs_footprints_resolve(anaDir);
@@ -1177,6 +1264,7 @@ end
         tag = '';
         if isfield(e,'edited')  && ~isempty(e.edited)  && e.edited,  tag = [tag ' ✎']; end
         if isfield(e,'deleted') && ~isempty(e.deleted) && e.deleted, tag = [tag ' ✗del']; end
+        if isfield(e,'note')    && ~isempty(e.note),                  tag = [tag ' ⚠']; end
         s = sprintf('c%d · s%d · w%d · %s%s', e.cellIndex, e.csID, e.window, tern(cs_site_near(e,'mito'),'mito','—'), tag);
     end
 
@@ -1202,7 +1290,7 @@ end
         xl0 = axRef.XLim; yl0 = axRef.YLim;
         keepView = (k == refViewSite) && ~refKeepSpan;
         keepSpan = refKeepSpan; refKeepSpan = false;
-        [Dens,Raw] = windowDens(e.cellIndex, e.winFrames, SF, g, e.densSrc);
+        [Dens,Raw] = windowDens(e.cellIndex, e.winFrames, SF, g, e.densSrc, refSigPx(e));   % at the OUTLINE σ
         scaleMode = 'density (a.u.)'; if ~isempty(ddRefScale) && isgraphics(ddRefScale), scaleMode = ddRefScale.Value; end
         contrast = 1; if ~isempty(sldRefContrast) && isgraphics(sldRefContrast), contrast = sldRefContrast.Value; end
         cla(axRef);
@@ -1298,8 +1386,9 @@ end
         if ~isempty(lblRefInfo) && isgraphics(lblRefInfo)
             pTxt = ''; if isfinite(pval), pTxt = sprintf('\nCSR peak p = %.3g', pval); end
             lblRefInfo.Text = sprintf(['area %.4f µm²\n%d tracked track(s)\npeak %.2g loc/bin\n' ...
-                '%d of %d window locs inside (%.1f%%)\nconcentration %.2f%s%s'], ...
-                e.areaUm2, numel(trk), pkLoc, nIn, nWin, pctIn, idx, pTxt, tern(del,'  · DELETED',''));
+                '%d of %d window locs inside (%.1f%%)\nconcentration %.2f%s%s\n%s%s'], ...
+                e.areaUm2, numel(trk), pkLoc, nIn, nWin, pctIn, idx, pTxt, tern(del,'  · DELETED',''), ...
+                sigmaLine(e), noteLine(e));
         end
     end
 
@@ -1387,6 +1476,7 @@ end
         refFoot(k).refboundary = e.refboundary + (oldC - newC);
         refFoot(k).center = newC;
         refFoot(k).mode = [regexprep(char(e.mode), '\+centre$', '') '+centre'];
+        if isfield(refFoot,'note'), refFoot(k).note = ''; end   % you have looked at it
         refFoot(k).edited = true; markRefDirty();
         rb = refFoot(k).refboundary;
         inside = inpolygon(0, 0, rb(:,1), rb(:,2));
@@ -1415,13 +1505,14 @@ end
         % src) since the null is a window property (independent of the drawn boundary).
         pmap = []; nullMax = [];
         if isempty(Raw) || isempty(Dens), return; end
-        key = sprintf('%d|%g|%g|%s', e.cellIndex, e.winFrames(1), e.winFrames(2), e.densSrc);
+        sp = refSigPx(e);   % the null must be smoothed like the density it is compared with
+        key = sprintf('%d|%g|%g|%s|%.6g', e.cellIndex, e.winFrames(1), e.winFrames(2), e.densSrc, sp);
         for i = 1:numel(refNullCache)
             if strcmp(refNullCache(i).key,key), nullMax = refNullCache(i).nullMax; pmap = refNullCache(i).pmap; return; end
         end
         if ~isempty(lblRef) && isgraphics(lblRef), lblRef.Text = 'Computing significance (CSR Monte-Carlo)…'; drawnow; end
         mask = imfill(imdilate(Raw>=1, strel('disk',4)), 'holes');           % cell-occupied region (CSR support)
-        try, [~, nullMax] = cs_mc_threshold(Raw, mask, 8, 0.05, 100); catch, nullMax = []; end
+        try, [~, nullMax] = cs_mc_threshold(Raw, mask, sp, 0.05, 100); catch, nullMax = []; end
         if ~isempty(nullMax)
             sn = sort(nullMax(:)); M = numel(sn);
             b = discretize(Dens(:), [sn; inf]); b(isnan(b)) = 0;             % # null peaks ≤ each pixel
@@ -1443,13 +1534,18 @@ end
     function onRefParam()
         if refSelIdx<1 || refSelIdx>numel(refFoot), return; end
         e = refFoot(refSelIdx);
-        Dens = windowDens(e.cellIndex, e.winFrames, e.SF, e.grid, e.densSrc);
+        [sp, peakR] = cs_outline_sigma('scale', refSigNm, e.SF, eRefMaxR.Value);
+        Dens = windowDens(e.cellIndex, e.winFrames, e.SF, e.grid, e.densSrc, sp);
         if isempty(Dens), return; end
-        fpOpts = struct('mode','halfmax','frac',eRefFrac.Value,'maxRadiusUm',eRefMaxR.Value,'boxHalfWidthUm',0.5);
-        fp = cs_window_footprint(Dens, e.pickPx, e.SF, fpOpts);
+        fpOpts = struct('mode','halfmax','frac',eRefFrac.Value,'maxRadiusUm',eRefMaxR.Value,'boxHalfWidthUm',0.5, ...
+                        'peakRadiusUm',peakR);
+        % Around the site's CURRENT centre, so a centre you placed or moved is kept (Reset goes back
+        % to the pick). It used to be the pick always, which undid a moved centre on any frac change.
+        fp = cs_window_footprint(Dens, e.center(:)'/e.SF, e.SF, fpOpts);
         refFoot(refSelIdx).refboundary = fp.refboundary; refFoot(refSelIdx).center = fp.centerUm;
         refFoot(refSelIdx).mode = fp.mode; refFoot(refSelIdx).frac = eRefFrac.Value;
         refFoot(refSelIdx).maxRadiusUm = eRefMaxR.Value; refFoot(refSelIdx).areaUm2 = fp.areaUm2;
+        refFoot(refSelIdx).sigmaNm = refSigNm; refFoot(refSelIdx).note = '';
         refFoot(refSelIdx).edited = true; markRefDirty();   % only edited footprints are saved as overrides
         drawRefSite(refSelIdx); updateRefRow(refSelIdx);
     end
@@ -1479,6 +1575,7 @@ end
         if exist('cs_close_boundary','file')==2, refb = cs_close_boundary(refb); end   % round ONLY the closing seam; keep the traced shape
         refFoot(refSelIdx).center = ctr; refFoot(refSelIdx).refboundary = refb;
         refFoot(refSelIdx).mode = 'freehand'; refFoot(refSelIdx).areaUm2 = polyarea(refb(:,1),refb(:,2));
+        refFoot(refSelIdx).sigmaNm = refSigNm; refFoot(refSelIdx).note = '';   % drawn on the density at this σ
         refFoot(refSelIdx).edited = true; markRefDirty();
         drawRefSite(refSelIdx); updateRefRow(refSelIdx);
         lblRef.Text='Centre + boundary set by hand. 💾 Save footprints when done.';
@@ -1488,6 +1585,7 @@ end
         if refSelIdx<1 || refSelIdx>numel(refFoot), return; end
         if isgraphics(eRefFrac),  eRefFrac.Value=0.5; end
         if isgraphics(eRefMaxR),  eRefMaxR.Value=0.6; end
+        refFoot(refSelIdx).center = refFoot(refSelIdx).pickPx(:)' * refFoot(refSelIdx).SF;   % back to the pick
         onRefParam();                                   % recompute the auto (half-max) contact site
         refFoot(refSelIdx).edited = false; markRefDirty();   % back to auto -> no longer an override
         drawRefSite(refSelIdx); updateRefRow(refSelIdx);
@@ -1515,7 +1613,8 @@ end
         for q = 1:numel(dd)
             CSdeleted(q) = struct('file',dd(q).file,'csID',dd(q).csID,'window',dd(q).window,'pickPx',dd(q).pickPx); %#ok<AGROW>
         end
-        try, save(fullfile(anaDir,'CS_footprints.mat'),'CSfoot','CSdeleted','-v7.3'); %#ok<NASGU>
+        outlineSigmaNm = refSigNm; %#ok<NASGU>    % the outline smoothing is a project setting (cs_outline_sigma)
+        try, save(fullfile(anaDir,'CS_footprints.mat'),'CSfoot','CSdeleted','outlineSigmaNm','-v7.3'); %#ok<NASGU>
         catch ME, lblRef.Text=['Save failed: ' ME.message]; return; end
         CSW = []; DD = []; refDirty = false;      % refinement changes the mapping -> invalidate old results
         resetCSExportButton();                    % what was exported is no longer what is saved
@@ -1918,7 +2017,8 @@ end
                 dup = arrayfun(@(x) strcmp(x.file,r.file)&&x.csID==r.csID&&x.window==r.window, CSdeleted);
                 if ~any(dup), CSdeleted(end+1) = r; end %#ok<AGROW>
             end
-            try, save(ff,'CSfoot','CSdeleted','-v7.3'); %#ok<NASGU>
+            outlineSigmaNm = cs_outline_sigma(anaDir); %#ok<NASGU>   % keep the Refine setting when rewriting
+            try, save(ff,'CSfoot','CSdeleted','outlineSigmaNm','-v7.3'); %#ok<NASGU>
             catch ME, lblSites.Text=['Save failed: ' ME.message]; return; end
             pendDelSite(:) = [];
         end
@@ -1974,16 +2074,18 @@ end
         Dens = windowDens(e.cellIndex, e.winFrames, e.SF, e.grid, e.densSrc);
     end
 
-    function [Dens, Raw] = windowDens(ci, winFrames, SF, grid, src)
-        % Smoothed density + raw counts for a window (cached per cell/window/src/grid). Raw feeds the
-        % locs/bin colour scale and the significance (Monte-Carlo) null.
+    function [Dens, Raw] = windowDens(ci, winFrames, SF, grid, src, sigPx)
+        % Smoothed density + raw counts for a window (cached per cell/window/src/grid/σ). Raw feeds the
+        % locs/bin colour scale and the significance (Monte-Carlo) null. sigPx defaults to the
+        % picker's 8 px; the Refine editor passes the outline σ (refSigPx).
+        if nargin < 6 || isempty(sigPx), sigPx = 8; end
         Dens = []; Raw = [];
         if isempty(buildTracks) || ci < 1 || ci > numel(buildTracks), return; end
         % The key carries the exclusions stamp, so a track rejected on the QC tab changes the density.
         % ctTracks() runs FIRST: it is what refreshes the stamp, and looking up with the previous one
         % would hand back the density from before the rejection.
         Tc = ctTracks(); T = Tc(ci);
-        key = sprintf('%d|%g|%g|%s|%d|%s', ci, winFrames(1), winFrames(2), src, grid, ctCacheKey);
+        key = sprintf('%d|%g|%g|%s|%d|%s|%.6g', ci, winFrames(1), winFrames(2), src, grid, ctCacheKey, sigPx);
         for i = 1:numel(siteDensCache)
             if strcmp(siteDensCache(i).key,key), Dens = siteDensCache(i).dens; Raw = siteDensCache(i).raw; return; end
         end
@@ -1992,7 +2094,7 @@ end
         else
             a = T.allSpots; sX = a.X(:); sY = a.Y(:); sF = a.FRAME(:);
         end
-        try, [Raw,Dens] = cs_window_density(sX,sY,sF, winFrames(1), winFrames(2), SF, grid, grid, 8); catch, Dens = []; Raw = []; end
+        try, [Raw,Dens] = cs_window_density(sX,sY,sF, winFrames(1), winFrames(2), SF, grid, grid, sigPx); catch, Dens = []; Raw = []; end
         if ~isempty(Dens), siteDensCache(end+1) = struct('key',key,'dens',Dens,'raw',Raw); end   % never cache a transient failure
     end
 

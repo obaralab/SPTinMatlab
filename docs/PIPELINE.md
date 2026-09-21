@@ -942,6 +942,20 @@ New tab app `spt_analyze_app.m`; built on the `drivers/` layer. Build order:
    per-window **CSR Monte-Carlo** null (`cs_mc_threshold`, cached); and a **🗑 Delete site** toggle — one click
    marks the site deleted, the next restores it (rows flag `✎`/`✗del`). Refinement is **optional**. Shared parsers `cs_read_sites.m` / `cs_load_windows.m` /
    `cs_default_gridsf.m` back both the mapper and the footprint builder (one source of truth).
+   **Outlines have their own smoothing** (`cs_outline_sigma`; the **outline σ** spinner, default **100 nm**,
+   saved as `outlineSigmaNm` in `CS_footprints.mat`). The picker detects at 240 nm, and an outline traced
+   on that blur cannot be smaller than it (a point's half-max outline is 0.25 µm²): outlines came out ~5×
+   the published VAPB ones (0.45 vs 0.089 µm² median), and the same rule on the VAPB data at 240 nm gives
+   0.43. At 100 nm the auto rule reproduces the VAPB hand-drawn median on the VAPB data (0.090). The
+   editor, its significance null, the auto outline (build, Refine, and the mapper's auto footprint) use
+   it; detection and the mapper's density metrics stay at 240 nm. The half-max looks for its local peak
+   within `min(maxR, 3σ)` (`peakRadiusUm`; = maxR, as before, at 240 nm), so a brighter neighbour 0.5 µm
+   away does not set a site's threshold, and frac/maxR work around the site's current centre (Reset →
+   the pick). Footprints carry `sigmaNm` (NaN = saved before it was recorded) and `note`.
+   **⟳ Regenerate all** (`cs_footprints_regenerate`) redoes every outline at the current σ around each
+   saved centre, keeps deletions, moves a centre that falls outside its new outline to the outline's
+   peak and flags it `⚠` (a centre between two spots the 240 nm blur had merged), backs up
+   `CS_footprints.mat` first and writes a per-site report CSV. `spt_outline_sigma_smoke`.
 5. **Sites** *(done)* — runs the **windowed mapper** `cs_window_mapper.m` (headless) over every picked
    site. For each `(site, window=Slice)` it: rebuilds the window density (`cs_window_density`, the same map the
    picker showed); derives an **auto footprint** `cs_window_footprint.m` = the connected blob of

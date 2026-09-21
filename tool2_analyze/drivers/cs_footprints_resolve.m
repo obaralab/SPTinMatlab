@@ -18,6 +18,7 @@ function [F, info, Fauto] = cs_footprints_resolve(anaDir, opts)
 %        with .deleted / .edited copied over so a caller can say what became of each one.
 %
 % Used by the Refine tab and by the advisor export, so what you refine is what gets exported.
+% opts go to cs_footprints_build (e.g. .outlineSigmaNm for the automatic outlines).
 
 if nargin < 2 || ~isstruct(opts), opts = struct(); end
 if ~isfield(opts,'save'),    opts.save = false;    end
@@ -70,5 +71,10 @@ function b = mergeFoot(b, s)
 for fld = {'center','refboundary','mode','frac','maxRadiusUm','areaUm2'}
     if isfield(s, fld{1}) && ~isempty(s.(fld{1})), b.(fld{1}) = s.(fld{1}); end
 end
+% The smoothing a SAVED outline was made at is the saved one's, not today's setting. An outline
+% saved before it was recorded was drawn on the picker's 240 nm density, or computed from it,
+% but that cannot be told from the file: NaN, not a guess.
+b.sigmaNm = NaN; if isfield(s,'sigmaNm') && ~isempty(s.sigmaNm), b.sigmaNm = s.sigmaNm; end
+b.note = '';     if isfield(s,'note') && ~isempty(s.note), b.note = char(s.note); end
 b.edited = true;
 end
