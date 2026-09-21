@@ -384,11 +384,11 @@ sprintf('Condition: %s   Cells: %d   Contact sites: %d (%d mito, %d other)', lab
 ''
 '=== IMAGING SETTINGS - THIS DATA WAS NOT ACQUIRED LIKE THE VAPB DATASET ==='
 '                         VAPB dataset                       these files'
-sprintf('camera pixel           0.080 um (20.48 um / 256 px)       %s um', px)
-sprintf('image                  256 x 256 px                       %s x %s px', wd, ht)
-sprintf('field of view          20.48 um (256 x pixel)             %s um (first to last pixel centre)', fv)
+sprintf('camera pixel           0.160 um (20.48 um / 128 px)       %s um', px)
+sprintf('image                  128 x 128 px (cropped EM-CCD)      %s x %s px', wd, ht)
+sprintf('field of view          20.48 um (128 x pixel)             %s um (first to last pixel centre)', fv)
 sprintf('                                                           = %s um across all %s pixels', fw, wd)
-sprintf('frame interval         0.011 s                            %s s', fr)
+sprintf('frame interval         0.011 s (~95 Hz, 5 ms exposure)    %s s', fr)
 sprintf('density bin (refiner)  30 nm                              %s nm', bn)
 'Every number in these files is in um, nm or frames, computed with THIS data''s own calibration,'
 'read from each movie''s metadata (imaging_settings.csv, one row per cell). Nothing is rescaled to'
@@ -408,11 +408,12 @@ sprintf('  CS_trajPlotZoom.m:20                0.011 s per frame          use %s
 sprintf('Use %s, not the full width (%s): this pipeline''s field spans the pixel CENTRES, where', fv, fw)
 'localization coordinates live (x = 0-based column x pixel), and the density images and pick'
 'pixels in these files are built on it. The full width would scale positions by 0.4% (about'
-'100 nm at the far edge). The VAPB constant 20.48 is the full width of that camera (256 x 0.080).'
+'100 nm at the far edge). The VAPB constant 20.48 is the full width of that camera''s 128-pixel'
+'crop (128 x 0.160 um; Obara et al., Nature 2024, Methods).'
 'Per-FRAME quantities (Tracks.steps, MSD, CSD, rawSteps(:,:,1), CSmatrix frame numbers) are per'
 'frame of THIS data; compare them with the VAPB dataset only after converting frames to seconds.'
 sprintf('The %.3f um neighbourhood square is physical: %.1f of this data''s camera pixels,', boxUm, boxUm / median(img.pixel_um, 'omitnan'))
-'12.8 of the VAPB camera''s.'
+'6.4 of the VAPB camera''s.'
 ''
 '=== OPENING THESE FILES ==='
 'open_advisor_format.m (in this folder, base MATLAB): loads everything and shows, block by block,'
