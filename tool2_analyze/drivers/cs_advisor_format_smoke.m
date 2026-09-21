@@ -17,6 +17,9 @@ function cs_advisor_format_smoke()
 %   5. THE ALIGNMENT FIX: every column of a StepEnrichmentByCS row describes the same site. The
 %      original script pairs a row's size and area with a different site's step count.
 %   6. NOT-MEASURED IS BLANK: binding, JBM and ChrisC columns are empty, not 0.
+%   8. THE IMAGING SETTINGS ARE STATED. This data's pixel size, field, frame interval and bin are
+%      written per cell, and the README lists every constant in the original scripts that assumes
+%      a different instrument (20.48 um, 27.61 um, 0.011 s) with the value to use instead.
 %   7. IF THE ORIGINAL SCRIPTS ARE ON DISK, they run on these files and agree:
 %      GenerateEnrichmentStruct reproduces EC exactly; ExportCSstructStatsv3's computable columns match.
 %
@@ -152,6 +155,17 @@ assert(numel(BI) == 0 && isempty(CS(1).trackBinding), 'binding fields must be em
 rd = fileread(fullfile(d,'README_advisor_format.txt'));
 assert(contains(rd,'0.011') && contains(rd,'DwellTimeManual') && contains(rd,'60 of 307'), ...
     'the README must warn about the hard-coded 0.011 s frame interval and name the alignment fix');
+
+%% (8) imaging settings ---------------------------------------------------------------------------------------------
+Im = readtable(fullfile(d,'imaging_settings.csv'), 'TextType','string');
+assert(height(Im) == 2 && all(abs(Im.pixel_um - 0.16) < 1e-12) && all(abs(Im.fov_um - fov) < 1e-12) && ...
+       all(abs(Im.frame_interval_s - 0.02) < 1e-12) && all(Im.density_bin_nm == bin) && all(Im.width_px == 101) && ...
+       all(abs(Im.full_width_um - 101*0.16) < 1e-9), ...
+    'imaging_settings.csv does not carry this data''s own pixel size / field / frame interval / bin');
+for k = {'ContactSiteMapper.m:28','20.48','DensityVisualization.m:12','27.61','DwellTimeManual.m:38', ...
+         'EntryExitManualClassifierv2.m:40,51','use 0.02','use 16','0.080 um'}
+    assert(contains(rd, k{1}), 'the README does not name "%s" - the constants that assume another instrument', k{1});
+end
 
 %% (7) the original scripts, if they are on this machine ----------------------------------------------------------
 orig = fullfile(fileparts(fileparts(fileparts(here))), 'SPT_ContactSites_Pipeline', 'ContactSites_original', 'Final', 'Revision');

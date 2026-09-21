@@ -114,7 +114,7 @@ for d = {outDir, fullfile(outDir,'Densities'), fullfile(outDir,'csIDs'), fullfil
 end
 
 allA = []; allR = [];
-advCells = struct('base', {}, 'T', {}, 'sites', {}, 'cond', {});
+advCells = struct('base', {}, 'T', {}, 'sites', {}, 'cond', {}, 'dims', {});
 for b = 1:numel(bases)
     base = bases{b};
     Fi = F(strcmp({F.file}, base));
@@ -239,7 +239,7 @@ for b = 1:numel(bases)
     % the advisor layout: the ORIGINAL tracks with the same columns kept as tracks/ (so track numbers
     % agree across the whole export), and the refined sites
     advCells(end+1) = struct('base', base, 'T', cs_track_slice(Tracks(k), keepCols), ... %#ok<AGROW>
-        'sites', Fkeep, 'cond', condOf(opts, base));
+        'sites', Fkeep, 'cond', condOf(opts, base), 'dims', movieDims(projectDir, base));
     R.nCells = R.nCells + 1; R.cells{end+1} = base;
 end
 tpl = fullfile(fileparts(mfilename('fullpath')), 'export_template', 'analyse_export_one_cell.m');
@@ -265,6 +265,17 @@ writeReadme(outDir, R, finfo, tsName, stamp, incDel);
 end
 
 % =================================================================================================
+function d = movieDims(projectDir, base)
+% The movie's width and height in pixels, from the calibration resolver (which reads the movie).
+% [NaN NaN] when it cannot say; the formatter then derives them from the field of view.
+d = [NaN NaN];
+try
+    c = spt_project_calib(projectDir, base);
+    if isfinite(c.width) && isfinite(c.height), d = [c.width c.height]; end
+catch
+end
+end
+
 function c = condOf(opts, base)
 % The cell's condition from the Experiment tab, '' when none is assigned.
 c = '';

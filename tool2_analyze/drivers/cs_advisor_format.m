@@ -15,7 +15,10 @@ function R = cs_advisor_format(outDir, label, cells, opts)
 %   <label>-CSstats.xlsx         one row per cell, then totals and averages
 %   <label>-EnrichmentCoefficients.xlsx   sheets StepEnrichmentByCS, EnrichmentByCell
 %   <label>-BindingTable.xlsx    one row per binding interaction
-%   README_advisor_format.txt    what is filled, what is empty and why, and the parameters used
+%   imaging_settings.csv         THIS data's pixel size, image size, field of view, frame interval
+%                                and density bin, per cell - they differ from the VAPB dataset's
+%   README_advisor_format.txt    what is filled, what is empty and why, the parameters used, and
+%                                which constants in the original scripts assume a different instrument
 %
 % Every field keeps its original name, order and definition. The definitions are taken from the
 % original scripts in SPT_ContactSites_Pipeline/ContactSites_original, and each is cited below at
@@ -43,6 +46,7 @@ if ~isfolder(outDir), mkdir(outDir); end
 lab = cs_advisor_export_name(label); if isempty(lab), lab = 'condition'; end
 
 nCells = numel(cells);
+img = imagingSettings(cells);
 CS = csTemplate(); CS = CS([]);
 Tracks = tracksTemplate(); Tracks = Tracks([]);
 cellCS = cell(1, nCells);                     % global CS indices per cell
@@ -170,7 +174,8 @@ writeDetails(fullfile(outDir, 'CS_details_v2.xlsx'), CS);
 writeCSstats(fullfile(outDir, [lab '-CSstats.xlsx']), cells, Tracks);
 writeEnrichment(fullfile(outDir, [lab '-EnrichmentCoefficients.xlsx']), CS, EC, Tracks);
 writeBindingTable(fullfile(outDir, [lab '-BindingTable.xlsx']));
-writeReadme(fullfile(outDir, 'README_advisor_format.txt'), lab, CS, EC, boxUm, dtS);
+writetable(img, fullfile(outDir, 'imaging_settings.csv'));
+writeReadme(fullfile(outDir, 'README_advisor_format.txt'), lab, CS, EC, boxUm, dtS, img);
 
 R = struct('nCells', nCells, 'nCS', numel(CS), 'nMito', nnz([CS.MitoFlag]), 'label', lab, ...
            'files', {{f1, f2, f3, f4}});
@@ -196,6 +201,44 @@ if ~any(bw(:)), return; end
 q = regionprops(bw, {'Centroid','Orientation','MajorAxisLength','MinorAxisLength'});
 q.Centroid = q.Centroid - sh;
 s = q;
+end
+
+function img = imagingSettings(cells)
+% Each cell's own acquisition settings, as the build recorded them from its movie. Everything in
+% these files is in microns, nanometres or frames computed with THESE values; nothing is rescaled to
+% the VAPB instrument. The table exists because the original scripts hard-code that instrument.
+n = numel(cells);
+pix = nan(n,1); fov = pix; frm = pix; bin = pix; w = pix; h = pix;
+psrc = repmat({''}, n, 1); fsrc = psrc;
+for c = 1:n
+    T = cells(c).T; k = struct();
+    if isfield(T, 'calib') && isstruct(T.calib), k = T.calib; end
+    pix(c) = numOr(k, 'pixSizeUm');
+    fov(c) = numOr(k, 'fovUm');
+    bin(c) = numOr(k, 'binNm'); if ~isfinite(bin(c)), bin(c) = numOr(k, 'precNm'); end
+    frm(c) = numOr(k, 'dt_s');
+    if isfield(T, 'frameInterval') && ~isempty(T.frameInterval) && isfinite(T.frameInterval), frm(c) = double(T.frameInterval); end
+    % The movie's own dimensions when the resolver could read them. Otherwise derive them: this
+    % pipeline's FOV spans the first to the last pixel CENTRE, (N-1) x pixel, so N = FOV/pixel + 1.
+    % (Dividing FOV by the pixel alone gives 255 for a 256-px movie.)
+    if isfield(cells, 'dims') && numel(cells(c).dims) == 2 && all(isfinite(cells(c).dims))
+        w(c) = cells(c).dims(1); h(c) = cells(c).dims(2);
+    elseif isfinite(pix(c)) && pix(c) > 0 && isfinite(fov(c))
+        w(c) = round(fov(c)/pix(c)) + 1; h(c) = w(c);
+    end
+    if isfield(k, 'src') && isstruct(k.src)
+        if isfield(k.src, 'pixSizeUm'), psrc{c} = char(k.src.pixSizeUm); end
+        if isfield(k.src, 'dt_s'),      fsrc{c} = char(k.src.dt_s); end
+    end
+end
+img = table({cells.base}', pix, w, h, fov, w .* pix, frm, bin, psrc, fsrc, 'VariableNames', ...
+    {'cell','pixel_um','width_px','height_px','fov_um','full_width_um','frame_interval_s', ...
+     'density_bin_nm','pixel_size_source','frame_interval_source'});
+end
+
+function v = numOr(s, f)
+v = NaN;
+if isfield(s, f) && ~isempty(s.(f)) && isnumeric(s.(f)) && isscalar(s.(f)), v = double(s.(f)); end
 end
 
 function v = fieldOr(T, f, d, cols)
@@ -319,8 +362,12 @@ end
 
 function y = tern(c, a, b), if c, y = a; else, y = b; end, end
 
-function writeReadme(f, lab, CS, EC, boxUm, dtS)
+function writeReadme(f, lab, CS, EC, boxUm, dtS, img)
 fid = fopen(f, 'w'); cleaner = onCleanup(@() fclose(fid));
+one = @(v) tern(numel(unique(round(v(isfinite(v)), 6))) == 1, sprintf('%.5g', v(find(isfinite(v),1))), ...
+               sprintf('%.5g-%.5g (per cell: imaging_settings.csv)', min(v), max(v)));
+px = one(img.pixel_um); fv = one(img.fov_um); fr = one(img.frame_interval_s); bn = one(img.density_bin_nm);
+wd = one(img.width_px); ht = one(img.height_px); fw = one(img.full_width_um);
 L = {
 'THESE FILES FOLLOW THE LAYOUT OF THE PUBLISHED VAPB ContactSites DATASET'
 sprintf('Condition: %s   Cells: %d   Contact sites: %d (%d mito, %d other)', lab, numel(EC), ...
@@ -331,6 +378,38 @@ sprintf('Condition: %s   Cells: %d   Contact sites: %d (%d mito, %d other)', lab
 '(SPT_ContactSites_Pipeline/ContactSites_original: ContactSiteMapper.m, CS_refiner_v2_wacom.m,'
 'Final/Revision/CS_builder.m, GenerateEnrichmentStruct.m, ExportCSstructStatsv3.m,'
 'OutputEnrichmentCoeffDatav2.m, ExtractBindingInfo.m). The original scripts run on them.'
+''
+'=== IMAGING SETTINGS - THIS DATA WAS NOT ACQUIRED LIKE THE VAPB DATASET ==='
+'                         VAPB dataset                       these files'
+sprintf('camera pixel           0.080 um (20.48 um / 256 px)       %s um', px)
+sprintf('image                  256 x 256 px                       %s x %s px', wd, ht)
+sprintf('field of view          20.48 um (256 x pixel)             %s um (first to last pixel centre)', fv)
+sprintf('                                                           = %s um across all %s pixels', fw, wd)
+sprintf('frame interval         0.011 s                            %s s', fr)
+sprintf('density bin (refiner)  30 nm                              %s nm', bn)
+'Every number in these files is in um, nm or frames, computed with THIS data''s own calibration,'
+'read from each movie''s metadata (imaging_settings.csv, one row per cell). Nothing is rescaled to'
+'the VAPB instrument: physical sizes, positions and areas are correct as they are.'
+''
+'The ORIGINAL SCRIPTS hard-code other instruments. Change these before running them on these files:'
+sprintf('  ContactSiteMapper.m:28              SF = 20.48/size(imG,1)     use %s instead of 20.48', fv)
+sprintf('  DensityVisualization.m:12           27.61 um field (a 3rd rig) use %s', fv)
+sprintf('  LocDensityFigIntUse.m:8             27.61 um field             use %s', fv)
+sprintf('  CS_refiner_v2_wacom.m:91            0.011 s per frame          use %s', fr)
+sprintf('  DwellTimeManual.m:38 (and v2)       0.011 s per frame          use %s', fr)
+sprintf('  EntryExitManualClassifierv2.m:40,51 0.011 s per frame          use %s', fr)
+sprintf('  CS_trajPlotZoom.m:20                0.011 s per frame          use %s', fr)
+'  CS_refiner_v2_wacom.m:34, CS_rho_plot.m:12   PixSize = 30 nm      matches: no change'
+'Left unchanged, the mapper would put every site at the wrong place (positions scaled by'
+'20.48 / field of view) and the dwell times would come out scaled by 0.011 / frame interval.'
+sprintf('Use %s, not the full width (%s): this pipeline''s field spans the pixel CENTRES, where', fv, fw)
+'localization coordinates live (x = 0-based column x pixel), and the density images and pick'
+'pixels in these files are built on it. The full width would scale positions by 0.4% (about'
+'100 nm at the far edge). The VAPB constant 20.48 is the full width of that camera (256 x 0.080).'
+'Per-FRAME quantities (Tracks.steps, MSD, CSD, rawSteps(:,:,1), CSmatrix frame numbers) are per'
+'frame of THIS data; compare them with the VAPB dataset only after converting frames to seconds.'
+sprintf('The %.3f um neighbourhood square is physical: %.1f of this data''s camera pixels,', boxUm, boxUm / median(img.pixel_um, 'omitnan'))
+'12.8 of the VAPB camera''s.'
 ''
 '=== FILLED, WITH THE ORIGINAL DEFINITIONS ==='
 'CS: CS_index file cellIndex csID tracks refCenter refboundary boundaries EllipseFit LocIDs refLocIDs'
@@ -369,9 +448,7 @@ sprintf('Neighbourhood square: %.3f um wide, centred on each ORIGINAL pick (boun
 'Tracks rejected by hand in the QC step are removed, so track numbers here count the kept tracks.'
 'Sites deleted during refinement are not included.'
 'file ends in _Tracks, as in the original (its scripts strip 7 characters to get the cell name).'
-sprintf('FRAME INTERVAL: %.4g s. The original dwell scripts HARD-CODE 0.011 s per frame', dtS)
-'    (DwellTimeManual.m, EntryExitManualClassifierv2.m: 0.011*T). Change it before using them on'
-'    these files, or every dwell time comes out scaled by the wrong factor.'
+sprintf('Frame interval %.4g s - see IMAGING SETTINGS above for the constants to change.', dtS)
 ''
 '=== TWO THINGS THAT DIFFER FROM THE PUBLISHED SPREADSHEETS ON PURPOSE ==='
 '1. EnrichmentCoefficients, StepEnrichmentByCS: in OutputEnrichmentCoeffDatav2.m the CSsize, CSarea,'
