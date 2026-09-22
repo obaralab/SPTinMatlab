@@ -956,6 +956,21 @@ New tab app `spt_analyze_app.m`; built on the `drivers/` layer. Build order:
    saved centre, keeps deletions, moves a centre that falls outside its new outline to the outline's
    peak and flags it `⚠` (a centre between two spots the 240 nm blur had merged), backs up
    `CS_footprints.mat` first and writes a per-site report CSV. `spt_outline_sigma_smoke`.
+   **Every site also has a NEIGHBOURHOOD BOX** (`cs_neighbour_box`; the **near box** spinner, default
+   **1.024 µm** = the VAPB dataset's ±30 density px, saved as `neighbourBoxUm` beside the outline σ).
+   Localizations in the box but outside the outline are the site's neighbours — its local control —
+   and the mapper records `boxUm`, `boxLocIDs`, `neighborIDs`, `nLocNear`, `nTracksNear` plus `CSvec`
+   (the member tracks' step vectors, the field the published `CS` carries). The box is centred on the
+   site centre; `cs_advisor_format` keeps the original's pick-centred square so its folders stay
+   comparable. **🔬 Diffusion map** (`cs_tessellate`) is the pipeline's stand-in for the JBM maps:
+   k-means seeds on the localizations (one per 30), every tessel CLIPPED to the localization support
+   (`cs_support_mask`, or `opts.maskImage` for a real ER mask), and D per tessel from the steps that
+   start in it — `(⟨dr²⟩ − 4σ²)/(4Δt)` by default, Vestergaard CVE optionally — with `NaN` below 20
+   steps. It writes `analysis/CS_tessellation.mat`; the mapper then attaches `Deff`, `TessIndex`,
+   `refDeff`, `neighborDeff`, `DeffIn`/`DeffNear`, and `DtIn`/`DtNear` from the rolling D. The export
+   carries all of it (`box_um`, `n_loc_near`, `D_in_um2s`, `rollD_in_um2s`, …) and fills the advisor
+   format's Deff columns. No per-trajectory state model is fitted: HDP-SLDS needs >500-step tracks
+   and this data's median track is 65 localizations. `cs_tessellate_smoke`.
 5. **Sites** *(done)* — runs the **windowed mapper** `cs_window_mapper.m` (headless) over every picked
    site. For each `(site, window=Slice)` it: rebuilds the window density (`cs_window_density`, the same map the
    picker showed); derives an **auto footprint** `cs_window_footprint.m` = the connected blob of

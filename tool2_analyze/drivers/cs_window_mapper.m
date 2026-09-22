@@ -26,6 +26,9 @@ function CSW = cs_window_mapper(anaDir, opts)
 %   .outlineSigmaNm  the project's (cs_outline_sigma, 100 nm by default): the smoothing the AUTO
 %                   outline is made at. .sig stays the density the metrics are measured on (the
 %                   picker's 240 nm); only the outline moved to the finer scale.
+%   .neighbourBoxUm  the project's (cs_neighbour_box, 1.024 um by default): the square around each
+%                   site whose localizations OUTSIDE the outline are the site's neighbours - the
+%                   local control for every count and every diffusion number.
 %   .src            'all'(default, allSpots cloud) | 'tracked' (matrix) — density source only
 %   .save           true (write CSW_final.mat + cs_window_metrics.csv)
 %   .verbose        true
@@ -36,6 +39,9 @@ if nargin<2 || ~isstruct(opts), opts = struct(); end
 fpMode = lower(getf(opts,'footprintMode','halfmax'));
 sig    = getf(opts,'sig',8);
 olNm   = getf(opts,'outlineSigmaNm',[]); if isempty(olNm), olNm = cs_outline_sigma(anaDir); end
+boxUm  = getf(opts,'neighbourBoxUm',[]); if isempty(boxUm), boxUm = cs_neighbour_box(anaDir); end
+tess   = getf(opts,'tessellation',[]);                                      % cs_tessellate output, optional
+if isempty(tess), tess = cs_tessellate('load', anaDir); end                 % [] when never run
 src    = lower(getf(opts,'src','all'));
 doSave = getf(opts,'save',true);
 verb   = getf(opts,'verbose',true);
@@ -128,6 +134,9 @@ for i = 1:nCells
     mat = Tracks(i).matrix;
     Frame = mat(:,:,1); Amat = mat(:,:,2); Bmat = mat(:,:,3);
     dt = getf2(Tracks(i),'frameInterval', getf2(Tracks(i),'dt',0.02));
+    Dt = getf2(Tracks(i), 'Dt', []);                         % per-localization rolling D (spt_track_diffusion)
+    if ~isequal(size(Dt), size(Amat)), Dt = nan(size(Amat)); end
+    [Deff, TessIdx] = cs_tessellate('cell', tess, base, size(Amat));   % per-localization tessel D; NaN if not run
 
     % window frame ranges (authoritative CSwindows.mat, else whole-movie fallback)
     [ranges, SF, grid, srcSaved] = cs_load_windows(anaDir, base, sites.w, gridDef, SFdef);
@@ -192,6 +201,7 @@ for i = 1:nCells
             end
         end
 
+        dropCols = [];                                   % tracks removed from THIS site on the Sites tab
         % (3) membership on the tracked matrix (spatial AND temporal)
         Ar = Amat - cUm(1); Br = Bmat - cUm(2);
         okxy = isfinite(Amat) & isfinite(Bmat);
@@ -209,7 +219,7 @@ for i = 1:nCells
             end
             if expx && ~isempty(ex.cols)
                 drop = intersect(tracks, ex.cols);
-                if ~isempty(drop), mnID(:,drop) = false; tracks = setdiff(tracks, drop); end
+                if ~isempty(drop), mnID(:,drop) = false; tracks = setdiff(tracks, drop); dropCols = drop; end
             end
         end
         LocIDs = find(mnID);
@@ -222,6 +232,18 @@ for i = 1:nCells
         trackLocsWin    = winCol(tracks);
         trackPctInside  = 100 * trackLocsInside ./ max(trackLocsWin, 1);
         CSmatrix = cat(3, Frame(:,tracks), Amat(:,tracks)-cUm(1), Bmat(:,tracks)-cUm(2));
+        CSvec = nan([size(Amat,1)-1, numel(tracks), 2]);
+        vv = getf2(Tracks(i), 'vector', []);                 % step vectors of the member tracks
+        if isequal(size(vv), [size(Amat,1)-1 size(Amat,2) 2]), CSvec = vv(:,tracks,:); end
+
+        % (4b) THE NEIGHBOURHOOD BOX: the square about the site centre, and what is in it but
+        % outside the outline. This is the local control - same cell, same window, next door.
+        h = boxUm/2;
+        inBox = abs(Amat - cUm(1)) <= h & abs(Bmat - cUm(2)) <= h & inWin & okxy;
+        if ~isempty(dropCols), inBox(:, dropCols) = false; end   % a track removed from the site is not its neighbour either
+        boxLocIDs   = find(inBox);
+        neighborIDs = setdiff(boxLocIDs, LocIDs);            % in the box, outside the outline
+        nearTracks  = find(any(inBox & ~inPoly, 1));
 
         % (5) density metrics via the reused kernel (its cc grid + nm-refboundary contract)
         inw  = (isinf(f0)&isinf(f1)) | (sF>=f0 & sF<=f1);
@@ -249,7 +271,13 @@ for i = 1:nCells
         e.boundaries=struct('x',refb(:,1)+cUm(1),'y',refb(:,2)+cUm(2));   % abs um (compat)
         e.tracks=tracks; e.nTracks=numel(tracks); e.LocIDs=LocIDs; e.nMemberLocs=numel(LocIDs);
         e.trackLocsInside=trackLocsInside; e.trackLocsWin=trackLocsWin; e.trackPctInside=trackPctInside;   % per-track dwell fraction
-        e.CSmatrix=CSmatrix; e=cs_site_set_near(e,'mito',sites.mito(j));
+        e.CSmatrix=CSmatrix; e.CSvec=CSvec; e=cs_site_set_near(e,'mito',sites.mito(j));
+        e.boxUm=boxUm; e.boxLocIDs=boxLocIDs; e.neighborIDs=neighborIDs;
+        e.nLocBox=numel(boxLocIDs); e.nLocNear=numel(neighborIDs); e.nTracksNear=numel(nearTracks);
+        e.DtIn=median(Dt(LocIDs),'omitnan'); e.DtNear=median(Dt(neighborIDs),'omitnan');          % rolling D
+        e.DeffIn=median(Deff(LocIDs),'omitnan'); e.DeffNear=median(Deff(neighborIDs),'omitnan');  % tessellation D
+        e.TessIndex=TessIdx(:,tracks); e.Deff=Deff(:,tracks);
+        e.refDeff=Deff(LocIDs); e.neighborDeff=Deff(neighborIDs);
         e.SF=SF; e.grid=grid; e.binAreaUm2=SF^2; e.dt=dt;
         e.areaUm2=rec.area_um2; e.nLocInside=rec.n_loc_in; e.cellTotalLocWin=rec.cell_total;
         e.probMass=rec.prob_mass; e.peakProb=rec.peak_prob; e.peakProbRaw=rec.peak_prob_raw;

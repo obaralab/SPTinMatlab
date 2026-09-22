@@ -19,6 +19,8 @@ function spt_outline_sigma_smoke()
 %      reads it back, regenerates from its button, flags moved sites in the list, and a frac change
 %      keeps a centre that is not the pick.
 %   6. THE EXPORT records each outline's σ and note.
+%   7. THE NEIGHBOURHOOD BOX is a project setting the same way: the Refine tab reads it, saves it
+%      and reads it back, and the diffusion map has a button.
 %
 % Synthetic; reads no dataset.
 
@@ -165,6 +167,14 @@ st = f.UserData.refState();
 assert(~isempty(R2) && all([st.foot(~[st.foot.deleted]).sigmaNm] == 240) && st.foot(3).deleted, ...
     'the tab''s regenerate did not redo the outlines at its σ, or undeleted a site');
 assert(~isempty(findobj(f,'Type','uibutton','Tag','refRegen')), 'no Regenerate button on the Refine tab');
+% the neighbourhood box is a project setting too: the tab reads it, saves it and reads it back
+bx = findobj(f,'Tag','refBox');
+assert(isscalar(bx) && bx.Value == 1.024, 'the Refine tab has no neighbourhood-box control at the 1.024 µm default');
+f.UserData.refSetBox(2.048); drawnow; press(f, 'Save');
+assert(cs_neighbour_box(ana) == 2.048, '💾 Save did not store the neighbourhood box');
+bx.Value = 1.024; press(f, 'Load / build contact sites');
+assert(bx.Value == 2.048, 'reloading did not read the saved box back into the control');
+assert(~isempty(findobj(f,'Type','uibutton','Tag','refTess')), 'no diffusion-map button on the Refine tab');
 closeQuietly(f);
 
 %% (6) the export ----------------------------------------------------------------------------------------

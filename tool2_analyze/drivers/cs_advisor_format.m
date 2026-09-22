@@ -32,6 +32,11 @@ function R = cs_advisor_format(outDir, label, cells, opts)
 %           .T      that cell's TrackStruct element, hand-rejected tracks already removed
 %           .sites  the refined sites kept for the cell (cs_footprints_resolve records): csID,
 %                   center (um), refboundary (um, rel. centre), pickPx, SF, winFrames, mito
+%           .Deff   (optional) per-localization diffusion coefficient, same size as a matrix page,
+%                   from cs_tessellate - this pipeline's stand-in for the JBM maps. With it, the
+%                   Deff / TessIndex / refDeff / neighborDeff fields are FILLED rather than empty,
+%                   and CS_details' Din / Dout and the EnrichmentCoefficients Deff columns carry
+%                   numbers. .Tess is the tessel index alongside it.
 % opts      .boxUm  (1.024) full width of the square neighbourhood around each ORIGINAL pick.
 %                   ContactSiteMapper.m takes +/-30 density pixels; on the VAPB grid that was
 %                   exactly 1.024 um, and CS_refiner_v2_wacom.m calls it "1.024 for analysis".
@@ -59,6 +64,8 @@ for c = 1:nCells
     fileTag = [cells(c).base '_Tracks'];      % the original's file names end in _Tracks, and its
                                               % scripts strip 7 characters to get the base
     S = cells(c).sites;
+    Dcell = fieldOr2(cells(c), 'Deff', []);   % per-localization D, if cs_tessellate has run
+    Tcell = fieldOr2(cells(c), 'Tess', []);
     idx = zeros(1, numel(S));
     for j = 1:numel(S)
         e = S(j); g = g + 1; idx(j) = g;
@@ -110,10 +117,11 @@ for c = 1:nCells
         % CS_builder.m: the tracks re-centred on refCenter, whole tracks, and their step vectors
         r.CSmatrix = cat(3, Fr(:, trk), A(:, trk) - rc(1), B(:, trk) - rc(2));
         r.CSvec = fieldOr(T, 'vector', [], trk);
-        r.Deff = NaN(size(X));                % JBM tessellation: not run
-        r.TessIndex = NaN(size(X));
-        r.refDeff = NaN(numel(refLocIDs), 1);
-        r.neighborDeff = NaN(numel(neighborIDs), 1);
+        % the diffusion map, when one was computed (cs_tessellate); NaN when it was not
+        r.Deff = pageOr(Dcell, trk, size(X));
+        r.TessIndex = pageOr(Tcell, trk, size(X));
+        r.refDeff = idxOr(Dcell, refLocIDs);
+        r.neighborDeff = idxOr(Dcell, neighborIDs);
         r.segIDs = NaN(size(X));              % ChrisC segmentation: not run
         r.ChPts = zeros(size(X));
         r.DwellTimes = [];
@@ -131,8 +139,8 @@ for c = 1:nCells
     end
     t.JBM = struct('x',{{}},'y',{{}},'D',[],'n',[],'center_x',[],'center_y',[], ...
                    'voronoi_x',{{}},'voronoi_y',{{}},'neighbors',{{}});   % JBM: not run
-    t.LocIndex = NaN(size(A));
-    t.Deff = NaN(size(A));
+    t.LocIndex = fullOr(Tcell, size(A));
+    t.Deff = fullOr(Dcell, size(A));
     fl = [CS(idx).MitoFlag];
     t.CSindexes = [];                         % legacy mito-only numbering: none
     t.MitoCSindex = idx(fl);
@@ -260,6 +268,26 @@ r = struct('CS_index',[],'CSindex',[],'file','','cellIndex',[],'csID',[],'tracks
     'neighborDeff',[],'segIDs',[],'ChPts',[],'DwellTimes',[],'MitoFlag',false);
 end
 
+function v = fieldOr2(s, f, d)
+v = d; if isstruct(s) && isfield(s, f) && ~isempty(s.(f)), v = s.(f); end
+end
+
+function M = pageOr(src, cols, sz)
+% one page of per-localization values for the member tracks; NaN when the analysis was not run
+M = NaN(sz);
+if ~isempty(src), M = src(:, cols); end
+end
+
+function v = idxOr(src, ids)
+v = NaN(numel(ids), 1);
+if ~isempty(src) && ~isempty(ids), v = src(ids); v = v(:); end
+end
+
+function M = fullOr(src, sz)
+M = NaN(sz);
+if ~isempty(src) && isequal(size(src), sz), M = src; end
+end
+
 function t = tracksTemplate()
 % The field ORDER of VAPB_Tracks_finalv3.mat.
 t = struct('file','','cellIndex',[],'lengths',[],'matrix',[],'center',[],'rawSteps',[],'steps',[], ...
@@ -271,7 +299,7 @@ end
 % ---- spreadsheets -------------------------------------------------------------------------------
 function writeDetails(f, CS)
 % ExportCSstructStatsv3.m, column for column. Columns that come from analyses not run here
-% (ChrisC: numNPBtracks numSegIDs numChPts; JBM: Din Dout; the binding annotation: numBoundTracks
+% (ChrisC: numNPBtracks numSegIDs numChPts; the binding annotation: numBoundTracks
 % numBindEvents numEntry numExit numRebind) are left BLANK. The original computes 0 for them when
 % the analysis is missing, which reads as "none found" rather than "not measured".
 hdr = {'CS_Number','CS_Legacy','cellIndex','csID','numTracks','numBoundTracks','numNPBtracks', ...
@@ -282,7 +310,8 @@ for i = 1:numel(CS)
     s = CS(i); ef = s.EllipseFit;
     C(i,:) = {s.CS_index, NaN, s.cellIndex, s.csID, numel(s.tracks), NaN, NaN, NaN, NaN, NaN, NaN, ...
               NaN, NaN, ef.MajorAxisLength, ef.MinorAxisLength, ef.Orientation, ...
-              polyarea(s.refboundary(:,1), s.refboundary(:,2)), NaN, numel(s.refLocIDs), NaN, ...
+              polyarea(s.refboundary(:,1), s.refboundary(:,2)), ...
+              median(s.refDeff,'omitnan'), numel(s.refLocIDs), median(s.neighborDeff,'omitnan'), ...
               numel(s.neighborIDs), double(s.MitoFlag)};
 end
 writeSheet(f, 'Sheet1', [hdr; C]);
@@ -320,7 +349,8 @@ for c = 1:numel(Tracks)
         s = CS(k); isM = s.MitoFlag; st = numel(s.refLocIDs);
         rows(end+1,:) = {EC(c).cellIndex, double(isM), tern(isM, st, NaN), tern(isM, NaN, st), ...
             EC(c).TotalSteps, s.EllipseFit.MajorAxisLength, s.EllipseFit.MinorAxisLength, ...
-            polyarea(s.refboundary(:,1), s.refboundary(:,2)), NaN, NaN}; %#ok<AGROW>
+            polyarea(s.refboundary(:,1), s.refboundary(:,2)), ...
+            median(s.refDeff,'omitnan'), median(s.neighborDeff,'omitnan')}; %#ok<AGROW>
     end
 end
 writeSheet(f, 'StepEnrichmentByCS', [hdr; rows]);
@@ -437,8 +467,13 @@ sprintf('The %.3f um neighbourhood square is physical: %.1f of this data''s came
 '    numRebind. In the original these were ANNOTATED BY HAND: DwellTimeManual.m asks how many binding'
 '    events each track has and takes clicked entry/exit points; EntryExitManualClassifierv2.m then'
 '    classifies each one. Run those on CS_final_v3.mat to fill them - see the frame-interval note.'
-'JBM tessellation diffusion: CS.Deff TessIndex refDeff neighborDeff, Tracks.JBM LocIndex Deff,'
-'    CS_details Din Dout, EnrichmentCoefficients CS_Deff CS_Neighbor.'
+'JBM tessellation diffusion: Tracks.JBM (the tessellation geometry itself).'
+'    CS.Deff TessIndex refDeff neighborDeff, Tracks.LocIndex Deff, CS_details Din Dout and'
+'    EnrichmentCoefficients CS_Deff CS_Neighbor are FILLED when cs_tessellate has been run for this'
+'    project, and blank when it has not. They are this pipeline''s own diffusion map - tessels seeded'
+'    on the localizations and clipped to the cell, D per tessel from the noise-corrected single-step'
+'    estimator - not the JBM/InferenceMAP Bayesian maps the original used. Din/Dout stay MEDIANS of'
+'    the per-localization values, as ExportCSstructStatsv3.m computes them.'
 'ChrisC trajectory segmentation: CS.tracksCCids segIDs ChPts, Tracks.CCindex segNum segID cp,'
 '    CS_details numNPBtracks numSegIDs numChPts.'
 'Legacy indexes from earlier revisions: CS.CSindex, CS_details CS_Legacy, Tracks.CSindexes.'

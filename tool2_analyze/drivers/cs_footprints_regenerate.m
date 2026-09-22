@@ -93,8 +93,9 @@ if isfile(f)
     try, L = load(f, 'CSdeleted'); if isfield(L,'CSdeleted') && ~isempty(L.CSdeleted), CSdeleted = L.CSdeleted; end, catch, end
 end
 del = [F.deleted];
-CSfoot = F(~del); outlineSigmaNm = sigNm; %#ok<NASGU>
-save(f, 'CSfoot', 'CSdeleted', 'outlineSigmaNm', '-v7.3');
+CSfoot = F(~del); outlineSigmaNm = sigNm;
+neighbourBoxUm = cs_neighbour_box(anaDir); %#ok<NASGU>    % the box setting survives a regeneration
+save(f, 'CSfoot', 'CSdeleted', 'outlineSigmaNm', 'neighbourBoxUm', '-v7.3');
 
 rep = fullfile(anaDir, ['CS_footprints_regen_' stamp '.csv']);
 rows = cell(nnz(~del), 12); r = 0;

@@ -84,7 +84,8 @@ axRef=[]; lstRefSites=[]; eRefFrac=[]; eRefMaxR=[]; ddRefWin=[]; lblRef=[]; lblR
 axRad=[]; chkRefLocs=[]; ddRefScale=[]; sldRefContrast=[]; btnRefDelete=[]; refCbar=[]; refLockedSrc='all'; sldRefSmooth=[];
 refNullCache=struct('key',{},'nullMax',{},'pmap',{}); refFoot=[]; refSelIdx=0; refRowMap=[];
 chkRefNbr=[]; refDirty=false; refDrawing=false; eRefView=[]; refViewSite=0; refKeepSpan=false;
-eRefSigma=[]; refSigNm=cs_outline_sigma([]);   % Refine: the smoothing outlines are made (and shown) at, nm   % Refine: other-site outlines toggle; unsaved edits (the export warns)
+eRefSigma=[]; refSigNm=cs_outline_sigma([]);   % Refine: the smoothing outlines are made (and shown) at, nm
+eRefBox=[]; refBoxUm=cs_neighbour_box([]);     % Refine: the neighbourhood box around a site, um   % Refine: other-site outlines toggle; unsaved edits (the export warns)
 ctCache=[]; ctCacheKey='';      % buildTracks with hand-rejected tracks BLANKED — see ctTracks
 btnCSexport=[]; btnRefExport=[];   % the Export button, on Contact sites and on Refine
 refErCache=struct('key',{},'erGrid',{});   % per-(cell,grid) ER support mask resampled to the density grid (radial-null area)
@@ -123,6 +124,7 @@ fig.UserData = struct('activeTs',@activeTsNow, 'tracks',@tracksNow, 'loadTracks'
     'engExamples',@onEngageExamples, ...
     'refMoveCentre',@moveRefCentre, 'refState',@refStateNow, ...   % Refine: the move without the click
     'refSetSigma',@setRefSigma, 'refRegen',@onRefRegen, ...          % Refine: outline smoothing, regenerate (no dialog)
+    'refSetBox',@setRefBox, 'runTessellation',@onTessellate, ...     % neighbourhood box; the diffusion map
     'csExport',@onCSExport, 'refExport',@onRefExport, ...            % export under a given name, no dialog
     'viewAdvisor',@onViewAdvisor);                                  % open a ContactSites folder in the viewer
 gl = uigridlayout(fig,[2 1],'RowHeight',{34,'1x'},'Padding',[8 8 8 8],'RowSpacing',6);
@@ -1017,7 +1019,7 @@ end
         % The info label is the LAST row and takes the elastic height. It used to sit in a 30 px row
         % with an unused '1x' row after it, so of its six lines only "area" and "tracks" were ever
         % visible — the localization count added for cross-checking was drawn and clipped away.
-        cc = uigridlayout(mn,[16 1],'RowHeight',{24, 26, 16,26, 44, 16,32,26, 16,26,26,30,28, 40,28, '1x'}, ...
+        cc = uigridlayout(mn,[17 1],'RowHeight',{24, 26, 16,26, 44, 16,32,26,26, 16,26,26,30,28, 40,28, '1x'}, ...
             'Padding',[0 0 0 0],'RowSpacing',4);
         ckg = uigridlayout(cc,[1 2],'ColumnWidth',{'1.25x','1x'},'Padding',[0 0 0 0],'ColumnSpacing',4);
         chkRefLocs = uicheckbox(ckg,'Text','localizations','Value',false, ...
@@ -1072,6 +1074,19 @@ end
                        '100 nm is the value at which the auto outline, run on the published VAPB ' ...
                        'data, gives its hand-drawn median area (0.090 vs 0.089 µm²). Saved with 💾 Save; ' ...
                        'existing outlines change only when edited or regenerated.']);
+        bxg = uigridlayout(cc,[1 3],'ColumnWidth',{52,70,'1x'},'Padding',[0 0 0 0],'ColumnSpacing',4);
+        uilabel(bxg,'Text','near box','HorizontalAlignment','right');
+        eRefBox = uispinner(bxg,'Tag','refBox','Limits',[0.1 10],'Value',refBoxUm,'Step',0.128, ...
+            'ValueDisplayFormat','%.3f µm','ValueChangedFcn',@(s,e) onRefBox(), ...
+            'Tooltip',['Width of the NEIGHBOURHOOD BOX drawn around the site (µm). Localizations in ' ...
+                       'the box but OUTSIDE the outline are the site''s neighbours: the local control ' ...
+                       'for its counts, its density and its diffusion. 1.024 µm is the published VAPB ' ...
+                       'dataset''s box (±30 density pixels), so counts stay comparable with it. ' ...
+                       'Saved with 💾 Save; the mapper and the export read it from there.']);
+        uibutton(bxg,'Text','🔬 Diffusion map…','Tag','refTess','ButtonPushedFcn',@(s,e) onTessellate(), ...
+            'Tooltip',['Compute a diffusion map for every cell (cs_tessellate): the localizations are ' ...
+                       'divided into tessels that follow the cell and each tessel gets its own D. ' ...
+                       'The mapper then reports D inside each site against D in its neighbourhood.']);
         uibutton(sgm,'Text','⟳ Regenerate all…','Tag','refRegen','ButtonPushedFcn',@(s,e) onRefRegen(), ...
             'Tooltip',['Redo EVERY outline as the auto half-max outline at this σ. Each site keeps its ' ...
                        'centre and window; deleted sites stay deleted. Where the centre falls outside ' ...
@@ -1103,6 +1118,46 @@ end
     function setRefView(v)
         if ~isempty(eRefView) && isgraphics(eRefView), eRefView.Value = v; end
         onRefView();
+    end
+
+    function setRefBox(v)
+        if ~isempty(eRefBox) && isgraphics(eRefBox), eRefBox.Value = v; end
+        onRefBox();
+    end
+
+    function onRefBox()
+        % A project setting, like the outline σ: the editor draws the box, the mapper counts the
+        % neighbours in it, and the export records its width beside every count.
+        if isempty(eRefBox) || ~isgraphics(eRefBox), return; end
+        if eRefBox.Value == refBoxUm, return; end
+        refBoxUm = eRefBox.Value;
+        if ~isempty(refFoot), markRefDirty(); end
+        redrawRef();
+        lblRef.Text = sprintf(['Neighbourhood box %.3f µm: the dashed square in the editor, and what ' ...
+            'the mapper counts as this site''s neighbours. 💾 Save keeps it, then re-run the mapper.'], refBoxUm);
+    end
+
+    function R = onTessellate(noAsk)
+        % The diffusion map (cs_tessellate) for every cell of the project.
+        R = [];
+        anaDir = ensureAnaDir(); if isempty(anaDir), lblRef.Text = 'Pick a project first.'; return; end
+        if nargin < 1 || ~noAsk
+            c = uiconfirm(fig, sprintf(['Compute a diffusion map for every cell?\n\nThe localizations are ' ...
+                'divided into tessels that follow the cell (one per 30 localizations), each tessel gets ' ...
+                'its own D from the noise-corrected single-step estimator, and the result is saved as ' ...
+                'analysis/CS_tessellation.mat.\n\nA few seconds per cell. Re-run the mapper afterwards ' ...
+                'to attach it to the sites.']), 'Diffusion map', 'Options', {'Compute', 'Cancel'}, ...
+                'DefaultOption', 1, 'CancelOption', 2, 'Icon', 'question');
+            if ~strcmp(c, 'Compute'), lblRef.Text = 'Diffusion map cancelled.'; return; end
+        end
+        lblRef.Text = 'Computing the diffusion map…'; drawnow;
+        try, R = cs_tessellate(anaDir, struct('verbose', false));
+        catch ME, lblRef.Text = ['Diffusion map failed: ' ME.message]; return; end
+        if isempty(R), lblRef.Text = 'Diffusion map: no cell had enough localizations.'; return; end
+        CSW = []; DD = [];
+        lblRef.Text = sprintf(['Diffusion map: %d cell(s), %d tessels, median D %.3f µm²/s. Re-run the ' ...
+            'mapper (Sites tab) to attach it to every site.'], numel(R), sum([R.nTessels]), ...
+            median(cell2mat(cellfun(@(d) d(:), {R.D}, 'uni', 0)), 'omitnan'));
     end
 
     function sp = refSigPx(e)
@@ -1226,6 +1281,8 @@ end
         lblRef.Text='Building contact sites…'; drawnow;
         refSigNm = cs_outline_sigma(anaDir);     % the project's outline smoothing (100 nm unless saved)
         if ~isempty(eRefSigma) && isgraphics(eRefSigma), eRefSigma.Value = min(max(refSigNm, 20), 400); end
+        refBoxUm = cs_neighbour_box(anaDir);     % and its neighbourhood box (1.024 µm unless saved)
+        if ~isempty(eRefBox) && isgraphics(eRefBox), eRefBox.Value = min(max(refBoxUm, 0.1), 10); end
         % cs_footprints_resolve = the auto footprints with every SAVED edit and deletion merged on —
         % the same function the advisor export reads, so what is refined here is what is exported.
         try, [refFoot, rinfo] = cs_footprints_resolve(anaDir);
@@ -1335,6 +1392,9 @@ end
             x = CSm(:,jj,2)+cUm(1); y = CSm(:,jj,3)+cUm(2); ok = isfinite(x)&isfinite(y)&inWin(CSm(:,jj,1), e.winFrames);
             if nnz(ok)>=2, plot(axRef, x(ok), y(ok), '-','Color',[1 0.95 0.3 0.55],'LineWidth',0.5,'HitTest','off'); end
         end
+        hb = refBoxUm/2;                                   % the neighbourhood box: the local control
+        plot(axRef, cUm(1)+hb*[-1 1 1 -1 -1], cUm(2)+hb*[-1 -1 1 1 -1], ':', 'Color',[1 1 1 0.75], ...
+             'LineWidth',1.1,'HitTest','off');
         plot(axRef, cUm(1), cUm(2), '+','Color',[1 0 1],'MarkerSize',13,'LineWidth',1.6,'HitTest','off');
         hold(axRef,'off');
         half = 0; if ~isempty(eRefView) && isgraphics(eRefView), half = eRefView.Value; end
@@ -1368,9 +1428,10 @@ end
         % edited rather than standing for whatever the auto footprint held when the site was built.
         % A percentage on its own cannot be cross-checked against the picker's loc column or against
         % nLocInside in the mapper's export; a count can.
-        pctIn = NaN; idx = NaN; nIn = 0; nWin = numel(Lx);
+        pctIn = NaN; idx = NaN; nIn = 0; nWin = numel(Lx); nNear = 0;
         if ~isempty(Lx)
             inb = inpolygon(Lx, Ly, bx, by); nIn = nnz(inb); pctIn = 100*nIn/max(nWin,1);
+            nNear = nnz(abs(Lx-cUm(1)) <= hb & abs(Ly-cUm(2)) <= hb & ~inb);   % in the box, outside the outline
             % radial concentration: how the localizations concentrate toward the centre vs a CELL-WIDE
             % ER-uniform null (density from the localizations over ER across the whole cell, not the local FOV)
             if ~isempty(axRad) && isgraphics(axRad)
@@ -1386,9 +1447,9 @@ end
         if ~isempty(lblRefInfo) && isgraphics(lblRefInfo)
             pTxt = ''; if isfinite(pval), pTxt = sprintf('\nCSR peak p = %.3g', pval); end
             lblRefInfo.Text = sprintf(['area %.4f µm²\n%d tracked track(s)\npeak %.2g loc/bin\n' ...
-                '%d of %d window locs inside (%.1f%%)\nconcentration %.2f%s%s\n%s%s'], ...
-                e.areaUm2, numel(trk), pkLoc, nIn, nWin, pctIn, idx, pTxt, tern(del,'  · DELETED',''), ...
-                sigmaLine(e), noteLine(e));
+                '%d of %d window locs inside (%.1f%%)\n%d near (%.3f µm box)\nconcentration %.2f%s%s\n%s%s'], ...
+                e.areaUm2, numel(trk), pkLoc, nIn, nWin, pctIn, nNear, refBoxUm, idx, pTxt, ...
+                tern(del,'  · DELETED',''), sigmaLine(e), noteLine(e));
         end
     end
 
@@ -1614,7 +1675,8 @@ end
             CSdeleted(q) = struct('file',dd(q).file,'csID',dd(q).csID,'window',dd(q).window,'pickPx',dd(q).pickPx); %#ok<AGROW>
         end
         outlineSigmaNm = refSigNm; %#ok<NASGU>    % the outline smoothing is a project setting (cs_outline_sigma)
-        try, save(fullfile(anaDir,'CS_footprints.mat'),'CSfoot','CSdeleted','outlineSigmaNm','-v7.3'); %#ok<NASGU>
+        neighbourBoxUm = refBoxUm; %#ok<NASGU>    % and so is the neighbourhood box (cs_neighbour_box)
+        try, save(fullfile(anaDir,'CS_footprints.mat'),'CSfoot','CSdeleted','outlineSigmaNm','neighbourBoxUm','-v7.3'); %#ok<NASGU>
         catch ME, lblRef.Text=['Save failed: ' ME.message]; return; end
         CSW = []; DD = []; refDirty = false;      % refinement changes the mapping -> invalidate old results
         resetCSExportButton();                    % what was exported is no longer what is saved
@@ -2017,8 +2079,9 @@ end
                 dup = arrayfun(@(x) strcmp(x.file,r.file)&&x.csID==r.csID&&x.window==r.window, CSdeleted);
                 if ~any(dup), CSdeleted(end+1) = r; end %#ok<AGROW>
             end
-            outlineSigmaNm = cs_outline_sigma(anaDir); %#ok<NASGU>   % keep the Refine setting when rewriting
-            try, save(ff,'CSfoot','CSdeleted','outlineSigmaNm','-v7.3'); %#ok<NASGU>
+            outlineSigmaNm = cs_outline_sigma(anaDir); %#ok<NASGU>   % keep the Refine settings when rewriting
+            neighbourBoxUm = cs_neighbour_box(anaDir); %#ok<NASGU>
+            try, save(ff,'CSfoot','CSdeleted','outlineSigmaNm','neighbourBoxUm','-v7.3'); %#ok<NASGU>
             catch ME, lblSites.Text=['Save failed: ' ME.message]; return; end
             pendDelSite(:) = [];
         end

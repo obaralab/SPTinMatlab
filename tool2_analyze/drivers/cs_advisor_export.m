@@ -98,6 +98,8 @@ R.nRejectedTracks = cs_track_exclusions('count', ex);
 Tb = cs_track_exclusions('blank', ex, Tracks);
 
 [F, finfo, Fauto] = cs_footprints_resolve(anaDir);
+boxUm = getf(opts, 'neighbourBoxUm', []); if isempty(boxUm), boxUm = cs_neighbour_box(anaDir); end
+TS = cs_tessellate('load', anaDir);          % per-localization diffusion map, when it has been run
 if isempty(F), R.skipped = {'no saved contact sites in csIDs/'}; return; end
 bases = unique({F.file}, 'stable');
 if isfield(opts,'cells') && ~isempty(opts.cells)
@@ -114,7 +116,7 @@ for d = {outDir, fullfile(outDir,'Densities'), fullfile(outDir,'csIDs'), fullfil
 end
 
 allA = []; allR = [];
-advCells = struct('base', {}, 'T', {}, 'sites', {}, 'cond', {}, 'dims', {});
+advCells = struct('base', {}, 'T', {}, 'sites', {}, 'cond', {}, 'dims', {}, 'Deff', {}, 'Tess', {});
 for b = 1:numel(bases)
     base = bases{b};
     Fi = F(strcmp({F.file}, base));
@@ -126,6 +128,10 @@ for b = 1:numel(bases)
     end
     M = T.matrix; Fr = M(:,:,1); A = M(:,:,2); B = M(:,:,3);
     okxy = isfinite(A) & isfinite(B);
+    [Dcell, TessCell] = cs_tessellate('cell', TS, base, size(A));   % NaN when never run
+    DtCell = [];
+    try, DtCell = Tracks(k).Dt; catch, end
+    if ~isequal(size(DtCell), size(A)), DtCell = nan(size(A)); end
 
     % ---- the tracks themselves ---------------------------------------------------------------------
     % Without them the export is pictures and summaries: nothing in it could be recounted. Only
@@ -215,6 +221,7 @@ for b = 1:numel(bases)
         e = Fkeep(j); c = e.center(:)';
         [nLoc, nTrk, mcols] = countInside(A, B, Fr, okxy, c, e.refboundary, e.winFrames);
         nm = siteMetrics(ccache, A, B, Fr, e, SFpick, gridPick);
+        [nNear, nTrkNear, nearIDs, inIDs] = countNear(A, B, Fr, e, boxUm);
         sgm = NaN; if isfield(e,'sigmaNm') && ~isempty(e.sigmaNm), sgm = e.sigmaNm; end
         nte = '';  if isfield(e,'note') && ~isempty(e.note), nte = char(e.note); end
         rec = struct('file',base,'cellIndex',k,'csID',e.csID,'window',e.window, ...
@@ -224,6 +231,9 @@ for b = 1:numel(bases)
             'area_um2',e.areaUm2,'n_loc_inside',nLoc,'n_tracks',nTrk,'member_tracks',numList(expNum(mcols)), ...
             'cell_total_loc_win',nm.cell_total,'prob_mass',nm.prob_mass,'peak_prob',nm.peak_prob, ...
             'local_dens_loc_um2',nm.local_dens,'cell_bg_loc_um2',nm.cell_bg_dens,'enrichment',nm.enrichment, ...
+            'box_um',boxUm,'n_loc_near',nNear,'n_tracks_near',nTrkNear, ...
+            'D_in_um2s',med(Dcell, inIDs),'D_near_um2s',med(Dcell, nearIDs), ...
+            'rollD_in_um2s',med(DtCell, inIDs),'rollD_near_um2s',med(DtCell, nearIDs), ...
             'footprint',char(e.mode),'outline_sigma_nm',sgm,'outline_note',nte, ...
             'edited',logical(e.edited),'deleted',logical(e.deleted), ...
             'SF_um_per_px',di.SF,'grid_px',di.n,'grid_picker_px',gridPick,'fov_um',fovUm,'bin_nm',binNm);
@@ -242,7 +252,8 @@ for b = 1:numel(bases)
     % the advisor layout: the ORIGINAL tracks with the same columns kept as tracks/ (so track numbers
     % agree across the whole export), and the refined sites
     advCells(end+1) = struct('base', base, 'T', cs_track_slice(Tracks(k), keepCols), ... %#ok<AGROW>
-        'sites', Fkeep, 'cond', condOf(opts, base), 'dims', movieDims(projectDir, base));
+        'sites', Fkeep, 'cond', condOf(opts, base), 'dims', movieDims(projectDir, base), ...
+        'Deff', cs_track_slice_cols(Dcell, keepCols), 'Tess', cs_track_slice_cols(TessCell, keepCols));
     R.nCells = R.nCells + 1; R.cells{end+1} = base;
 end
 tpl = fullfile(fileparts(mfilename('fullpath')), 'export_template', 'analyse_export_one_cell.m');
@@ -260,7 +271,7 @@ if getf(opts, 'advisorFormat', true) && ~isempty(advCells)
     for q = 1:numel(ul)
         sel = strcmp(labels, ul{q});
         R.advisor(q) = cs_advisor_format(fullfile(outDir, 'advisor_format', cs_advisor_export_name(ul{q})), ...
-            ul{q}, advCells(sel), struct('boxUm', getf(opts, 'advisorBoxUm', 1.024), 'frameInterval_s', dtAdv));
+            ul{q}, advCells(sel), struct('boxUm', getf(opts, 'advisorBoxUm', boxUm), 'frameInterval_s', dtAdv));
     end
 end
 if ~isempty(allR), writetable(allR, fullfile(outDir, 'refinedsites_all.csv')); end
@@ -526,6 +537,16 @@ sprintf('minus %d track(s) rejected by hand on the QC tab.', R.nRejectedTracks)
 '                  sites uses 240 nm; outlines use their own, finer scale (100 nm by default, the'
 '                  value at which the automatic outline reproduces the published VAPB hand-drawn'
 '                  median area). Blank = saved before this was recorded (made at 240 nm).'
+'box_um            width of the NEIGHBOURHOOD BOX around the site centre (cs_neighbour_box; 1.024'
+'                  um, the VAPB dataset''s +/-30 density px, unless changed on the Refine tab)'
+'n_loc_near        localizations in that box but OUTSIDE the outline - the site''s local control'
+'n_tracks_near     tracks among them'
+'D_in_um2s         median diffusion coefficient of the localizations inside the outline, from the'
+'                  tessellation map (cs_tessellate). Blank when that has not been run.'
+'D_near_um2s       the same for the neighbours: the number to compare D_in with'
+'rollD_in_um2s     median of the per-localization ROLLING D (Tracks.Dt) inside the outline - a'
+'                  second, independent estimate that needs no tessellation'
+'rollD_near_um2s   the same for the neighbours'
 'outline_note      why a site should be looked at, e.g. its centre was moved to the outline''s'
 '                  peak when the outlines were regenerated. Usually blank.'
 'edited            1 = a saved outline (drawn, adjusted or regenerated on the Refine tab);'
@@ -568,6 +589,30 @@ if ~isempty(R.skipped)
     for q = 1:numel(R.skipped), L{end+1} = R.skipped{q}; end %#ok<AGROW>
 end
 fprintf(fid, '%s\n', L{:});
+end
+
+function [nNear, nTrk, nearIDs, inIDs] = countNear(A, B, Fr, e, boxUm)
+% THE NEIGHBOURHOOD: what is in the site's box but outside its outline - the local control.
+c = e.center(:)'; h = boxUm/2;
+ok = isfinite(A) & isfinite(B);
+inWin = true(size(A)); if ~(isinf(e.winFrames(1)) && isinf(e.winFrames(2)))
+    inWin = Fr >= e.winFrames(1) & Fr <= e.winFrames(2); end
+inBox = abs(A - c(1)) <= h & abs(B - c(2)) <= h & ok & inWin;
+inPoly = false(size(A));
+inPoly(ok) = inpolygon(A(ok) - c(1), B(ok) - c(2), e.refboundary(:,1), e.refboundary(:,2));
+inIDs = find(inPoly & inWin & ok);
+nearIDs = find(inBox & ~inPoly);
+nNear = numel(nearIDs); nTrk = nnz(any(inBox & ~inPoly, 1));
+end
+
+function v = med(M, idx)
+v = NaN;
+if ~isempty(M) && ~isempty(idx), v = median(M(idx), 'omitnan'); end
+end
+
+function C = cs_track_slice_cols(M, cols)
+C = [];
+if ~isempty(M), C = M(:, cols); end
 end
 
 function v = getf(s,f,d), if isstruct(s)&&isfield(s,f)&&~isempty(s.(f)), v=s.(f); else, v=d; end, end

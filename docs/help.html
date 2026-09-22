@@ -256,6 +256,8 @@ mark{ background:var(--accent-soft); color:inherit; border-radius:3px; padding:0
   <a href="#t3refload">&nbsp;&nbsp;▶ Load / build contact sites</a>
   <a href="#t3refauto">&nbsp;&nbsp;The automatic outline — frac and maxR</a>
   <a href="#t3refsigma">&nbsp;&nbsp;outline σ — the scale outlines are made at, and ⟳ Regenerate all</a>
+  <a href="#t3refbox">&nbsp;&nbsp;near box — the neighbourhood a site is compared with</a>
+  <a href="#t3tess">&nbsp;&nbsp;🔬 Diffusion map — D per tessel, inside the cell</a>
   <a href="#t3refdraw">&nbsp;&nbsp;✎ Draw centre + boundary — the manual refine</a>
   <a href="#t3refcentre">&nbsp;&nbsp;✥ Move centre only</a>
   <a href="#t3refsmooth">&nbsp;&nbsp;✨ Smooth boundary</a>
@@ -2042,6 +2044,23 @@ counts = accumarray([Ly Lx], 1, [grid grid]);        % row = y, column = x</code
 </ul>
 <div class="warn"><b>Everything counted inside an outline changes with its size:</b> localizations and tracks inside, prob_mass, the EC counts in the advisor format, dwell and entry/exit times (a larger outline makes longer apparent dwells), and the neighbour counts. Compare numbers only between outlines made at the same σ; the export records it per site (<code>outline_sigma_nm</code>).</div>
 
+<h3 id="t3refbox">near box — the neighbourhood a site is compared with</h3>
+<p>The outline says what is <em>in</em> a site. Half of any comparison is what is just <em>outside</em> it: a molecule metres of ER away is not a control for one at a site, and neither is the whole field. So every site also carries a square — the <b>near box</b> spinner, default <b>1.024 µm</b> — drawn dotted in the editor around the site centre. Localizations inside the box but outside the outline are the site's <b>neighbours</b>, and they are what its counts, density and diffusion are measured against.</p>
+<p>1.024 µm is the published VAPB dataset's box: <code>ContactSiteMapper.m</code> takes ±30 density pixels, which on that grid was exactly 1.024 µm. Keeping it means a neighbour count here means the same as a neighbour count there. Widen it to ask about a wider neighbourhood — the width is saved with <kbd>💾 Save</kbd> (as <code>neighbourBoxUm</code>) and recorded per site in the export, because a count without its box is not interpretable.</p>
+<div class="note"><b>Where it is centred.</b> Here, on the site's own centre, where the outline is. The published dataset centres its square on the <em>original pick</em> instead, and the <a href="#t3exportadvisor">advisor_format</a> export keeps that convention so its folders stay comparable with the original. For a site whose centre was never moved the two are the same square.</div>
+<p>The mapper records, per site: <code>boxUm</code>, <code>boxLocIDs</code>, <code>neighborIDs</code> (box minus outline), <code>nLocNear</code>, <code>nTracksNear</code>, and the diffusion of both sides (below). A track you removed from a site on the Sites tab is not counted as its neighbour either.</p>
+
+<h3 id="t3tess">🔬 Diffusion map — D per tessel, inside the cell</h3>
+<p><kbd>🔬 Diffusion map…</kbd> (Refine tab, beside the box) runs <code>cs_tessellate</code> over every cell and writes <code>analysis/CS_tessellation.mat</code>. It is this pipeline's answer to the VAPB dataset's JBM maps, and the reason a site's diffusion can be compared with its surroundings at all.</p>
+<ul>
+  <li><b>Tessels follow the data.</b> Seeds are placed on the localizations themselves (k-means, one seed per 30 localizations by default), not on a grid and not on rings around a site.</li>
+  <li><b>Every tessel is clipped to the cell.</b> The region is the localization support — where molecules were actually seen, dilated and hole-filled (<code>cs_support_mask</code>) — so a tessel's area is cell area and its density is a real density. Pass your own mask (an ER segmentation resampled to the density grid) as <code>opts.maskImage</code> when a project has one; with an ER probe and no ER channel, the support <em>is</em> the ER.</li>
+  <li><b>D per tessel</b> comes from the steps that <em>start</em> in it, single-frame steps only, pooled over every track that crossed it: <code>D = (⟨dr²⟩ − 4σ²)/(4Δt)</code>, the same noise-corrected estimator the per-localization rolling D uses, floored at 0. A tessel with fewer than 20 steps reports <code>NaN</code> rather than a number made of nothing. <code>opts.estimator = 'cve'</code> switches to the Vestergaard covariance estimator, which also corrects motion blur but needs step pairs and is noisier per tessel.</li>
+</ul>
+<p>Re-run the mapper afterwards and each site gains <code>Deff</code> and <code>TessIndex</code> (its member tracks' slices), <code>refDeff</code> / <code>neighborDeff</code> (the values inside and near), and the two summary numbers <code>DeffIn</code> and <code>DeffNear</code>. The export writes them as <code>D_in_um2s</code> and <code>D_near_um2s</code>, beside <code>rollD_in_um2s</code> / <code>rollD_near_um2s</code> from the rolling D, which needs no tessellation and is an independent check.</p>
+<div class="warn"><b>This is a diffusion map, not a state model.</b> Each tessel gets one D from the steps that passed through it; nothing here says a molecule switched between states, and nothing is fitted per trajectory. That is a deliberate limit — see <a href="#t3tessstates">what it does not do</a> below.</div>
+<p id="t3tessstates"><b>What it does not do, and what would.</b> The published work also fitted each long trajectory with a non-parametric Bayesian switching model (HDP-SLDS) to find state changes <em>within</em> a track. That needs trajectories longer than 500 steps; in the CysLig data the median track is 65 localizations and 8 of 7,615 reach 500, so it cannot be applied here. The alternatives that do suit thousands of short tracks pool them into one model (vbSPT, ExTrack), and none is installed: the pipeline deliberately stops at the diffusion map plus the per-localization rolling D.</p>
+
 <h3 id="t3refdraw">✎ Draw centre + boundary — the manual refine</h3>
 <p>This is the paper's mouse-driven refinement. The prompt walks you through two clicks:</p>
 <ol>
@@ -2250,6 +2269,10 @@ ref(r) = ρ · A_ER(r)                                               % A_ER(r) =
   <tr><td><code>enrichment</code></td><td><code>local_dens ÷ cell_bg</code> — fold over this cell's own baseline. <b>Comparable between cells.</b></td><td>1.43</td></tr>
   <tr><td><code>peak_prob</code></td><td>peak density inside ÷ <code>cell_total_loc_win</code></td><td>—</td></tr>
   <tr><td><code>footprint</code></td><td>how the outline was made: <code>halfmax</code> = automatic; <code>freehand</code> = drawn by hand; <code>+smooth</code> = smoothed; <code>+centre</code> = centre moved with the outline kept</td><td><code>freehand+smooth</code></td></tr>
+  <tr><td><code>box_um</code></td><td>width of the <a href="#t3refbox">neighbourhood box</a> around the site centre (1.024 µm unless changed)</td><td>1.024</td></tr>
+  <tr><td><code>n_loc_near</code>, <code>n_tracks_near</code></td><td>localizations in that box but outside the outline, and the tracks among them — the site's local control</td><td>157 · 12</td></tr>
+  <tr><td><code>D_in_um2s</code>, <code>D_near_um2s</code></td><td>median diffusion coefficient inside the outline and in the neighbourhood, from the <a href="#t3tess">diffusion map</a>. Blank when it has not been run.</td><td>0.06 · 0.22</td></tr>
+  <tr><td><code>rollD_in_um2s</code>, <code>rollD_near_um2s</code></td><td>the same split for the per-localization rolling D (<code>Tracks.Dt</code>), which needs no tessellation</td><td>0.05 · 0.20</td></tr>
   <tr><td><code>outline_sigma_nm</code></td><td>the smoothing (Gaussian σ, nm) of the density the outline was made on — its half-max, or the image it was drawn on. Sites are found at 240 nm; outlines use their own scale, 100 nm by default (<a href="#t3refsigma">outline σ</a>). Blank = saved before this was recorded (240 nm).</td><td>100</td></tr>
   <tr><td><code>outline_note</code></td><td>why the site should be looked at, e.g. its centre was moved to the outline's peak when the outlines were regenerated. Usually blank.</td><td></td></tr>
   <tr><td><code>edited</code></td><td>1 = a saved outline (drawn, adjusted or regenerated on the Refine tab), 0 = the automatic outline, computed at export</td><td>1</td></tr>
@@ -2374,7 +2397,7 @@ disp(R.outDir)</code></pre>
 <p><b>Present but empty — the original ran analyses this pipeline does not:</b></p>
 <ul>
   <li><b>Binding and dwell times</b> (<code>CS.trackBinding</code>, <code>NumEntry</code>, <code>NumExit</code>, <code>DwellTimes</code>, <code>BindingInfo.mat</code>, the BindingTable rows, and the binding columns of CS_details). In the original these were <b>annotated by hand</b>. <code>DwellTimeManual.m</code> asks how many binding events each track has and takes clicked entry/exit points, then <code>EntryExitManualClassifierv2.m</code> classifies each one. Because the files are in the original layout, those scripts run on <code>CS_final_v3.mat</code> to fill them.</li>
-  <li><b>JBM tessellation diffusion</b> (<code>Deff</code>, <code>TessIndex</code>, <code>refDeff</code>, <code>neighborDeff</code>, <code>Tracks.JBM/LocIndex/Deff</code>, CS_details Din/Dout, EnrichmentCoefficients CS_Deff/CS_Neighbor).</li>
+  <li><b>The JBM tessellation geometry</b> (<code>Tracks.JBM</code>). The diffusion values it fed — <code>CS.Deff</code>, <code>TessIndex</code>, <code>refDeff</code>, <code>neighborDeff</code>, <code>Tracks.LocIndex/Deff</code>, CS_details <code>Din</code>/<code>Dout</code>, EnrichmentCoefficients <code>CS_Deff</code>/<code>CS_Neighbor</code> — are <b>filled from this pipeline's own <a href="#t3tess">diffusion map</a></b> when it has been run, and blank when it has not. They are a support-clipped tessellation with a noise-corrected single-step D, not the Bayesian InferenceMAP estimate the original used; the README in each folder says so.</li>
   <li><b>ChrisC trajectory segmentation</b> (<code>tracksCCids</code>, <code>segIDs</code>, <code>ChPts</code>, <code>Tracks.CCindex/segNum/segID/cp</code>, CS_details numNPBtracks/numSegIDs/numChPts).</li>
 </ul>
 <p>Empty means <b>not measured</b>. In the spreadsheets those cells are blank; the original script writes 0 for a missing analysis, which reads as "none found".</p>
