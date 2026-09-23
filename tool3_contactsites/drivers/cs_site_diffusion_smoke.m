@@ -16,6 +16,9 @@ function cs_site_diffusion_smoke()
 % positions must be indexed consistently, or the inside/outside labels attach to the wrong points.
 
 here = fileparts(mfilename('fullpath')); addpath(here);
+root_ = fileparts(fileparts(here));          % the two tools share the build, the channels and the manifest
+addpath(fullfile(root_,'tool2_analyze','drivers'), fullfile(root_,'tool2_analyze','app'), ...
+        fullfile(root_,'tool3_contactsites','app'));
 
 % ---- a site with a known answer -------------------------------------------------------------
 % One track: the first half sits inside a unit-square footprint moving slowly, the second half
@@ -62,7 +65,7 @@ assert(isempty(d(~m2)) || isnan(dOut2), ...
 fprintf('a fully-inside track reports no outside value\n');
 
 % ---- the app must not show enrichment on the Sites tab, and must compute the split ------------
-src = fileread(fullfile(fileparts(here),'app','spt_analyze_app.m'));
+src = fileread(fullfile(root_,'tool2_analyze','app','spt_analyze_app.m'));   % the app lives with Tool 2
 i = strfind(src, "tblSites = uitable(");
 assert(~isempty(i), 'the Sites table was not found');
 hdr = src(i(1):i(1)+400);

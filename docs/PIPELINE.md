@@ -55,20 +55,37 @@ SPTinMatlab/
 │   ├── spt_write_outputs.m spt_curate_read.m spt_curate_write.m          outputs + filter
 │   ├── spt_write_settings.m spt_append_curation_settings.m spt_append_detection_summary.m  provenance
 │   ├── spt_track_movie.m spt_pixel_size.m spt_seg_fg_label.m
-└── tool2_analyze/                     TOOLS 2 + 3 (ContactSites; one impl, mode-gated)
-    ├── app/spt_analyze_app.m          the tab app; MODE selects the tab set (Experiment always tab 1,
-    │                                  the rest numbered 2…N per launcher):
-    │                                    'curate'  → Tool 2: Experiment · Import&Curate · Build&QC
-    │                                    'analyze' → Tool 3: Experiment · Contact sites · Refine · Sites · Dwell · Engagement · Compare
-    │                                    'full'    → Experiment then both sets in one window
-    ├── app/spt_curate_app.m           Tool 2 launcher (thin wrapper: spt_analyze_app('curate'))
-    ├── app/spt_experiment_panel.m     SHARED Experiment tab embedded by all three tools
-    ├── app/track_viewer.m             embedded Import&Curate tool
-    ├── drivers/                       the analysis layer (TrackImporter_direct, build_trackstruct, cs_*,
-    │                                    cs_config + ChrisPrograms, and
-    │                                    cs_experiment_scan/status/aggregate for the Experiment manifest)
-    └── docs/                          design notes
+├── tool2_analyze/                     TOOL 2 · the build and what is measured on it
+│   ├── app/spt_analyze_app.m          the tab app; MODE selects the tab set (Experiment always tab 1,
+│   │                                  the rest numbered 2…N per launcher):
+│   │                                    'curate'  → Tool 2: Experiment · Import&Curate · Build&QC · Vectors&bleaching
+│   │                                    'analyze' → Tool 3: Experiment · Contact sites · Refine · Sites · Dwell · Engagement · Compare
+│   │                                    'full'    → Experiment then both sets in one window
+│   ├── app/spt_curate_app.m           Tool 2 launcher (thin wrapper: spt_analyze_app('curate'))
+│   ├── app/spt_experiment_panel.m     SHARED Experiment tab embedded by all three tools
+│   ├── app/track_viewer.m             embedded Import&Curate tool
+│   ├── drivers/                       the build and the per-track layer, shared by both tools:
+│   │                                    TrackImporter_direct, build_trackstruct, spt_track_diffusion,
+│   │                                    spt_fit_msd/msd_sweep/confine_flags, spt_pbsa_steps,
+│   │                                    spt_bleaching, spt_quiver_tracks, cs_channel_* (organelles),
+│   │                                    cs_track_exclusions/slice/occupancy, cs_experiment_scan/status,
+│   │                                    cs_active_trackstruct, cs_ana_path, cs_config, ChrisPrograms
+│   └── docs/                          design notes
+└── tool3_contactsites/                TOOL 3 · the contact-site analysis, on top of a Tool 2 build
+    └── drivers/                       picking and windows (cs_window_picker, cs_detect, cs_window_density,
+                                         cs_read_sites, cs_load_windows, cs_default_gridsf, cs_support_mask,
+                                         cs_mc_threshold), outlines (cs_window_footprint, cs_footprints_*,
+                                         cs_outline_sigma, cs_smooth_boundary, cs_close_boundary),
+                                         the neighbourhood box (cs_neighbour_box), the mapper and what it
+                                         measures (cs_window_mapper, csDensMetricOne, cs_site_near,
+                                         cs_radial_plot), diffusion (cs_tessellate), dwell
+                                         (cs_window_dwell, cs_dwell_primitives), the export and the
+                                         advisor layout (cs_advisor_*, export_template/), and
+                                         cs_experiment_aggregate
 ```
+The two tools keep their own windows (`run_curate`, `run_analyze`) and their own drivers; they share
+the project folder, the manifest and the build. Tool 3's tabs still live in `spt_analyze_app.m`
+behind the `analyze` mode — the folder and launcher split is done, the source-file split is not.
 
 ### 2.2 A dataset / project folder (Tool 1 input, Tool 2 input)
 ```
@@ -198,6 +215,20 @@ every draw. Only a real wheel gesture can see this; `spt_refine_zoom_smoke` scro
 `matlab.uitest` (it opens a window) and fails with the re-arm removed. The view is also kept across
 redraws of the same site, a `view ± µm` spinner zooms without the mouse, and opening a neighbour
 from its outline keeps the zoom level.
+
+**Tool 2 · Vectors & bleaching** *(done)* — the two things every build already carries that nothing
+else read. `spt_quiver_tracks` draws each step as an arrow at the localization it starts from, one
+colour per track (the view `ConditionAccumulatorFinal.m` used per contact site), with autoscaling
+OFF so two tracks in one axes are comparable; `colorBy 'speed'` groups the arrows into speed classes
+instead. `spt_bleaching` fits every track's intensity trace with the Kalafut–Visscher step counter
+(`spt_pbsa_steps`): steps per track (fluorophores), step height, and the level after the last drop —
+the background under that molecule, subtracted into `Tracks.intensCorr`; traces that jump up as well
+as down are flagged `mixed` rather than counted. It also fits the movie's decay `N(t) = A e^{-t/τ} + c`
+and returns `corr(t) = N(0)/N(t)`, the factor that puts a late count on the early scale — and returns
+`τ = Inf, corr = 1` when there is no decay, which is the usual answer for sptPALM, where activation
+balances bleaching. On the CysLig data: ~10% of traces give one clean step, 53% are mixed, background
+≈ 2500 of a total intensity of ≈ 2575, and no movie-wide decay. `spt_bleach_quiver_smoke`,
+`spt_vectors_tab_smoke`.
 
 **📦 Export** (`cs_advisor_export`) asks for a folder name (`cs_advisor_export_name`
 makes it folder-safe; a used name is refused — exports are never written over) and writes

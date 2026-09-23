@@ -22,6 +22,9 @@ function cs_detect_explain_smoke()
 % Synthetic; reads no dataset.
 
 here = fileparts(mfilename('fullpath')); addpath(here);
+root_ = fileparts(fileparts(here));          % the two tools share the build, the channels and the manifest
+addpath(fullfile(root_,'tool2_analyze','drivers'), fullfile(root_,'tool2_analyze','app'), ...
+        fullfile(root_,'tool3_contactsites','app'));
 N = 120; sig = 2;
 
 %% a field with four planted spots, each engineered to fail at a different stage ------------------

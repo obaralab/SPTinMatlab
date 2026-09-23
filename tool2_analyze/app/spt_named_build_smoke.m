@@ -11,6 +11,7 @@ function spt_named_build_smoke()
 %
 % Runs against a TEMP project whose inputs are symlinks to WithER — nothing is written into WithER.
 here = fileparts(mfilename('fullpath')); addpath(here); addpath(fullfile(here,'..','drivers'));
+addpath(fullfile(here,'..','..','tool3_contactsites','drivers'), fullfile(here,'..','..','tool3_contactsites','app'));
 addpath(fileparts(fileparts(here)));   % repo root, where spt_test_data lives
 W = spt_test_data('WithER');
 if isempty(W)

@@ -26,6 +26,7 @@ function spt_outline_sigma_smoke()
 
 here = fileparts(mfilename('fullpath'));
 addpath(here); addpath(fullfile(here,'..','drivers'));
+addpath(fullfile(here,'..','..','tool3_contactsites','drivers'), fullfile(here,'..','..','tool3_contactsites','app'));
 addpath(fullfile(fileparts(fileparts(here)),'tool1_track'));
 
 proj = fullfile(tempdir, sprintf('spt_olsig_%d', feature('getpid')));

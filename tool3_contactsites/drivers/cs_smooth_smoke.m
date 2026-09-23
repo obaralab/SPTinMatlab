@@ -2,6 +2,9 @@ function cs_smooth_smoke()
 % Verify cs_smooth_boundary: a jagged closed polygon becomes a smoother CLOSED loop, more smoothing
 % reduces the perimeter, and degenerate inputs pass through.
 here = fileparts(mfilename('fullpath')); addpath(here);
+root_ = fileparts(fileparts(here));          % the two tools share the build, the channels and the manifest
+addpath(fullfile(root_,'tool2_analyze','drivers'), fullfile(root_,'tool2_analyze','app'), ...
+        fullfile(root_,'tool3_contactsites','app'));
 th = linspace(0,2*pi,60)'; r = 1 + 0.25*sin(9*th);          % deterministic jagged closed shape
 P = [r.*cos(th), r.*sin(th)]; P(end,:) = P(1,:);
 

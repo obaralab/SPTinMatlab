@@ -41,6 +41,9 @@ assert(isscalar(minPct) && isfinite(minPct) && minPct>=0 && minPct<=100, ...
     'cs_window_dwell:minPct','minPctInside must be a percentage in [0 100], got %s', mat2str(minPct));
 
 here = fileparts(mfilename('fullpath')); addpath(here);
+root_ = fileparts(fileparts(here));          % the two tools share the build, the channels and the manifest
+addpath(fullfile(root_,'tool2_analyze','drivers'), fullfile(root_,'tool2_analyze','app'), ...
+        fullfile(root_,'tool3_contactsites','app'));
 P = cs_dwell_primitives();
 
 f = fullfile(anaDir,'CSW_final.mat');

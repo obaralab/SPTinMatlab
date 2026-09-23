@@ -2,6 +2,9 @@ function cs_step_roundtrip_smoke()
 % Verify the STEP bridge round-trip: MATLAB export -> run_step.py (rolling fallback) -> MATLAB import,
 % and that a track which SLOWS inside the contact site shows a lower D inside than outside (Din < Dout).
 here = fileparts(mfilename('fullpath')); addpath(here);
+root_ = fileparts(fileparts(here));          % the two tools share the build, the channels and the manifest
+addpath(fullfile(root_,'tool2_analyze','drivers'), fullfile(root_,'tool2_analyze','app'), ...
+        fullfile(root_,'tool3_contactsites','app'));
 td = fullfile(tempdir,'cs_step_rt'); if isfolder(td), rmdir(td,'s'); end
 ana = fullfile(td,'analysis'); mkdir(ana);
 

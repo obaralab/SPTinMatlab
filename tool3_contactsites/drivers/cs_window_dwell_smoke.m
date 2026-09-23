@@ -3,6 +3,9 @@ function cs_window_dwell_smoke()
 % and per-window k_out; (B) a hand-built CSW with a known inside/outside sequence to verify the
 % (span+1)*dt dwell accounting and window clipping against a closed-form expectation.
 here = fileparts(mfilename('fullpath')); addpath(here);
+root_ = fileparts(fileparts(here));          % the two tools share the build, the channels and the manifest
+addpath(fullfile(root_,'tool2_analyze','drivers'), fullfile(root_,'tool2_analyze','app'), ...
+        fullfile(root_,'tool3_contactsites','app'));
 addpath(fileparts(fileparts(here)));                 % repo root, for spt_test_data
 % Part A needs a real built project. It is not in the repo, so on a fresh clone there is nothing to
 % check against and erroring would only be noise -- say so and leave.

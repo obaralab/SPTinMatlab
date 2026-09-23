@@ -40,6 +40,7 @@ onChange    = getf(opts,'onChange',[]);
 
 here = fileparts(mfilename('fullpath'));                 % make cs_experiment_* reachable
 d1 = fullfile(fileparts(here),'drivers'); if isfolder(d1), addpath(d1); end
+d2 = fullfile(fileparts(fileparts(here)),'tool3_contactsites','drivers'); if isfolder(d2), addpath(d2); end
 
 folders = {}; sf = getf(opts,'seedFolders',{}); if ~isempty(sf), folders = cellstr(sf); end   % canonicalised on first scan/add
 autoPath = '';   % canonical <project>/experiment_details.mat — auto-loaded on open and

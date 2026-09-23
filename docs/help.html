@@ -237,6 +237,9 @@ mark{ background:var(--accent-soft); color:inherit; border-radius:3px; padding:0
   <a href="#t2panels">&nbsp;&nbsp;The panels, one by one</a>
   <a href="#t2contract">&nbsp;&nbsp;The TrackStruct contract — every field, and what it holds</a>
   <a href="#t2buildtips">&nbsp;&nbsp;Working practices</a>
+  <a href="#t2vectors">2 · Vectors &amp; bleaching</a>
+  <a href="#t2quiver">&nbsp;&nbsp;The step-vector plot</a>
+  <a href="#t2bleach">&nbsp;&nbsp;Bleaching steps, background and the decay</a>
   <h4>Tool 3 · Analyze</h4>
   <a href="#t3contact">Tool 3 · Contact sites — the windowed picker</a>
   <a href="#t3open">&nbsp;&nbsp;Opening the picker — the controls on the host row</a>
@@ -1793,6 +1796,33 @@ D distribution — median &lt;med&gt; µm²/s  ·  adaptive fit &lt;min&gt;–&l
   <li><b>Sanity-check a fresh build in this order:</b> cell table (are all cells there, do <code>mito</code>/<code>ER</code> show <code>✓</code>) → the on-ER % in the readout line → track length (does the left edge match Tool 1's min-length filter) → D distribution median against the sweep panel of two or three clicked tracks → the stepwise histogram, to place the confinement threshold. Only then move to Tool 3.</li>
   <li><b>MATLAB apps do not hot-reload.</b> If you edit a source file mid-session, close and relaunch — a stale figure throws phantom callback errors.</li>
 </ul>
+<h2 id="t2vectors">2 · Curate &amp; Build — the <b>Vectors &amp; bleaching</b> tab</h2>
+<p class="lead">Two things every build already carries that nothing else in the pipeline reads: the <b>step vectors</b> (<code>Tracks.vector</code>, µm per frame) and the <b>per-localization intensity</b> (<code>Tracks.intens</code>, pages MEAN / MAX / TOTAL, attached from the spots CSV). This tab draws the first and fits the second. Nothing here changes the build; the bleaching fit adds fields to it in memory.</p>
+
+<h3 id="t2quiver">The step-vector plot</h3>
+<p>Pick a cell, select one or more tracks, and every step is drawn as an arrow starting at the localization it came from — the view the VAPB figures used per contact site (one <code>quiver</code> call per member track). A line says where a molecule went; arrows say how far it moved at each step and in which direction, so a run of long arrows pointing one way (directed motion, or stage drift) separates from a knot of short ones (a molecule held in place).</p>
+<table>
+  <tr><th>Control</th><th>Default</th><th>Effect</th></tr>
+  <tr><td><b>cell</b></td><td>first</td><td>Which cell of the active build. The list follows whatever build is loaded.</td></tr>
+  <tr><td><b>tracks</b></td><td>first 5</td><td>Multi-select. <b>all tracks of the cell</b> turns the plot into a flow map for the whole cell.</td></tr>
+  <tr><td><b>colour by</b></td><td><code>track</code></td><td><code>track</code>: one colour per trajectory. <code>speed</code>: arrows grouped into five speed classes and coloured, so one track's fast and slow stretches separate.</td></tr>
+  <tr><td><b>arrow ×</b></td><td><code>1</code></td><td>Length multiplier. <b>1 = true length in µm.</b> MATLAB's own quiver autoscaling — each track scaled by its own longest arrow — is deliberately off, because it makes two tracks in one axes incomparable.</td></tr>
+  <tr><td><b>track lines</b></td><td>on</td><td>Draws the trajectories faintly underneath, so the arrows sit on a path you can follow.</td></tr>
+</table>
+<p>The same drawing is available as a driver: <code>spt_quiver_tracks(ax, T, cols, opts)</code>, and it takes a contact site as well — pass <code>struct('matrix', s.CSmatrix, 'vector', s.CSvec)</code> and the arrows are drawn in the site's own frame, centred on <code>refCenter</code>.</p>
+
+<h3 id="t2bleach">Bleaching steps, background and the decay</h3>
+<p><kbd>▶ Analyse bleaching</kbd> fits every track's intensity trace with the Kalafut–Visscher step counter (<code>spt_pbsa_steps</code>, SIC-penalised, model-independent) and reports, per track:</p>
+<ul>
+  <li><b>steps</b> — one drop = one fluorophore, two = two. The histogram shows the distribution over clean traces.</li>
+  <li><b>step height</b> — the intensity of a single fluorophore, in camera units.</li>
+  <li><b>background</b> — the level <em>after</em> the last drop: camera offset plus whatever the cell contributes there. It is subtracted per track into <code>Tracks.intensCorr</code>, so intensities from different parts of a cell sit on one scale. Where a track never bleached inside its own lifetime there is no plateau to read, and the cell median is used instead.</li>
+  <li><b>mixed</b> — the trace jumps up as well as down: blinking, a crossing, or a linkage error. Those are flagged, not counted as fluorophores, because counting them is how stoichiometry goes wrong.</li>
+</ul>
+<p>It also fits the whole movie's decay, <code>N(t) = A·e<sup>−t/τ</sup> + c</code> over the localizations per frame, and returns <code>corr(t) = N(0)/N(t)</code> — multiply a count or a density measured at frame <i>t</i> by it and it is on the scale of the start of the movie. This matters because contact sites are picked on per-window densities, and an early window is not otherwise comparable with a late one.</p>
+<div class="note"><b>A movie that does not decay is not given a decay.</b> When the fit explains almost nothing (R² &lt; 0.1) the answer is <code>τ = Inf</code> and <code>corr = 1</code>. That is the usual result for sptPALM, where photoactivation replaces the molecules that bleach and the count stays flat — as it does in the CysLig data.</div>
+<div class="warn"><b>What this data can and cannot support.</b> On the CysLig movies only about 10% of traces give a single clean step and 53% are flagged mixed, because the background dominates: a total intensity of ≈ 2575 counts sits on a background of ≈ 2500 with steps of ≈ 450 and a trace noise of ≈ 176. Read the <b>background</b> from it — that is measurable on 58% of tracks and consistent — but do not read stoichiometry. Counting fluorophores needs a dedicated bleaching movie: no photoactivation, full-field illumination, and a long enough exposure for the trace to reach its plateau while the tracker still follows the spot.</div>
+
 <h2 id="t3contact">Tool 3 · <b>Contact sites</b> — the windowed picker</h2>
 <p class="lead">Tab <b>2 · Contact sites</b> is where a density map becomes a list of candidate contact sites, one list per time window. Everything downstream (Refine → Sites → Dwell → Compare) is built on what you save here, so this is the tab worth understanding control by control.</p>
 

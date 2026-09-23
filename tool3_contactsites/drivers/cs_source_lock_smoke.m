@@ -3,6 +3,9 @@ function cs_source_lock_smoke()
 % source='tracked' makes cs_footprints_build + cs_window_mapper use the tracked matrix regardless of
 % opts.src ('all').
 here = fileparts(mfilename('fullpath')); addpath(here);
+root_ = fileparts(fileparts(here));          % the two tools share the build, the channels and the manifest
+addpath(fullfile(root_,'tool2_analyze','drivers'), fullfile(root_,'tool2_analyze','app'), ...
+        fullfile(root_,'tool3_contactsites','app'));
 addpath(fileparts(fileparts(here)));   % repo root, where spt_test_data lives
 % Needs a REAL built project: the fixture below is carved out of one cell of Project/analysis.
 src = spt_test_data(fullfile('Project','analysis'));

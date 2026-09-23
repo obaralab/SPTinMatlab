@@ -21,6 +21,9 @@ function cs_tessellate_smoke()
 % Synthetic; reads no dataset.
 
 here = fileparts(mfilename('fullpath')); addpath(here);
+root_ = fileparts(fileparts(here));          % the two tools share the build, the channels and the manifest
+addpath(fullfile(root_,'tool2_analyze','drivers'), fullfile(root_,'tool2_analyze','app'), ...
+        fullfile(root_,'tool3_contactsites','app'));
 proj = fullfile(tempdir, sprintf('spt_tess_%d', feature('getpid')));
 if isfolder(proj), rmdir(proj,'s'); end
 ana = fullfile(proj,'analysis'); mkdir(fullfile(ana,'csIDs'));

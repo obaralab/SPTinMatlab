@@ -44,6 +44,9 @@ PXUM = 0.10785; FOVUM = 27.61; DTS = 0.020064; PRECNM = 30;   % per-dataset cali
 % Tool 1's tool1_track (its file matcher handles the _VAPB / _TA_BC channel tokens for the overlay).
 here_ = fileparts(mfilename('fullpath'));            % .../tool2_analyze/app
 addpath(fullfile(fileparts(here_),'drivers'));
+root_ = fileparts(fileparts(here_));                                  % Tool 3's own drivers + app
+cs_ = fullfile(root_,'tool3_contactsites');
+if isfolder(cs_), addpath(fullfile(cs_,'drivers')); addpath(fullfile(cs_,'app')); end
 t1_ = fullfile(fileparts(fileparts(here_)),'tool1_track');
 if isfolder(t1_), addpath(t1_); end
 eProj=[]; eCalPx=[]; eCalFov=[]; eCalDt=[]; eCalPrec=[]; lblProj=[]; lblDims=[];  % top-bar handles
@@ -61,6 +64,8 @@ buildChanKeys = {};   % the channel columns tblBuild was BUILT with — onCalEdi
 chanTok=''; chanWhy='';   % SPT channel token derived per project (see spt_channel_token)
 calibKnown=false;   % is the panel calibration supported by THIS project (adopted or typed)?
 buildTracks=[]; ddQCcell=[]; axMSD=[]; axCov=[]; axDist=[]; axDdist=[]; lblQCm=[]; eMsdFrac=[];   % QC handles
+ddVecCell=[]; lstVecTracks=[]; axVec=[]; ddVecColor=[]; eVecScale=[]; chkVecLines=[]; lblVec=[];   % Vectors & bleaching
+axBleachK=[]; axBleachDecay=[]; lblBleach=[]; bleachRes=[]; chkVecAll=[];
 tsName=''; eTsName=[]; ddBuild=[];   % the ACTIVE TrackStruct basename in analysis/ (named builds)
 axDtrace=[];   % stepwise D(t) for the clicked track (the POOLED per-localization panel was retired:
               % it measured the same thing, and the left column is for per-TRACK quantities now)
@@ -125,6 +130,7 @@ fig.UserData = struct('activeTs',@activeTsNow, 'tracks',@tracksNow, 'loadTracks'
     'refMoveCentre',@moveRefCentre, 'refState',@refStateNow, ...   % Refine: the move without the click
     'refSetSigma',@setRefSigma, 'refRegen',@onRefRegen, ...          % Refine: outline smoothing, regenerate (no dialog)
     'refSetBox',@setRefBox, 'runTessellation',@onTessellate, ...     % neighbourhood box; the diffusion map
+    'vecSelect',@vecSelectCell, 'runBleaching',@onBleaching, 'bleachRes',@bleachResNow, ...   % Vectors & bleaching
     'csExport',@onCSExport, 'refExport',@onRefExport, ...            % export under a given name, no dialog
     'viewAdvisor',@onViewAdvisor);                                  % open a ContactSites folder in the viewer
 gl = uigridlayout(fig,[2 1],'RowHeight',{34,'1x'},'Padding',[8 8 8 8],'RowSpacing',6);
@@ -181,6 +187,7 @@ nTab=nTab+1; tExpt = uitab(tg,'Title',sprintf('%d · Experiment',nTab));   % sha
 if showCurate
     nTab=nTab+1; tImport = uitab(tg,'Title',sprintf('%d · Import & Curate',nTab));
     nTab=nTab+1; tBuild  = uitab(tg,'Title',sprintf('%d · Build & QC',nTab));
+    nTab=nTab+1; tVec    = uitab(tg,'Title',sprintf('%d · Vectors & bleaching',nTab));
 end
 if showAnalyze
     nTab=nTab+1; tCS     = uitab(tg,'Title',sprintf('%d · Contact sites',nTab));
@@ -194,6 +201,7 @@ end
 if showCurate
     placeholder(tImport, 'Pick a Tool 1 project folder above — the track curation tool loads here.');
     buildBuildTab(tBuild);
+    buildVectorsTab(tVec);
 end
 if showAnalyze
     buildContactTab(tCS);
@@ -594,6 +602,7 @@ end
         f = activeTsPath();
         if isfile(f)
             try, L = load(f); if isfield(L,'Tracks') && ~isempty(L.Tracks), buildTracks = L.Tracks; ctCache = []; ctCacheKey = ''; ok = true; end, catch, end
+            if ok, try, vecFillCells(); catch, end, end
         end
     end
 
@@ -692,6 +701,134 @@ end
         save(fullfile(dOut, ['Density_' base '.mat']), 'imG');
         try,   ChrisPrograms.saveastiff(uint16(30*sm), fullfile(dOut, ['Density_' base '.tif']));
         catch, imwrite(uint16(30*sm), fullfile(dOut, ['Density_' base '.tif'])); end
+    end
+
+    % ================= Tab 4 · Vectors & bleaching (what the build already holds, looked at) ==========
+    % Two things every build carries that nothing else reads: the per-step VECTORS, and the
+    % per-localization INTENSITY. The vectors drawn as arrows are the view the VAPB figures used per
+    % contact site (one quiver per track); the intensities, fitted for bleaching steps, say how many
+    % fluorophores a spot held and what the background under it was.
+    function buildVectorsTab(parent)
+        g = uigridlayout(parent,[2 1],'RowHeight',{34,'1x'},'Padding',[10 10 10 10],'RowSpacing',6);
+        r = uigridlayout(g,[1 8],'ColumnWidth',{40,210,74,110,64,86,96,'1x'},'Padding',[0 0 0 0],'ColumnSpacing',8);
+        uilabel(r,'Text','cell','HorizontalAlignment','right');
+        ddVecCell = uidropdown(r,'Tag','vecCell','Items',{'(load a build)'},'ValueChangedFcn',@(s,e) vecSelectCell());
+        uilabel(r,'Text','colour by','HorizontalAlignment','right');
+        ddVecColor = uidropdown(r,'Items',{'track','speed'},'Value','track','ValueChangedFcn',@(s,e) drawVectors(), ...
+            'Tooltip',['track: one colour per trajectory, as the VAPB figures drew them. speed: the arrows ' ...
+                       'are grouped into five speed classes and coloured, so one track''s fast and slow ' ...
+                       'stretches separate.']);
+        uilabel(r,'Text','arrow ×','HorizontalAlignment','right');
+        eVecScale = uispinner(r,'Limits',[0.1 20],'Value',1,'Step',0.5,'ValueChangedFcn',@(s,e) drawVectors(), ...
+            'Tooltip',['Arrow length multiplier. 1 = true length in µm, which is what makes two tracks ' ...
+                       'comparable; MATLAB''s own quiver autoscaling (each track scaled by its own ' ...
+                       'longest arrow) is deliberately off.']);
+        chkVecLines = uicheckbox(r,'Text','track lines','Value',true,'ValueChangedFcn',@(s,e) drawVectors());
+        lblVec = uilabel(r,'Text','Load a build (Build & QC tab) to draw its step vectors.','FontColor',[0.2 0.4 0.5]);
+        mn = uigridlayout(g,[1 3],'ColumnWidth',{190,'1.6x','1x'},'Padding',[0 0 0 0],'ColumnSpacing',8);
+        lc = uigridlayout(mn,[3 1],'RowHeight',{18,'1x',26},'Padding',[0 0 0 0],'RowSpacing',4);
+        uilabel(lc,'Text','tracks','FontWeight','bold');
+        lstVecTracks = uilistbox(lc,'Tag','vecTracks','Items',{'—'},'Multiselect','on','ValueChangedFcn',@(s,e) drawVectors());
+        chkVecAll = uicheckbox(lc,'Text','all tracks of the cell','Value',false,'ValueChangedFcn',@(s,e) drawVectors(), ...
+            'Tooltip','Draw every track at once: a flow map for the cell. Pick a few tracks to read one.');
+        axVec = uiaxes(mn,'Tag','vecAxes'); title(axVec,'step vectors'); axVec.Toolbar.Visible='off'; spt_axes_policy(axVec);
+        rc = uigridlayout(mn,[4 1],'RowHeight',{28,'1x','1x','1.1x'},'Padding',[0 0 0 0],'RowSpacing',4);
+        uibutton(rc,'Text','▶ Analyse bleaching','FontWeight','bold','BackgroundColor',[0.18 0.45 0.70],'FontColor','w', ...
+            'Tag','runBleach','ButtonPushedFcn',@(s,e) onBleaching(), ...
+            'Tooltip',['Fit every track''s intensity trace for photobleaching steps (spt_bleaching): how many ' ...
+                       'fluorophores the spot held, the height of one step, and the level after the last drop ' ...
+                       '— the background under that molecule, subtracted to give intensCorr. Also fits how ' ...
+                       'the movie decays, giving a per-frame factor that puts late counts on the early scale.']);
+        axBleachK = uiaxes(rc); title(axBleachK,'bleaching steps per track'); axBleachK.Toolbar.Visible='off'; spt_axes_policy(axBleachK);
+        axBleachDecay = uiaxes(rc); title(axBleachDecay,'localizations per frame'); axBleachDecay.Toolbar.Visible='off'; spt_axes_policy(axBleachDecay);
+        lblBleach = uilabel(rc,'Tag','bleachInfo','Text','Not run yet.','WordWrap','on','VerticalAlignment','top','FontColor',[0.35 0.35 0.42]);
+    end
+
+    function v = bleachResNow(), v = bleachRes; end
+
+    function vecFillCells()
+        if isempty(ddVecCell) || ~isgraphics(ddVecCell), return; end
+        T = buildTracks;
+        if isempty(T), ddVecCell.Items = {'(load a build)'}; ddVecCell.ItemsData = []; return; end
+        ddVecCell.Items = arrayfun(@(t) char(t.file), T, 'uni', 0); ddVecCell.ItemsData = 1:numel(T);
+        ddVecCell.Value = 1;
+        vecSelectCell();
+    end
+
+    function vecSelectCell(ci)
+        if nargin >= 1 && ~isempty(ci) && ~isempty(ddVecCell) && isgraphics(ddVecCell), ddVecCell.Value = ci; end
+        T = buildTracks;
+        if isempty(T) || isempty(ddVecCell) || ~isgraphics(ddVecCell) || isempty(ddVecCell.Value), return; end
+        t = T(ddVecCell.Value);
+        n = size(t.matrix, 2);
+        lstVecTracks.Items = arrayfun(@(j) sprintf('%d · %d locs', j, t.lengths(j)), (1:n)', 'uni', 0);
+        lstVecTracks.ItemsData = 1:n;
+        if n > 0, lstVecTracks.Value = 1:min(5, n); end
+        drawVectors(); drawBleach();
+    end
+
+    function drawVectors()
+        if isempty(axVec) || ~isgraphics(axVec), return; end
+        T = buildTracks; cla(axVec);
+        if isempty(T) || isempty(ddVecCell.Value), return; end
+        t = T(ddVecCell.Value);
+        cols = lstVecTracks.Value; if ~isnumeric(cols), cols = []; end
+        if ~isempty(chkVecAll) && isgraphics(chkVecAll) && chkVecAll.Value, cols = 1:size(t.matrix,2); end
+        if isempty(cols), lblVec.Text = 'Pick one or more tracks.'; return; end
+        o = struct('colorBy', ddVecColor.Value, 'scale', eVecScale.Value, 'tracks', chkVecLines.Value, 'nBins', 5);
+        try, spt_quiver_tracks(axVec, t, cols, o);
+        catch ME, lblVec.Text = ['Could not draw: ' ME.message]; return; end
+        xlabel(axVec,'x (µm)'); ylabel(axVec,'y (µm)');
+        st = t.steps(:, cols); st = st(isfinite(st));
+        title(axVec, sprintf('%s · %d track(s) · median step %.0f nm/frame', char(t.file), numel(cols), 1000*median(st)));
+        spt_axes_policy(axVec);
+        lblVec.Text = sprintf('%d of %d tracks drawn; arrows are µm per frame at true length (×%.1f).', ...
+            numel(cols), size(t.matrix,2), eVecScale.Value);
+    end
+
+    function B = onBleaching()
+        B = [];
+        T = buildTracks;
+        if isempty(T), lblBleach.Text = 'Load a build first (Build & QC tab).'; return; end
+        if ~isfield(T, 'intens') || all(arrayfun(@(t) isempty(t.intens), T))
+            lblBleach.Text = ['This build carries no intensities. Rebuild with the spots CSV beside the ' ...
+                              'tracks — without them there is nothing to fit.']; return;
+        end
+        lblBleach.Text = 'Fitting bleaching steps…'; drawnow;
+        try, [~, B] = spt_bleaching(T, struct('verbose', false));
+        catch ME, lblBleach.Text = ['Bleaching failed: ' ME.message]; return; end
+        bleachRes = B;
+        if isempty(B), lblBleach.Text = 'No cell had intensities to fit.'; return; end
+        drawBleach();
+    end
+
+    function drawBleach()
+        if isempty(bleachRes) || isempty(axBleachK) || ~isgraphics(axBleachK), return; end
+        ci = 1; if ~isempty(ddVecCell) && isgraphics(ddVecCell) && isnumeric(ddVecCell.Value), ci = ddVecCell.Value; end
+        k = find([bleachRes.cellIndex] == ci, 1); if isempty(k), k = 1; end
+        e = bleachRes(k); fit = isfinite(e.nSteps);
+        cla(axBleachK);
+        histogram(axBleachK, e.nSteps(fit & ~e.mixed), -0.5:1:6.5, 'FaceColor', [0.2 0.45 0.7]);
+        xlabel(axBleachK,'steps (clean traces)'); ylabel(axBleachK,'tracks'); title(axBleachK,'bleaching steps per track');
+        cla(axBleachDecay); hold(axBleachDecay,'on');
+        plot(axBleachDecay, e.frames, e.counts, '-', 'Color', [0.5 0.5 0.55]);
+        if isfinite(e.tauFrames)
+            plot(axBleachDecay, e.frames, e.A*exp(-(e.frames-e.frames(1))/e.tauFrames) + e.c, 'r-', 'LineWidth', 1.5);
+        end
+        hold(axBleachDecay,'off'); xlabel(axBleachDecay,'frame'); ylabel(axBleachDecay,'localizations');
+        title(axBleachDecay, tern(isfinite(e.tauFrames), sprintf('decay tau = %.0f frames (%.1f s)', e.tauFrames, e.tauSeconds), ...
+                                  'no decay to correct for'));
+        spt_axes_policy(axBleachK); spt_axes_policy(axBleachDecay);
+        decay = 'no movie-wide decay: the counts are flat, as photoactivation keeps them';
+        if isfinite(e.tauFrames)
+            decay = sprintf('decay tau %.0f frames (%.1f s); late counts need x%.2f to sit on the early scale', ...
+                e.tauFrames, e.tauSeconds, e.corr(end));
+        end
+        lblBleach.Text = sprintf(['%s\n%d of %d tracks fitted - %.0f%% one step, %.0f%% flagged mixed ' ...
+            '(blinking or a crossing, not a bleach)\nstep height %.0f, background %.0f (measured on %.0f%% of ' ...
+            'tracks; the rest take the cell median)\n%s'], char(e.file), e.nFitted, e.nTracks, ...
+            100*e.singleFrac, 100*mean(e.mixed(fit)), e.medianStepHeight, e.movieBg, ...
+            100*mean(isfinite(e.bg)), decay);
     end
 
     % ---------------- Tab 3: Contact sites (embeds the ContactSites picker cs_identify) ----------------
@@ -3955,6 +4092,7 @@ end
         n = numel(Tracks); D = cell(n, 3 + nCh + 5); tot = 0;
         anyCh = false(1, nCh);
         buildTracks = Tracks;                                    % set FIRST: the calibration accessors read it
+        try, vecFillCells(); catch, end                          % the Vectors tab follows the active build
         ctCache = []; ctCacheKey = '';
         for k = 1:n
             L = double(Tracks(k).lengths(:)); nt = numel(L); tot = tot + nt;

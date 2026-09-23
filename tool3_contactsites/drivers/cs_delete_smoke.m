@@ -2,6 +2,9 @@ function cs_delete_smoke()
 % Validate the delete-and-sync contract: a CSdeleted entry in CS_footprints.mat makes the mapper
 % SKIP that site (pickPx-guarded), while every other site is unaffected.
 here = fileparts(mfilename('fullpath')); addpath(here);
+root_ = fileparts(fileparts(here));          % the two tools share the build, the channels and the manifest
+addpath(fullfile(root_,'tool2_analyze','drivers'), fullfile(root_,'tool2_analyze','app'), ...
+        fullfile(root_,'tool3_contactsites','app'));
 addpath(fileparts(fileparts(here)));   % repo root, where spt_test_data lives
 % Needs a REAL built project: deleting site #2 and #3 only means something on a real picked list.
 src = spt_test_data(fullfile('Project','analysis'));

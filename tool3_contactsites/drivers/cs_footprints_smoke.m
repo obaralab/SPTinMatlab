@@ -3,6 +3,9 @@ function cs_footprints_smoke()
 % and confirm cs_window_mapper (useRefined=true) applies the override (mode 'refined', changed area
 % + changed membership) while useRefined=false ignores it.
 here = fileparts(mfilename('fullpath')); addpath(here);
+root_ = fileparts(fileparts(here));          % the two tools share the build, the channels and the manifest
+addpath(fullfile(root_,'tool2_analyze','drivers'), fullfile(root_,'tool2_analyze','app'), ...
+        fullfile(root_,'tool3_contactsites','app'));
 addpath(fileparts(fileparts(here)));   % repo root, where spt_test_data lives
 
 

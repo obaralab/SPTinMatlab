@@ -14,6 +14,9 @@ function cs_mixed_camera_smoke()
 % measuring the same object when that product matches.
 
 here = fileparts(mfilename('fullpath')); addpath(here);
+root_ = fileparts(fileparts(here));          % the two tools share the build, the channels and the manifest
+addpath(fullfile(root_,'tool2_analyze','drivers'), fullfile(root_,'tool2_analyze','app'), ...
+        fullfile(root_,'tool3_contactsites','app'));
 
 FOV_A = 27.61; PX_A = 0.10785;    % VAPB rig
 FOV_B = 20.48; PX_B = 0.16;       % the second rig: 128 px across 20.48 um

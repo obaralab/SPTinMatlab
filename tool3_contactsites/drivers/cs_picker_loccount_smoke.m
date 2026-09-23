@@ -27,6 +27,9 @@ function cs_picker_loccount_smoke()
 % Synthetic; reads no dataset.
 
 here = fileparts(mfilename('fullpath')); addpath(here);
+root_ = fileparts(fileparts(here));          % the two tools share the build, the channels and the manifest
+addpath(fullfile(root_,'tool2_analyze','drivers'), fullfile(root_,'tool2_analyze','app'), ...
+        fullfile(root_,'tool3_contactsites','app'));
 addpath(fullfile(fileparts(here),'app'));
 addpath(fullfile(fileparts(fileparts(here)),'tool1_track'));
 

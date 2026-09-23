@@ -7,5 +7,6 @@ function run_analyze()
 %   needs to put the app folder on the path.
 here = fileparts(mfilename('fullpath'));
 addpath(fullfile(here, 'tool2_analyze', 'app'));
+addpath(fullfile(here, 'tool3_contactsites', 'app'), fullfile(here, 'tool3_contactsites', 'drivers'));
 spt_analyze_app('analyze');
 end

@@ -2,7 +2,10 @@ function cs_window_mapper_smoke()
 % Headless validation of cs_window_mapper on real Project/analysis data + a synthetic
 % 2-window check that proves the temporal (per-window) mask actually restricts membership.
 here = fileparts(mfilename('fullpath'));
-addpath(here);                                   % drivers/
+addpath(here);
+root_ = fileparts(fileparts(here));          % the two tools share the build, the channels and the manifest
+addpath(fullfile(root_,'tool2_analyze','drivers'), fullfile(root_,'tool2_analyze','app'), ...
+        fullfile(root_,'tool3_contactsites','app'));                                   % drivers/
 addpath(fileparts(fileparts(here)));             % repo root, where spt_test_data lives
 
 % PART B reuses PART A's TrackStruct, so both halves stand or fall on the same dataset.
