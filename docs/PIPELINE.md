@@ -84,8 +84,14 @@ SPTinMatlab/
                                          cs_experiment_aggregate
 ```
 The two tools keep their own windows (`run_curate`, `run_analyze`) and their own drivers; they share
-the project folder, the manifest and the build. Tool 3's tabs still live in `spt_analyze_app.m`
-behind the `analyze` mode — the folder and launcher split is done, the source-file split is not.
+the project folder, the manifest and the build. The source-file split is under way, tab by tab:
+**Compare** now lives in `tool3_contactsites/app/spt_compare_tab.m` (`api = spt_compare_tab(parent, ctx)`),
+which keeps its own state and takes everything it needs from the host in one context struct —
+`anaDir`, `ensureCSW`, `ensureDD`, `csw`, `dd`, `exptCtl`, `matched`, `siteTrackStats`. It reads that
+state and never writes it, because comparing must not change what is compared. The host builds the
+context from NESTED functions, not `@() CSW`: an anonymous handle captures the value at construction,
+so the tab would read the empty `CSW` the app starts with for the whole session. The other five
+contact-site tabs are still in `spt_analyze_app.m` behind the `analyze` mode.
 
 ### 2.2 A dataset / project folder (Tool 1 input, Tool 2 input)
 ```

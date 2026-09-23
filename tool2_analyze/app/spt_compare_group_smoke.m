@@ -40,7 +40,8 @@ function spt_compare_group_smoke()
 % Synthetic data in tempdir; reads no real dataset.
 
 here = fileparts(mfilename('fullpath'));
-addpath(here); addpath(fullfile(fileparts(here),'drivers'));
+addpath(here);
+addpath(fullfile(here,'..','..','tool3_contactsites','drivers'), fullfile(here,'..','..','tool3_contactsites','app')); addpath(fullfile(fileparts(here),'drivers'));
 
 root = fullfile(tempdir, sprintf('spt_cmpgrp_%d', feature('getpid')));
 if isfolder(root), rmdir(root,'s'); end

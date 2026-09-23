@@ -81,7 +81,10 @@ assert(contains(src,'function [dIn, dOut, perTrk] = siteTrackD'), 'siteTrackD is
 assert(~contains(src,'drawSiteD') && ~contains(src,'axSiteD'), ...
     'the rolling-D panel is back on the Sites tab — it was removed deliberately');
 % the underlying field must survive — removing it from the screen must not delete the data
-assert(contains(src,'e.enrichment'), ...
+% The DATA must keep it even though the table does not show it. That is the mapper's job, so ask
+% the mapper - the Compare tab, which used to be the app-source witness for this, now lives in
+% tool3_contactsites/app/spt_compare_tab.m.
+assert(contains(fileread(fullfile(here,'cs_window_mapper.m')), 'e.enrichment='), ...
     'enrichment was removed from the DATA as well as the display; CSW/CSV consumers would break');
 fprintf('Sites tab shows D in/out, keeps enrichment in the data\n');
 
