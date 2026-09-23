@@ -291,6 +291,15 @@ for i = 1:nCells
 end
 
 if doSave && ~isempty(CSW)
+    % The cell's CONDITION belongs on the record, not only in the manifest: everything downstream
+    % reads CSW_final.mat, and a re-run of the mapper would otherwise drop what cs_condition_apply
+    % stamped. Silent when there is no manifest yet - most projects are one condition.
+    try
+        if ~isempty(CSW)
+            CSW = cs_condition_apply(CSW, struct('save',false,'verbose',false,'anaDir',anaDir)).CSW;
+        end
+    catch
+    end
     save(fullfile(anaDir,'CSW_final.mat'),'CSW','-v7.3');
     writeMetricsCSV(fullfile(anaDir,'cs_window_metrics.csv'), CSW);
     if verb, fprintf('cs_window_mapper: wrote CSW_final.mat (%d site-windows) + cs_window_metrics.csv\n', numel(CSW)); end

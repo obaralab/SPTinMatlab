@@ -64,12 +64,21 @@ ctl = struct('getCells',@getCellsLive, 'getManifest',@getManifest, 'getSelected'
     function buildUI()
         delete(allchild(parent));
         g = uigridlayout(parent,[4 1],'RowHeight',{34,30,30,'1x'},'Padding',[8 8 8 8],'RowSpacing',5);
-        r1 = uigridlayout(g,[1 7],'ColumnWidth',{120,84,72,72,150,'1x',0},'Padding',[0 0 0 0],'ColumnSpacing',6);
+        r1 = uigridlayout(g,[1 8],'ColumnWidth',{118,80,68,68,168,150,'1x',0},'Padding',[0 0 0 0],'ColumnSpacing',5);
         uibutton(r1,'Text','➕ Add folder…','FontWeight','bold','BackgroundColor',[0.18 0.45 0.70],'FontColor','w', ...
             'Tooltip','Add a day/batch folder (project root or its analysis/). Its cells appear below.','ButtonPushedFcn',@(s,e) onAdd());
         uibutton(r1,'Text','↻ Rescan','ButtonPushedFcn',@(s,e) doScan(),'Tooltip','Re-scan folders (refresh status), keeping condition/day/exclude/notes.');
         uibutton(r1,'Text','💾 Save','ButtonPushedFcn',@(s,e) onSaveBtn(),'Tooltip','Save the experiment details.');
         uibutton(r1,'Text','📂 Load','ButtonPushedFcn',@(s,e) onLoadBtn(),'Tooltip','Load saved experiment details.');
+        % The conditions assigned here have to reach the MAPPED SITES to be of any use: everything
+        % downstream reads CSW_final.mat, not this manifest. The mapper stamps them on its own save
+        % from now on; this is for the sites already mapped.
+        uibutton(r1,'Text','🏷 Stamp onto sites','ButtonPushedFcn',@(s,e) onStamp(), ...
+            'Tooltip',['Write each cell''s condition, day and exclude flag onto its mapped contact ' ...
+            'sites (analysis/CSW_final.mat), so the Dwell tab can group dwell times by condition and ' ...
+            'the engagement classifier can skip excluded cells. Re-running the mapper does this by ' ...
+            'itself; press this for sites that were mapped before the conditions were assigned, or ' ...
+            'after editing them here.']);
         if ~isempty(actionLabel) && ~isempty(actionFcn)
             uibutton(r1,'Text',actionLabel,'FontWeight','bold','BackgroundColor',[0.40 0.30 0.55],'FontColor','w', ...
                 'ButtonPushedFcn',@(s,e) onAction(),'Tooltip','Run this tool''s step on the rows selected in the table.');
@@ -475,6 +484,41 @@ ctl = struct('getCells',@getCellsLive, 'getManifest',@getManifest, 'getSelected'
         try, save(autoPath,'manifest','-v7.3'); catch, end   % silent: this is a background save
     end
 
+    function onStamp()
+        % Every folder in the manifest, since a site only knows its own cell.
+        if isempty(cells), setStatus('Nothing to stamp — add folders and assign conditions first.'); return; end
+        m = getManifest();
+        % A cell row normally carries its own folder; a manifest written elsewhere may only list them
+        % at the top level, and then that list is what to walk.
+        if isfield(m.cells,'folder')
+            fo = unique({m.cells.folder});
+            fo = fo(~cellfun(@isempty, fo));
+        else
+            fo = {};
+        end
+        if isempty(fo) && isfield(m,'folders'), fo = m.folders; end
+        if ~iscell(fo), fo = {fo}; end
+        nS = 0; nF = 0; msg = '';
+        for k = 1:numel(fo)
+            aDir = fo{k};
+            if ~isfile(fullfile(aDir,'CSW_final.mat')), continue; end
+            try
+                R = cs_condition_apply(aDir, struct('manifest',m,'verbose',false));
+                nS = nS + numel(R.CSW); nF = nF + 1;
+                if ~isempty(R.unmatched) && isempty(msg)
+                    msg = sprintf(' · %d cell(s) there have no row yet', numel(R.unmatched));
+                end
+            catch ME
+                setStatus(['Stamp failed: ' ME.message]); return;
+            end
+        end
+        if nF == 0
+            setStatus('No mapped sites found to stamp — run the mapper (Sites tab) first.');
+        else
+            setStatus(sprintf('Stamped %d site(s) across %d folder(s) with their condition, day and exclude flag%s.', nS, nF, msg));
+        end
+    end
+
     function setAutoPath(projectDir)
         % Point the panel at a project's canonical details file: load whatever is there, and from now
         % on save every change straight back to the CANONICAL name. cs_experiment_file resolves both
@@ -516,7 +560,11 @@ function c = normalizeCells(c)
 % cs_experiment_scan uses (NaN, not a plausible number). Written as a loop over MISSING fields only,
 % so a record that already has them keeps its values.
 if isempty(c) || ~isstruct(c), return; end
-def = {'pixUm',NaN,'pixSrc','missing','pixLock',false,'dtS',NaN,'dtSrc','missing','dtLock',false};
+% The annotation fields belong here too: doScan carries condition/day/exclude/notes/reason across a
+% rescan by reading them off the previous rows, so a manifest that does not carry one — an older
+% write, or one built outside this panel — used to fail the load rather than fill it in.
+def = {'pixUm',NaN,'pixSrc','missing','pixLock',false,'dtS',NaN,'dtSrc','missing','dtLock',false, ...
+       'condition','', 'day','', 'exclude',false, 'notes','', 'reason',''};
 for i = 1:2:numel(def)
     if ~isfield(c, def{i}), [c.(def{i})] = deal(def{i+1}); end
 end

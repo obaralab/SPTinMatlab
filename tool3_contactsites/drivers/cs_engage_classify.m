@@ -48,6 +48,9 @@ function G = cs_engage_classify(src, opts)
 %   .countGated   (true) .nEngage counts only visits that pass those gates; false counts every
 %                 detected visit.
 %   .detect       options for cs_engage_detect (radii, gap tolerance, .method 'steps')
+%   .includeExcluded (false) keep sites whose cell the experiment manifest excludes. They carry
+%                 .excluded from cs_condition_apply; by default they are skipped, because a cell
+%                 excluded in the Experiment tab should not quietly reappear in a pooled number.
 %   .minPctInside (0) drop member tracks below this % of window localizations inside the outline,
 %                 matching cs_window_dwell's own threshold. 0 keeps every member track.
 %   .save         (false) write cs_engage_tracks.csv + cs_engage_sites.csv next to the build
@@ -80,6 +83,7 @@ gated   = getf(opts,'countGated',true);
 dOpt    = getf(opts,'detect',struct());
 minPct  = getf(opts,'minPctInside',0);
 den     = lower(getf(opts,'denominator','members'));
+inclEx  = getf(opts,'includeExcluded',false);
 verb    = getf(opts,'verbose',true);
 doSave  = getf(opts,'save',false);
 
@@ -110,9 +114,13 @@ P = cs_dwell_primitives();
 dtv = [CSW.dt]; dt = median(dtv(dtv>0)); if ~(dt>0), dt = 0.02; end
 
 perTrack = emptyTrack(); perSite = emptySite(); dwell = emptyDwell();
+nSkipEx = 0;
 for k = 1:numel(CSW)
     e = CSW(k);
     if isempty(e.CSmatrix) || isempty(e.tracks), continue; end
+    if ~inclEx && islogical(fieldOr(e,'excluded',false)) && fieldOr(e,'excluded',false)
+        nSkipEx = nSkipEx + 1; continue;    % the manifest excludes this cell (cs_condition_apply)
+    end
     bx = e.refboundary(:,1); by = e.refboundary(:,2);
     R  = sqrt(max(polyarea(bx,by),eps)/pi);                  % the site's own scale
     cond = fieldOr(e,'condition','');
@@ -179,12 +187,15 @@ end
 
 G = struct('perTrack',perTrack,'perSite',perSite,'dwell',dwell,'dt',dt, ...
     'params',struct('minEngage_s',minEng,'maxDepth',maxDep,'countGated',gated, ...
-                    'minPctInside',minPct,'denominator',den,'detect',dOpt));
+                    'minPctInside',minPct,'denominator',den,'includeExcluded',inclEx,'detect',dOpt));
 if verb
     engM = logical([perTrack.engaged]); nEngV = [perTrack.nEngage];
     fprintf('engagement [%s]: %d tracks over %d site-windows, %d engaged (%.0f%%), %d engagements (%.2f per engaged track)\n', den, ...
         numel(perTrack), numel(perSite), nnz(engM), 100*mean0(engM), ...
         numel(dwell), mean0(nEngV(engM)));
+    if nSkipEx > 0
+        fprintf('  skipped %d site-window(s) in cells the manifest excludes (includeExcluded = true keeps them)\n', nSkipEx);
+    end
     if ~isempty(dwell)
         fprintf('  dwell: median %.3f s, mean %.3f s, %.0f%% censored (a lower bound)\n', ...
             med0([dwell.dwell_s]), mean0([dwell.dwell_s]), 100*mean0([dwell.censored]));

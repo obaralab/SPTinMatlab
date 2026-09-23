@@ -2564,6 +2564,14 @@ end
         if isscalar(H.test)
             t = sprintf('%s · KS p=%.2g', t, H.test.p);
         end
+        % The cell-level comparison is the one to quote, so it goes in the title rather than only in
+        % the returned struct — the smallest of them, Holm-adjusted over however many were made.
+        if isfield(H,'cellTest') && ~isempty(H.cellTest)
+            [~, b] = min([H.cellTest.pAdj]);
+            ct = H.cellTest(b);
+            t = sprintf('%s · cells: %s vs %s p=%.3g%s', t, ct.a, ct.b, ct.pAdj, ...
+                tern(numel(H.cellTest) > 1, sprintf(' (Holm, %d comparisons)', numel(H.cellTest)), ''));
+        end
     end
 
     function m = engagedMap()
@@ -2636,7 +2644,10 @@ end
                 % histogram say something other than what it looks like. Put it on the figure.
                 try
                     if isfield(H,'warnings') && ~isempty(H.warnings)
-                        subtitle(axDwHist, ['⚠ ' H.warnings{1}], 'FontSize', 8.5, 'Color', [0.62 0.36 0.08]);
+                        % Up to two: they are different caveats (censoring, replication, unequal
+                        % windows) and the second is not a footnote to the first.
+                        subtitle(axDwHist, ['⚠ ' strjoin(H.warnings(1:min(2,end)), '  ·  ')], ...
+                                 'FontSize', 8.5, 'Color', [0.62 0.36 0.08]);
                     else
                         subtitle(axDwHist, '');
                     end

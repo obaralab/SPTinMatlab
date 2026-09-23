@@ -298,6 +298,26 @@ vs observed mean 1.12). The Dwell tab gains an **engaged ≥** spinner (reclassi
 recomputing), a **group** dropdown, and a second-axes view of k_out / engagements per track /
 fraction engaged per site.
 
+**The condition is a FIELD on the site now** (`cs_condition_apply`), not just a manifest entry that
+`cs_experiment_aggregate` attached to an in-memory array — anything reading `CSW_final.mat` on its own
+saw no condition and pooled every cell. It writes `.condition`, `.day` and `.excluded` from the
+matching manifest row; a cell with no row gets an empty condition and is REPORTED, not guessed. An
+excluded cell is flagged rather than dropped, and `cs_engage_classify` skips those sites by default
+(`includeExcluded` keeps them). Written three ways: the mapper stamps on every save so a re-run cannot
+drop it, the Experiment tab's **🏷 Stamp onto sites** does it for sites mapped before the conditions
+existed, and `cs_condition_apply(anaDir)` headless. Re-stamping overwrites, which keeps the record and
+the manifest in step.
+
+**The cell is the unit of replication, not the visit.** Engagements cluster within a cell, so a test
+over pooled visits treats 600 visits from 8 cells as 600 independent observations. Each group reports
+`nCells`, `byCell` carries every cell's own n/tau/median, and `cellTest` repeats the comparison over
+those (Mann-Whitney, enumerated exactly at these group sizes). Both families carry `pAdj`, Holm-adjusted
+over the comparisons made — five conditions are ten comparisons. A condition with under three cells is
+flagged. On CysLig: pooled visits separate nothing (all KS p > 0.13) while per cell **Compound 296 vs
+314 is p = 0.004, 0.040 after Holm** (296: 0.89-1.58 s over 10 cells; 314: 1.55-1.95 s over 4), and 314
+has the SHORTEST observation window of the five, so it is not a window effect. Baseline has 2 cells and
+cannot be tested.
+
 **CysLig dwell is censoring-limited, and that constrains the comparison.** 66% of its engagements are
 still running when their track ends, and the median visit (1.42 s) is 71% of the median observable
 track (2.00 s) — the tracks are too short, relative to the visits, to see most exits. τ = 5.07 s is

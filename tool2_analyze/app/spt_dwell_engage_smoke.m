@@ -110,9 +110,11 @@ assert(contains(t,'ctrl') && contains(t,'drug'), 'both conditions should be name
 assert(count(t,'τ=') == 2, 'each condition should report its own tau: "%s"', t);
 assert(contains(t,'KS p='), 'two groups should be compared: "%s"', t);
 assert(numel(findobj(ax,'Type','bar')) == 2, 'one bar series per condition');
-sub = char(ax.Subtitle.String);
+sub = char(strjoin(string(ax.Subtitle.String), ' '));
 assert(contains(sub,'same length of time'), ...
     'the drug cell was watched half as long — the histogram must say so: "%s"', sub);
+assert(contains(sub,'cell(s) behind it'), ...
+    'one cell per condition is pseudo-replication and must be said too: "%s"', sub);
 H = cs_dwell_histogram(DD.engage, struct('group','condition'));
 tau = [H.groups.tau]; nm = string({H.groups.name});
 assert(tau(nm=="drug") > 1.7*tau(nm=="ctrl"), ...

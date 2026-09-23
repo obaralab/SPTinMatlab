@@ -265,6 +265,7 @@ mark{ background:var(--accent-soft); color:inherit; border-radius:3px; padding:0
   <a href="#t3engagedetect">&nbsp;&nbsp;The trace rule, against the hand picks</a>
   <a href="#t3engageplot">&nbsp;&nbsp;The distance-from-centre plot</a>
   <a href="#t3trackbind">&nbsp;&nbsp;Engaged or not, per track — and the histogram between conditions</a>
+  <a href="#t3condfield">&nbsp;&nbsp;The condition as a field on the site, and the cell as the unit</a>
   <a href="#t3refdraw">&nbsp;&nbsp;✎ Draw centre + boundary — the manual refine</a>
   <a href="#t3refcentre">&nbsp;&nbsp;✥ Move centre only</a>
   <a href="#t3refsmooth">&nbsp;&nbsp;✨ Smooth boundary</a>
@@ -1884,6 +1885,21 @@ D distribution — median &lt;med&gt; µm²/s  ·  adaptive fit &lt;min&gt;–&l
 <p>On the CysLig data <b>66% of engagements are still running when their track ends</b>, and the median visit (1.42 s) is <b>71% of the median observable track</b> (2.00 s). That is a measurement of the observation window as much as of the molecule: the tracks are too short, relative to the visits, to see most exits. τ = 5.07 s is what an exponential would have to be for those observations, not something watched to completion — quote it as a model-based estimate with the censoring fraction beside it, and treat the 1.42 s median as a lower bound.</p>
 <p>It also constrains the comparison you want: <b>a condition whose tracks last longer will show longer dwells for that reason alone</b>. So each group reports <code>censoredFrac</code> and <code>medianWindow_s</code> (the median observable track length behind it), and the histogram prints a warning under itself when over half a group's visits are censored, or when two groups were not watched for the same length of time — <code>H.warnings</code> headless. Matching track-length distributions between conditions, or comparing τ rather than the observed median, is what makes the difference readable as biology.</p></div>
 <p>The second axes switches between <b>k<sub>out</sub> per window</b>, <b>engagements per track</b> (his <code>trackBinding</code> distribution) and <b>fraction engaged per site</b>. Headless: <code>G = cs_engage_classify(anaDir)</code> and <code>H = cs_dwell_histogram(G, struct('group','condition','ax',ax))</code>; <code>G</code> also writes <code>cs_engage_tracks.csv</code> and <code>cs_engage_sites.csv</code> with the dwell.</p>
+
+<h3 id="t3condfield">The condition as a field on the site, and the cell as the unit of replication</h3>
+<p class="lead">A condition assigned in the <b>Experiment</b> tab used to live only in the manifest: <code>cs_experiment_aggregate</code> attached it to an array it built in memory, so anything reading <code>analysis/CSW_final.mat</code> on its own — the Dwell tab, the engagement classifier, an export — saw no condition and pooled every cell together. It is now a <b>field on the record</b>.</p>
+<p><code>cs_condition_apply</code> writes three, from the manifest row matching each site's cell:</p>
+<table>
+  <tr><th>Field</th><th>What it holds</th></tr>
+  <tr><td><code>.condition</code></td><td>The condition name. <b>Empty</b> for a cell with no manifest row, and that cell is <em>reported</em> rather than given a guess.</td></tr>
+  <tr><td><code>.day</code></td><td>The day or batch, when the manifest carries one — the other candidate replicate unit.</td></tr>
+  <tr><td><code>.excluded</code></td><td>True when the manifest excludes that cell. The site is <b>not dropped here</b>: it still exists, and a stage that pools should say so. <code>cs_engage_classify</code> skips excluded sites by default (<code>includeExcluded</code> keeps them).</td></tr>
+</table>
+<p>Three ways it gets written: the <b>mapper does it on every save</b>, so a re-run cannot drop it; <kbd>🏷 Stamp onto sites</kbd> in the Experiment tab does it for sites mapped <em>before</em> the conditions were assigned, or after editing them; and <code>cs_condition_apply(anaDir)</code> does it headless. Re-stamping overwrites, which is how the record and the manifest stay in step.</p>
+<div class="warn"><b>The cell is the unit of replication, not the visit.</b>
+<p>Engagements cluster within a cell — same dish, same transfection, same day. A test over pooled visits treats 600 visits from 8 cells as 600 independent observations, and that is how a difference passes a test it should not. So every group also reports <code>nCells</code>, <code>byCell</code> carries each cell's own <i>n</i>, τ and median, and <code>cellTest</code> repeats the comparison over <b>those</b> — Mann-Whitney, enumerated exactly when the groups are small enough, which with 2–10 cells a side they are. A condition with fewer than three cells is flagged.</p>
+<p>Both families carry <b><code>pAdj</code>, Holm-adjusted</b> over the comparisons actually made: five conditions are ten comparisons, and one p below 0.05 out of ten is what chance looks like. Quote <code>pAdj</code>.</p>
+<p>On the CysLig data this matters in both directions. Pooled visits separate nothing (every KS p &gt; 0.13). Per cell, <b>Compound 296 vs 314 gives p = 0.004, and 0.040 after Holm</b> — the per-cell medians barely overlap (296: 0.89–1.58 s across 10 cells; 314: 1.55–1.95 s across 4) where the visit distributions do, because censoring compresses them. 314 also has the <em>shortest</em> observation window of the five (2.08 s against 2.46 s), so that difference is not the window. Baseline has 2 cells and cannot be tested against anything.</p></div>
 
 <h2 id="t3contact">Tool 3 · <b>Contact sites</b> — the windowed picker</h2>
 <p class="lead">Tab <b>2 · Contact sites</b> is where a density map becomes a list of candidate contact sites, one list per time window. Everything downstream (Refine → Sites → Dwell → Compare) is built on what you save here, so this is the tab worth understanding control by control.</p>
