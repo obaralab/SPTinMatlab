@@ -26,39 +26,54 @@ if isfolder(proj), rmdir(proj,'s'); end
 ana = fullfile(proj,'analysis'); mkdir(ana);
 cleanup = onCleanup(@() rmdir(proj,'s'));
 
-%% fixture: two cells, one per condition, engagements an average of 1 s and 3 s long ---------------
+%% fixture: two cells, one per condition, engagements averaging 1 s and 3 s -------------------------
+% Absolute coordinates around each site centre, so the BUILD and the mapped sites agree and the wider
+% denominator can be tested: 10 tracks that engage, 6 that only touch the outline (members, not
+% engaged), 4 that visit the neighbourhood box and never enter it at all.
 rng(5); dt = 0.02; nF = 600; R = 0.15; th = linspace(0,2*pi,60)';
-CSW = struct([]);
+cen = [5 5]; boxUm = 1.0; nAll = 20; mem = 1:16;
 % The drug cell is watched for half as long, which is the second way this comparison misleads and has
 % to be reported rather than silently shortening its dwells.
 specs = {'cellCtrl', 'ctrl', 1.0, nF; 'cellDrug', 'drug', 3.0, round(nF/2)};
+CSW = struct([]); Tracks = struct([]);
 for c = 1:size(specs,1)
-    nTr = 16; nEng = 10;                              % 10 of 16 member tracks engage
     nFc = specs{c,4};
-    X = ones(nF,nTr); Y = zeros(nF,nTr); F = repmat((0:nF-1)',1,nTr);
-    for j = 1:nEng
-        len = max(20, round(exprnd(specs{c,3})/dt));   % visit length in frames
-        t0 = 30 + randi(min(200, max(1,nFc-60)));
-        t1 = min(nFc-5, t0+len);
-        X(t0:t1,j) = 0.01; Y(t0:t1,j) = 0.01;
+    X = nan(nF,nAll); Y = nan(nF,nAll); F = repmat((0:nF-1)',1,nAll);
+    X(1:nFc,:) = cen(1) + 1.5; Y(1:nFc,:) = cen(2);           % parked outside the box by default
+    for j = 1:10                                              % engage: a real visit
+        len = max(20, round(exprnd(specs{c,3})/dt));
+        t0 = 30 + randi(max(1, min(200, nFc-80)));
+        X(t0:min(nFc-5,t0+len), j) = cen(1)+0.01; Y(t0:min(nFc-5,t0+len), j) = cen(2)+0.01;
     end
-    if nFc < nF, X(nFc+1:end,:) = NaN; Y(nFc+1:end,:) = NaN; end   % the movie simply ends
+    for j = 11:16                                             % members, but only a 3-frame touch
+        X(40:42, j) = cen(1)+0.01; Y(40:42, j) = cen(2)+0.01;
+    end
+    for j = 17:20                                             % in the box, never inside, never at 2R
+        X(1:nFc, j) = cen(1) + 0.40; Y(1:nFc, j) = cen(2) + 0.02;
+    end
+    Tracks(end+1).file = specs{c,1}; %#ok<AGROW>
+    Tracks(end).matrix = cat(3,F,X,Y); Tracks(end).frameInterval = dt;
+    Tracks(end).lengths = sum(isfinite(X),1)'; Tracks(end).trackIDs = (1:nAll)';
+    Tracks(end).calib = struct('pixSizeUm',0.16,'fovUm',16,'dt_s',dt,'binNm',30,'precNm',30);
     CSW(end+1).file = specs{c,1}; %#ok<AGROW>
     CSW(end).cellIndex = c; CSW(end).csID = 1; CSW(end).window = 1;
     CSW(end).winFrames = [0 nF-1]; CSW(end).siteUID = c;
-    CSW(end).tracks = 1:nTr; CSW(end).CSmatrix = cat(3,F,X,Y);
+    CSW(end).tracks = mem;
+    CSW(end).CSmatrix = cat(3, F(:,mem), X(:,mem)-cen(1), Y(:,mem)-cen(2));
     CSW(end).refboundary = R*[cos(th) sin(th)];
     CSW(end).dt = dt; CSW(end).condition = specs{c,2};
     CSW(end).MitoFlag = double(c == 1);
-    CSW(end).refCentre = [5 5]; CSW(end).SF = 30;
+    CSW(end).refCenter = cen; CSW(end).boxUm = boxUm; CSW(end).SF = 30;
 end
 save(fullfile(ana,'CSW_final.mat'),'CSW','-v7.3');
+% The build is written later, in (5b): until then there is none, which is the case the tab has to
+% report rather than quietly falling back to the narrow denominator.
 
 %% (1) the controls ---------------------------------------------------------------------------------
 f = spt_analyze_app('analyze'); f.Visible = 'off'; f.Position = [1 1 1700 980];
 closer = onCleanup(@() closeQuietly(f));
 selectTab(f, 'Dwell');
-for tg = {'dwEngage','dwGroup','dwView'}
+for tg = {'dwEngage','dwGroup','dwView','dwDen'}
     assert(~isempty(findobj(f,'Tag',tg{1})), 'the Dwell tab is missing its %s control', tg{1});
 end
 setProject(f, proj);
@@ -113,6 +128,24 @@ f.UserData.dwSetView('fraction'); drawnow;
 assert(contains(titleOf(axK),'fraction of member'), 'and again: "%s"', titleOf(axK));
 assert(~isempty(findobj(axK,'Type','histogram')), 'fraction engaged per site should be drawn');
 f.UserData.dwSetView('k_out'); drawnow;
+
+%% (5b) the wider denominator -----------------------------------------------------------------------
+% Chosen with no build in memory, the tab must say so rather than quietly reporting the narrow number.
+f.UserData.dwSetDen('box'); drawnow;
+assert(contains(dwellLabel(f),'needs the build in memory'), ...
+    'asking for the box denominator without a build should say what to do: "%s"', dwellLabel(f));
+assert(numel(f.UserData.dwellRes().engage.perTrack) == 32, 'and it should still be the member denominator');
+save(fullfile(ana,'TrackStruct.mat'),'Tracks','-v7.3');
+f.UserData.loadTracksFile(fullfile(ana,'TrackStruct.mat')); drawnow;
+assert(isempty(f.UserData.dwellRes()), 'loading a build should invalidate the dwell result');
+f.UserData.runDwell(); drawnow;                     % recompute it, now with the build in memory
+Gb = f.UserData.dwellRes().engage;
+assert(numel(Gb.perTrack) == 40, 'with the build loaded the 8 box-only tracks join the denominator (got %d)', numel(Gb.perTrack));
+assert(nnz([Gb.perTrack.engaged]) == 20, 'the box-only tracks never approach, so the engaged COUNT is unchanged (got %d)', nnz([Gb.perTrack.engaged]));
+assert(mean([Gb.perSite.fracEngaged]) < 0.6, 'and the engaged FRACTION must fall (%.2f)', mean([Gb.perSite.fracEngaged]));
+assert(contains(dwellLabel(f),'20 of 40'), 'the tab should report the wider denominator: "%s"', dwellLabel(f));
+f.UserData.dwSetDen('member'); drawnow;
+assert(numel(f.UserData.dwellRes().engage.perTrack) == 32, 'and switching back should narrow it again');
 
 %% (6) the table names them ------------------------------------------------------------------------
 tbl = one(findobj(f,'Type','uitable'), 'dwell table', @(t) any(contains(string(t.ColumnName),'engaged')));

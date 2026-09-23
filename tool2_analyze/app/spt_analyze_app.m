@@ -102,7 +102,7 @@ pendExcl=struct('file',{},'csID',{},'window',{},'pickPx',{},'trackCol',{});
 pendDelSite=struct('file',{},'csID',{},'window',{},'pickPx',{});   % whole-site deletions marked but not yet saved   % track removals marked but not yet applied
 % Dwell tab handles
 axDwHist=[]; axKout=[]; tblDwell=[]; axDwTrace=[]; axDwDens=[]; lblDwell=[]; dwellRowMap=[]; ddDwRule=[];
-eDwEngage=[]; ddDwGroup=[]; ddDwView=[];
+eDwEngage=[]; ddDwGroup=[]; ddDwView=[]; ddDwDen=[];
 btnDwPlay=[]; sldDwFrame=[]; chkDwChan=gobjects(1,0); eDwFps=[]; lblDwAnim=[]; dwellAnim=[]; ddDwBg=[]; eDwContrast=[];
 % Compare tab handles
 % Experiment tab — the shared experiment/condition panel (spt_experiment_panel)
@@ -133,7 +133,7 @@ fig.UserData = struct('activeTs',@activeTsNow, 'tracks',@tracksNow, 'loadTracks'
     'vecSelect',@vecSelectCell, 'runBleaching',@onBleaching, 'bleachRes',@bleachResNow, ...   % Vectors & bleaching
     'runDwell',@onComputeDwell, 'dwellRes',@dwellResNow, ...          % Dwell: compute, and read the result
     'dwSetEngage',@dwSetEngage, 'dwSetRule',@dwSetRule, ...           % engaged-if threshold; visit rule
-    'dwSetGroup',@dwSetGroup, 'dwSetView',@dwSetView, ...
+    'dwSetGroup',@dwSetGroup, 'dwSetView',@dwSetView, 'dwSetDen',@dwSetDen, ...
     'csExport',@onCSExport, 'refExport',@onRefExport, ...            % export under a given name, no dialog
     'viewAdvisor',@onViewAdvisor);                                  % open a ContactSites folder in the viewer
 gl = uigridlayout(fig,[2 1],'RowHeight',{34,'1x'},'Padding',[8 8 8 8],'RowSpacing',6);
@@ -2383,8 +2383,8 @@ end
     % ================= Tab 6 · Dwell (residence times + per-window escape rate k_out(w)) =================
     function buildDwellTab(parent)
         g = uigridlayout(parent,[2 1],'RowHeight',{34,'1x'},'Padding',[10 10 10 10],'RowSpacing',6);
-        r = uigridlayout(g,[1 9],'ColumnWidth',{168, 42, 58, 132, 68, 56, 120, 130, '1x'}, ...
-            'Padding',[0 0 0 0],'ColumnSpacing',7);
+        r = uigridlayout(g,[1 10],'ColumnWidth',{162, 40, 56, 126, 64, 54, 112, 124, 128, '1x'}, ...
+            'Padding',[0 0 0 0],'ColumnSpacing',6);
         uibutton(r,'Text','▶ Compute dwell','FontWeight','bold','BackgroundColor',[0.18 0.45 0.70],'FontColor','w', ...
             'Tooltip','Residence of each member track in its site''s own window (span+1 accounting) -> analysis/cs_window_dwell.csv.', ...
             'ButtonPushedFcn',@(s,e) onComputeDwell());
@@ -2422,6 +2422,19 @@ end
             'you want between treatments — it needs conditions assigned in the experiment manifest ' ...
             '(Compare tab); a single folder has none and falls back to pooling everything. Two groups ' ...
             'also get a Kolmogorov-Smirnov test, and each gets its own tau.']);
+        % WHICH TRACKS ARE THE DENOMINATOR, which is what "fraction engaged" means. The mapper calls a
+        % track a member once it has a localization INSIDE the outline, so membership already implies
+        % it touched the site — 90% of CysLig member tracks come out engaged on that denominator. The
+        % wider one adds the tracks that came into the neighbourhood box and never entered.
+        ddDwDen = uidropdown(r,'Tag','dwDen','Items',{'of member tracks','of tracks in the box'}, ...
+            'Value','of member tracks','ValueChangedFcn',@(s,e) onDwDen(), ...
+            'Tooltip',['Which tracks count as the denominator of "fraction engaged". "member tracks" ' ...
+            'are the ones the mapper assigned to the site — they already have a localization INSIDE ' ...
+            'the outline, so that set is pre-selected for engaging (90% of them do, on the CysLig ' ...
+            'data). "tracks in the box" adds every track that entered the site''s neighbourhood box ' ...
+            'in the window without ever entering the outline, which is the set his 41%-engaged sites ' ...
+            'hold; on CysLig it gives 73%. The box option needs the build in memory — load it on the ' ...
+            'Contact sites tab first.']);
         ddDwView = uidropdown(r,'Tag','dwView','Items',{'k_out per window','engagements per track','fraction engaged per site'}, ...
             'Value','k_out per window','ValueChangedFcn',@(s,e) drawDwell(), ...
             'Tooltip',['What the lower-left axes shows. "engagements per track" is his trackBinding ' ...
@@ -2478,15 +2491,16 @@ end
         mp = 0; if ~isempty(eMinDwPct) && isgraphics(eMinDwPct), mp = eMinDwPct.Value; end
         rule = 'inside'; if ~isempty(ddDwRule) && isgraphics(ddDwRule) && startsWith(ddDwRule.Value,'distance'), rule = 'trace'; end
         me = 0.30; if ~isempty(eDwEngage) && isgraphics(eDwEngage), me = eDwEngage.Value; end
+        [den, denNote] = dwDenNow();
         try, DD = cs_window_dwell(anaDir, struct('save',true,'verbose',false,'minPctInside',mp, ...
-                'method',rule,'minEngage_s',me));
+                'method',rule,'minEngage_s',me,'denominator',den,'tracks',buildTracks));
         catch ME, lblDwell.Text=['Dwell error: ' ME.message]; return; end
         drawDwell();
         % Say what was computed — the label used to be left reading "Computing dwell…" forever, and
         % with a threshold in play the reader has to be told which tracks are behind the numbers.
         nEv = numel(DD.events); nSite = numel(DD.perSite); nTr = numel(DD.perTrack);
-        lblDwell.Text = sprintf('%d events · %d site-windows · %d member tracks%s%s', nEv, nSite, nTr, ...
-            tern(mp>0, sprintf(' with ≥%g%% of their localizations inside', mp), ''), engageLine());
+        lblDwell.Text = sprintf('%d events · %d site-windows · %d member tracks%s%s%s', nEv, nSite, nTr, ...
+            tern(mp>0, sprintf(' with ≥%g%% of their localizations inside', mp), ''), engageLine(), denNote);
     end
 
     function v = dwellResNow(), v = DD; end
@@ -2499,6 +2513,11 @@ end
     function dwSetRule(name)
         if isempty(ddDwRule) || ~isgraphics(ddDwRule), return; end
         ddDwRule.Value = pickItem(ddDwRule, name);
+    end
+
+    function dwSetDen(name)
+        if isempty(ddDwDen) || ~isgraphics(ddDwDen), return; end
+        ddDwDen.Value = pickItem(ddDwDen, name); onDwDen();
     end
 
     function dwSetGroup(name)
@@ -2567,19 +2586,39 @@ end
             nnz(eng), numel(pt), 100*mean(eng), mean0(ne(eng)));
     end
 
+    function [den, note] = dwDenNow()
+        % 'box' needs the build. Rather than reading a few hundred MB off disk behind a button press,
+        % use what is in memory and say plainly when there is nothing there.
+        den = 'members'; note = '';
+        if isempty(ddDwDen) || ~isgraphics(ddDwDen) || ~contains(ddDwDen.Value,'box'), return; end
+        if isempty(buildTracks)
+            note = ' · the box denominator needs the build in memory — load it on the Contact sites tab, then recompute';
+            return;
+        end
+        den = 'box';
+    end
+
+    function onDwDen()
+        % Changing the denominator only changes which tracks are classified, so reclassify in place.
+        onDwEngage();
+    end
+
     function onDwEngage()
         % Reclassifying only re-reads the traces, so it does not need the dwell recomputed - but it
         % does need the sites, and it changes every number that says "engaged".
         if isempty(DD) || ~isfield(DD,'engage'), return; end
         if ~ensureCSWloaded(), return; end
         me = eDwEngage.Value;
+        [den, denNote] = dwDenNow();
         try
             DD.engage = cs_engage_classify(CSW, struct('verbose',false,'minEngage_s',me, ...
-                'minPctInside',DD.engage.params.minPctInside,'detect',DD.engage.params.detect));
+                'minPctInside',DD.engage.params.minPctInside,'detect',DD.engage.params.detect, ...
+                'denominator',den,'tracks',buildTracks));
         catch ME
             lblDwell.Text = ['Reclassify failed: ' ME.message]; return;
         end
         drawDwell();
+        if ~isempty(denNote), lblDwell.Text = [lblDwell.Text denNote]; end
     end
 
     function drawDwell()
@@ -3814,6 +3853,13 @@ end
         anyCh = false(1, nCh);
         buildTracks = Tracks;                                    % set FIRST: the calibration accessors read it
         try, vecFillCells(); catch, end                          % the Vectors tab follows the active build
+        if isempty(tblBuild) || ~isgraphics(tblBuild)
+            % Everything below populates the Build tab and the QC panel under it, and those exist in
+            % CURATE mode only. Tool 3 loads a build to USE it — the sites, the dwell denominator —
+            % and has nothing to fill in; it used to walk into the QC draw and fail on a control that
+            % was never created.
+            return;
+        end
         ctCache = []; ctCacheKey = '';
         for k = 1:n
             L = double(Tracks(k).lengths(:)); nt = numel(L); tot = tot + nt;
@@ -4169,10 +4215,12 @@ end
     end
 
     function spec = fitSpec()   % the MSD-fit window spec passed to spt_fit_msd, from the mode dropdown + fit-% spinner
+        frac = 25;                  % the spinner's own default, for when it does not exist (Tool 3)
+        if ~isempty(eMsdFrac) && isgraphics(eMsdFrac), frac = eMsdFrac.Value; end
         if strcmp(fitModeNow(),'adaptive')
-            spec = struct('mode','adaptive', 'maxFrac', min(max(eMsdFrac.Value,10),100)/100, 'r2thr',0.95, 'minPts',3);
+            spec = struct('mode','adaptive', 'maxFrac', min(max(frac,10),100)/100, 'r2thr',0.95, 'minPts',3);
         else
-            spec = eMsdFrac.Value;   % fixed %
+            spec = frac;            % fixed %
         end
     end
 

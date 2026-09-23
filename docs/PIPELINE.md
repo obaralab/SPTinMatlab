@@ -281,7 +281,9 @@ selection more than the biology (his wider set reads 41%). `opts.denominator = '
 that entered the neighbourhood box in the window and never entered the outline — the mapper keeps only
 their count, so they are rebuilt from the build. On CysLig that takes the denominator from 1,762 to
 2,306 tracks and the engaged fraction from 90% to **73%** (of the 544 box-only tracks, 17.5% engage);
-the median site drops from 1.00 to 0.80. Neither is wrong — "of those that reached the site" versus
+the median site drops from 1.00 to 0.80. In the Dwell tab this is the **of member tracks / of tracks
+in the box** dropdown, which uses the build already in memory and says so plainly when there is none
+rather than reading hundreds of megabytes behind a button press. Neither is wrong — "of those that reached the site" versus
 "of those that came near" — so a figure has to say which, and `perTrack.member` /
 `perSite.nMembers` keep them separable.
 
