@@ -27,9 +27,24 @@ mkdir(fullfile(proj,'analysis')); mkdir(fullfile(proj,'tracks'));
 cleanup = onCleanup(@() rmdir(proj,'s'));
 
 dt = 0.02; Dfast = 0.40; Dslow = 0.08; dZone = 0.10;
-Tracks = [mkCell('tethered_cell',   0.10, dt, Dfast, Dslow), ...
+% The FIRST cell is one the Experiment tab excludes, and it is deliberately small: fewer tracks than
+% the cells that are kept, and shorter ones. Anything that reads the example gallery out of the full
+% build rather than the curated set then indexes a column this cell does not have — which is the
+% crash — or, when it happens to fit, silently draws this cell's tracks under another cell's name.
+Tracks = [mkSmallCell('excluded_cell', dt, Dfast), ...
+          mkCell('tethered_cell',   0.10, dt, Dfast, Dslow), ...
           mkCell('untethered_cell', 0.10, dt, Dfast, Dfast)];
 save(fullfile(proj,'analysis','TrackStruct.mat'), 'Tracks', '-v7.3');
+mkdir(fullfile(proj,'spt'));
+for q = {'excluded_cell','tethered_cell','untethered_cell'}       % so the Experiment panel finds them
+    mv = fullfile(proj,'spt',[q{1} '.tif']);
+    imwrite(uint16(zeros(8,8)), mv); imwrite(uint16(zeros(8,8)), mv, 'WriteMode','append');
+end
+manifest = struct('folders',{{proj}},'cells',struct( ...
+    'file',{'excluded_cell','tethered_cell','untethered_cell'}, ...
+    'folder',{fullfile(proj,'analysis'),fullfile(proj,'analysis'),fullfile(proj,'analysis')}, ...
+    'condition',{'ctrl','ctrl','ctrl'},'day',{'d1','d1','d1'},'exclude',{true,false,false}));
+save(fullfile(proj,'experiment_details.mat'),'manifest','-v7.3');
 
 f = spt_analyze_app('analyze'); f.Visible = 'off';
 closeApp = onCleanup(@() close(f));
@@ -167,6 +182,29 @@ assert(numel(GT)-1 > numel(PLp)-1, ...
 fprintf('pooled tables: %d condition column(s), %d per-cell rows, %d per-track rows\n', ...
     numel(hdrP), numel(PLp)-1, numel(GT)-1);
 
+%% (6b) the example gallery reads the CURATED cells ---------------------------------------------------
+% The regression: sel.cellIndex and sel.cols index the array the selection was made on. An excluded
+% cell shifts every cell index after it, and reading the gallery out of the full build then drew the
+% wrong cell — "Index in position 2 exceeds array bounds" when the column ran past the end of
+% whichever cell it landed on, and the wrong tracks, silently, when it did not.
+ec = f.UserData.exptCtl();
+assert(~isempty(ec), 'the Experiment panel should be reachable');
+ec.load(fullfile(proj,'experiment_details.mat'));
+assert(any([ec.getCells().exclude]), 'the manifest marks one cell excluded');
+bC.ButtonPushedFcn(bC, struct()); drawnow;                 % recompute with the exclusion in force
+axEx = pick(findobj(f,'Type','axes'), ...
+    @(x) contains(lower(char(strjoin(string(x.Title.String),' '))), 'example'), 'examples axes');
+tEx = char(strjoin(string(axEx.Title.String), ' '));
+assert(~contains(tEx,'unavailable'), 'the example gallery failed: "%s"', tEx);
+assert(contains(tEx,'example tracks at d ='), 'the gallery should report what it drew: "%s"', tEx);
+ln = findobj(axEx,'Type','line','-and','LineStyle','-');
+assert(~isempty(ln), 'no example tracks were drawn');
+np = arrayfun(@(h) numel(h.XData), ln);
+assert(all(np > 30), ...
+    ['a drawn track has only %d points — the excluded cell''s tracks are %d long and the kept ' ...
+     'cells'' are %d, so the gallery is reading the wrong array'], min(np), 15, 140);
+fprintf('examples: %d track(s) drawn, none from the excluded cell\n', numel(ln));
+
 %% (7) the examples export asks for a name, and the BUTTON says it worked -----------------------------
 % A modal Save dialog cannot be answered headlessly, so the button takes an optional path — the
 % same escape hatch onLoadTracks uses. What is asserted here is the part a user sees: the file
@@ -206,6 +244,22 @@ rows = find(strcmp(D(:,1), name));
 if isempty(rows), return; end
 mid = rows(max(1,round(numel(rows)/2)));
 v = str2double(D{mid,5});
+end
+
+function T = mkSmallCell(name, dt, Dfast)
+% Few tracks and SHORT ones, so both halves of the bug are visible: a column index that overflows,
+% and a track that can be told apart by its length if it is ever drawn.
+rng(7); nT = 6; nF = 15; xc = 5.0;
+F = repmat((1:nF)', 1, nT); X = nan(nF,nT); Y = nan(nF,nT);
+for j = 1:nT
+    x = xc - 1.5 + 3*rand; y = 5*rand;
+    for i = 1:nF
+        X(i,j) = x; Y(i,j) = y;
+        s = sqrt(2*Dfast*dt); x = x + s*randn; y = y + s*randn;
+    end
+end
+T = struct('matrix', cat(3,F,X,Y), 'frameInterval', dt, 'file', name, ...
+           'dist', struct('mito', abs(X - xc)));
 end
 
 function T = mkCell(name, dZone, dt, Dfast, Dslow)

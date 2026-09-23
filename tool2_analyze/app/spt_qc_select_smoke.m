@@ -55,7 +55,7 @@ spec = { 'A', 60, -0.30,  2.00, false; 'B', 60,  1.50, -0.40, false; ...
          'C', 12, -0.20,  2.00, false; 'D', 60,  1.20, -0.30, true };
 makeCell(proj, 'cellA', spec);
 
-f = spt_analyze_app('curate'); f.Visible = 'off';
+f = spt_analyze_app('analysis'); f.Visible = 'off';
 closeApp = onCleanup(@() close(f));
 pe = findobj(f,'Type','uieditfield');
 for k = 1:numel(pe)

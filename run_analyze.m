@@ -1,12 +1,9 @@
 function run_analyze()
-%RUN_ANALYZE  Launch Tool 3 — "Analyze" (ContactSites pipeline).
-%   Tabs: Contact sites | Refine | Sites | Dwell | Experiment | Compare.
-%   Starts from the project's ACTIVE build in analysis/ — the named .mat that
-%   active_trackstruct.txt points at, else TrackStruct.mat — so build with Tool 2 first.
-%   The app itself adds ../drivers to the path (relative to app/), so this launcher only
-%   needs to put the app folder on the path.
+%RUN_ANALYZE  The old name for Tool 4 — "Contact Sites" (see run_contactsites).
+%   The toolkit used to have three parts, with everything past the build in one "Analyze" tool.
+%   Building and QC are now their own tool (run_analysis, Tool 3) and the contact-site work is
+%   Tool 4. This name still opens the contact-site tool, so existing notes and scripts keep working.
 here = fileparts(mfilename('fullpath'));
 addpath(fullfile(here, 'tool2_analyze', 'app'));
-addpath(fullfile(here, 'tool3_contactsites', 'app'), fullfile(here, 'tool3_contactsites', 'drivers'));
-spt_analyze_app('analyze');
+run_contactsites();
 end

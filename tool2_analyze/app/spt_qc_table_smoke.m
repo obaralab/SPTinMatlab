@@ -40,7 +40,7 @@ save(fullfile(proj,'analysis','TrackStruct.mat'),'Tracks','-v7.3');
 fid = fopen(fullfile(proj,'analysis','active_trackstruct.txt'),'w');
 fprintf(fid,'TrackStruct.mat\n'); fclose(fid);
 
-f = spt_analyze_app('curate'); f.Visible = 'off';
+f = spt_analyze_app('analysis'); f.Visible = 'off';
 closeApp = onCleanup(@() close(f));
 pe = findobj(f,'Type','uieditfield');
 for k = 1:numel(pe)

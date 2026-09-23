@@ -61,7 +61,7 @@ assert(rCut.Dratio < rAll.Dratio*0.85, ...
     rAll.Dratio, rCut.Dratio);
 
 %% drive the app ---------------------------------------------------------------------------------------
-f = spt_analyze_app('curate'); f.Visible = 'off';
+f = spt_analyze_app('analysis'); f.Visible = 'off';
 closeApp = onCleanup(@() close(f));
 pe = findobj(f,'Type','uieditfield');
 for k = 1:numel(pe)

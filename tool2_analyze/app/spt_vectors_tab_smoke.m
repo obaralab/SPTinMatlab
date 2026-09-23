@@ -1,10 +1,10 @@
 function spt_vectors_tab_smoke()
-%SPT_VECTORS_TAB_SMOKE  Tool 2 must be able to show what a build already holds: the step vectors as
-%arrows, and what the intensity traces say about bleaching.
+%SPT_VECTORS_TAB_SMOKE  The Analysis tool must be able to show what a build already holds: the step
+%vectors as arrows, and what the intensity traces say about bleaching.
 %
 % WHAT IS ASSERTED:
-%   1. THE TAB IS TOOL 2's: "Vectors & bleaching" appears in curate mode and NOT in the contact-site
-%      tool, which has its own window.
+%   1. THE TAB IS THE ANALYSIS TOOL's: "Vectors & bleaching" appears in analysis mode and NOT in the
+%      contact-site tool or the curation tool, each of which has its own window.
 %   2. LOADING A BUILD FILLS IT: the cells appear, picking one lists its tracks, and the axes gets
 %      one quiver per selected track - drawn at true length, so two tracks can be compared.
 %   3. THE BLEACHING BUTTON gives the same numbers as the driver, and says them: step height,
@@ -37,13 +37,16 @@ Tracks = T; %#ok<NASGU>
 save(fullfile(ana,'TrackStruct.mat'),'Tracks','-v7.3');
 
 %% (1) the tab belongs to Tool 2 ---------------------------------------------------------------------
-f = spt_analyze_app('curate'); f.Visible = 'off'; f.Position = [1 1 1600 950];
+f = spt_analyze_app('analysis'); f.Visible = 'off'; f.Position = [1 1 1600 950];
 closer = onCleanup(@() closeQuietly(f));
 titles = tabTitles(f);
-assert(any(contains(titles, 'Vectors & bleaching')), 'Tool 2 has no Vectors & bleaching tab (%s)', strjoin(titles, ' | '));
-g = spt_analyze_app('analyze'); g.Visible = 'off';
-assert(~any(contains(tabTitles(g), 'Vectors')), 'the contact-site tool should not carry Tool 2''s vectors tab');
+assert(any(contains(titles, 'Vectors & bleaching')), 'the Analysis tool has no Vectors & bleaching tab (%s)', strjoin(titles, ' | '));
+g = spt_analyze_app('contactsites'); g.Visible = 'off';
+assert(~any(contains(tabTitles(g), 'Vectors')), 'the contact-site tool should not carry the Analysis tool''s vectors tab');
 closeQuietly(g);
+h = spt_analyze_app('curate'); h.Visible = 'off';
+assert(~any(contains(tabTitles(h), 'Vectors')), 'nor should the curation tool');
+closeQuietly(h);
 
 %% (2) a build fills it ------------------------------------------------------------------------------
 selectTab(f, 'Vectors');

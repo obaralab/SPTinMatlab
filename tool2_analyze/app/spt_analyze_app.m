@@ -4,7 +4,9 @@ function fig = spt_analyze_app(mode)
 % Single implementation, three-tool workflow. A MODE argument selects which tabs are shown so the
 % same codebase backs two focused launchers (Tool 1 "Track" = spt_app.m is a separate app):
 %
-%   spt_analyze_app('curate')  -> Tool 2 "Curate & Build": Import & Curate -> Build & QC -> Experiment.
+%   spt_analyze_app('curate')       -> Tool 2 "Curate": Experiment -> Import & Curate.
+%   spt_analyze_app('analysis')     -> Tool 3 "Analysis": Build & QC -> Vectors & bleaching.
+%   spt_analyze_app('contactsites') -> Tool 4 "Contact Sites" (DEFAULT, and what 'analyze' now means).
 %                                 Curate the tracked cells and build the TrackStruct.mat the next tool reads.
 %   spt_analyze_app('analyze') -> Tool 3 "Analyze" (DEFAULT): Contact sites -> Refine -> Sites -> Dwell
 %                                 -> Experiment -> Compare. Starts from a built TrackStruct.mat.
@@ -24,13 +26,17 @@ function fig = spt_analyze_app(mode)
 %   run:  addpath('<repo>/tool2_analyze/app'); spt_analyze_app('analyze')   % or spt_curate_app
 
 % ------- mode: which tabs this launcher shows (see help above) -------
-if nargin<1 || isempty(mode), mode = 'analyze'; end
-mode = validatestring(lower(char(mode)), {'curate','analyze','full'});
-showCurate  = any(strcmp(mode,{'curate','full'}));    % Import & Curate + Build & QC
-showAnalyze = any(strcmp(mode,{'analyze','full'}));   % Contact sites + Refine + Sites + Dwell + Compare
+if nargin<1 || isempty(mode), mode = 'contactsites'; end
+mode = lower(char(mode));
+if strcmp(mode,'analyze'), mode = 'contactsites'; end   % what this mode was called when there were 3 tools
+mode = validatestring(mode, {'curate','analysis','contactsites','full'});
+showCurate   = any(strcmp(mode,{'curate','full'}));        % Import & Curate
+showAnalysis = any(strcmp(mode,{'analysis','full'}));      % Build & QC + Vectors & bleaching
+showAnalyze  = any(strcmp(mode,{'contactsites','full'}));  % Contact sites + Refine + Sites + Dwell + Engagement + Compare
 switch mode
-    case 'curate',  toolName = 'SPT Curate & Build — Tool 2 of 3';
-    case 'analyze', toolName = 'SPT Analyze — Tool 3 of 3';
+    case 'curate',       toolName = 'SPT Curate — Tool 2 of 4';
+    case 'analysis',     toolName = 'SPT Analysis — Tool 3 of 4';
+    case 'contactsites', toolName = 'SPT Contact Sites — Tool 4 of 4';
     otherwise,      toolName = 'SPT Curate + Analyze (full)';
 end
 
@@ -57,6 +63,7 @@ tg=[]; tImport=[]; tBuild=[]; tCS=[];                                 % tabs
 tRefine=[]; tSites=[]; tDwell=[]; tExpt=[]; tEngage=[]; tCompare=[];   % downstream tabs
 % Engagement tab handles
 engExN=0; engDropC=0; bEngEx=[]; engOccT=[]; engEngF=[]; engDd=[]; engKey=[]; engD0=[]; engD1=[]; engN=[]; engSig=[]; engMin=[]; engTbl=[]; engLbl=[]; engAxEx=[]; engNEx=[];
+engExTracks=[];   % the CURATED cells the example selection was made on — see engageExampleSel
 engAxCell=[]; engAxScan=[]; engLast=[];
 ddTimeUnit=[]; lblBuild=[]; tblBuild=[]; txtBuild=[];                 % Build handles
 buildChanKeys = {};   % the channel columns tblBuild was BUILT with — onCalEdit derives its column
@@ -144,17 +151,17 @@ gl = uigridlayout(fig,[2 1],'RowHeight',{34,'1x'},'Padding',[8 8 8 8],'RowSpacin
 top = uigridlayout(gl,[1 16],'ColumnWidth', ...
     {150,'1x',60, 40,132, 74,60, 60,54,66, 54,54, 84,54, 52, 60}, ...
     'Padding',[0 0 0 0],'ColumnSpacing',6);
-uilabel(top,'Text',tern(showCurate&&~showAnalyze,'Curate & Build — Tool 2',tern(showAnalyze&&~showCurate,'Analyze — Tool 3','Curate + Analyze')),'FontWeight','bold','FontColor',[0.25 0.25 0.3]);
+uilabel(top,'Text',headerName(mode),'FontWeight','bold','FontColor',[0.25 0.25 0.3]);
 eProj = uieditfield(top,'text','Placeholder','Tool 1 project folder (tracks/, er_seg/, mito_seg/)', ...
     'ValueChangedFcn',@(s,e) onProjEdit());
 uibutton(top,'Text','Pick…','FontWeight','bold','ButtonPushedFcn',@(s,e) onPickProject());
-% Which BUILD this project is working from. Tool 2 names builds; Tool 3 needs to say which one it
+% Which BUILD this project is working from. Tool 3 names builds; Tool 4 needs to say which one it
 % is analysing rather than only inferring it, so the choice is explicit and visible in both modes.
 uilabel(top,'Text','Build','HorizontalAlignment','right');
 ddBuild = uidropdown(top,'Items',{'(none)'},'ItemsData',{''},'Value','', ...
-    'Tooltip',['The TrackStruct build in force for this project (analysis/<name>.mat). Tool 2 writes ' ...
-    'named builds; picking one here makes it active, so Tool 3 — and a separately launched Analyze ' ...
-    'tool — analyse exactly this file.'], ...
+    'Tooltip',['The TrackStruct build in force for this project (analysis/<name>.mat). Tool 3 writes ' ...
+    'named builds; picking one here makes it active, so Tool 4 — and a separately launched Contact ' ...
+    'Sites tool — analyse exactly this file.'], ...
     'ValueChangedFcn',@(s,e) onPickBuild());
 uilabel(top,'Text','Pixel µm/px','HorizontalAlignment','right');
 eCalPx = uieditfield(top,'numeric','Value',PXUM,'ValueDisplayFormat','%.5g','Limits',[1e-4 10], ...
@@ -189,6 +196,11 @@ nTab = 0;
 nTab=nTab+1; tExpt = uitab(tg,'Title',sprintf('%d · Experiment',nTab));   % shared across all modes
 if showCurate
     nTab=nTab+1; tImport = uitab(tg,'Title',sprintf('%d · Import & Curate',nTab));
+end
+if showAnalysis
+    % Building the TrackStruct and reading what it says are ANALYSIS, not curation: the build takes
+    % its input from the tracks folder on disk, not from the curation tab's state, so the two are
+    % genuinely separable and each tool is one job.
     nTab=nTab+1; tBuild  = uitab(tg,'Title',sprintf('%d · Build & QC',nTab));
     nTab=nTab+1; tVec    = uitab(tg,'Title',sprintf('%d · Vectors & bleaching',nTab));
 end
@@ -203,6 +215,8 @@ end
 
 if showCurate
     placeholder(tImport, 'Pick a Tool 1 project folder above — the track curation tool loads here.');
+end
+if showAnalysis
     buildBuildTab(tBuild);
     buildVectorsTab(tVec);
 end
@@ -3124,7 +3138,7 @@ end
             'Tooltip','One row per cell per distance, with the step counts — the file you would score compounds from.');
         engNEx = uispinner(r,'Limits',[1 12],'Value',5,'Step',1, ...
             'Tooltip','How many example tracks to DRAW per condition. The export writes all of them.');
-        bEngEx = uibutton(r,'Text','Examples → Tool 2','ButtonPushedFcn',@(s,e) onEngageExamples(), ...
+        bEngEx = uibutton(r,'Text','Examples → Tool 3','ButtonPushedFcn',@(s,e) onEngageExamples(), ...
             'Tooltip',['Write a TrackStruct holding every track that touches the zone — the same ' ...
                        'population D_bound is built from — and open it in Tool 2 with Load ' ...
                        'TrackStruct… for the player, MSD, stepwise D(t), CSD and the per-track D ' ...
@@ -3146,7 +3160,7 @@ end
 
     function onEngageCompute()
         if ~ensureTracksLoaded()
-            engLbl.Text = 'No built TrackStruct for this project — build it in Tool 2 first.'; return;
+            engLbl.Text = 'No built TrackStruct for this project — build it in Tool 3 first.'; return;
         end
         % HAND-REJECTED TRACKS ARE DROPPED BEFORE THE RATIO IS COMPUTED. That is the whole point of
         % curating: look at a track, decide it is not real, and have the number change. Re-read from
@@ -3386,7 +3400,26 @@ end
         try, trkEx = cs_track_exclusions('load', projectDir); catch, trkEx = []; end
         Tcur = cs_track_exclusions('apply', trkEx, buildTracks);
         Tcur = Tcur(engageKeepCells(Tcur));      % the same cells the ratio was computed on
+        % KEEP IT. sel.cellIndex and sel.cols index THIS array: excluded cells shift every cell
+        % index, and a rejected track shifts every column after it. Reading the gallery out of
+        % buildTracks instead drew a different cell's tracks under this cell's name, and errored
+        % outright whenever the column ran past the end of whichever cell it landed on.
+        engExTracks = Tcur;
         [selE, TsubE] = cs_engage_examples(Tcur, struct('dUm',dEx,'key',engKey.Value));
+    end
+
+    function T = exampleCell(s)
+        % The cell a selection row refers to, from the array the selection was made on. The file name
+        % is the check: an index that no longer means what it did shows up here rather than as a
+        % gallery of the wrong cell's tracks.
+        T = [];
+        if ~isempty(engExTracks) && s.cellIndex >= 1 && s.cellIndex <= numel(engExTracks)
+            cand = engExTracks(s.cellIndex);
+            if isempty(s.file) || strcmp(char(cand.file), char(s.file)), T = cand; return; end
+        end
+        src = engExTracks; if isempty(src), src = buildTracks; end
+        hit = find(strcmp({src.file}, char(s.file)), 1);      % fall back on the name itself
+        if ~isempty(hit), T = src(hit); end
     end
 
     function drawEngageExamples(selE, dEx)
@@ -3419,7 +3452,8 @@ end
             take = pairs(randperm(size(pairs,1), min(nPer, size(pairs,1))), :);
             for m = 1:size(take,1)
                 k = take(m,1); c = take(m,2);
-                T = buildTracks(selE(k).cellIndex);
+                T = exampleCell(selE(k));
+                if isempty(T) || c > size(T.matrix,2), continue; end
                 X = T.matrix(:,c,2); Y = T.matrix(:,c,3);
                 ok = isfinite(X) & isfinite(Y); X = X(ok); Y = Y(ok);
                 if numel(X) < 2, continue; end
@@ -4867,6 +4901,15 @@ end
 function v = fieldOr(s, f)
 % struct field s.(f) if present and a struct, else [] — so QC survives structs without erDist/MSD.
 if isstruct(s) && isfield(s,f), v = s.(f); else, v = []; end
+end
+
+function s = headerName(mode)
+switch mode
+    case 'curate',       s = 'Curate — Tool 2';
+    case 'analysis',     s = 'Analysis — Tool 3';
+    case 'contactsites', s = 'Contact Sites — Tool 4';
+    otherwise,           s = 'Curate + Analysis + Contact Sites';
+end
 end
 
 function v = pickItem(dd, name)

@@ -192,7 +192,7 @@ mark{ background:var(--accent-soft); color:inherit; border-radius:3px; padding:0
   <a href="#setup-tree">&nbsp;&nbsp;The three folders you make</a>
   <a href="#setup-naming">&nbsp;&nbsp;The naming rule</a>
   <a href="#setup-nochannels">&nbsp;&nbsp;If you lack a channel</a>
-  <a href="#setup-run">Running the three tools</a>
+  <a href="#setup-run">Running the four tools</a>
   <a href="#setup-path">&nbsp;&nbsp;Tell MATLAB where the code is</a>
   <a href="#setup-order">&nbsp;&nbsp;Then, in order</a>
   <a href="#setup-trouble">&nbsp;&nbsp;First-run problems</a>
@@ -212,7 +212,7 @@ mark{ background:var(--accent-soft); color:inherit; border-radius:3px; padding:0
   <a href="#t1twocsv">&nbsp;&nbsp;_spots.csv vs _spots_filtered.csv</a>
   <a href="#t1lookoff">&nbsp;&nbsp;Why a tracked spot can still look outside the ER on screen</a>
   <a href="#t1expt">&nbsp;&nbsp;Tab 1 · Experiment</a>
-  <h4>Tool 2 · Curate & Build</h4>
+  <h4>Tool 2 · Curate</h4>
   <a href="#t2curate">2 · Import &amp; Curate — every control</a>
   <a href="#t2cells">&nbsp;&nbsp;Cells load themselves — there is no file picker</a>
   <a href="#t2trackparams">&nbsp;&nbsp;Tracking parameters — the fields that define the crowding metric</a>
@@ -227,7 +227,8 @@ mark{ background:var(--accent-soft); color:inherit; border-radius:3px; padding:0
   <a href="#t2batch">&nbsp;&nbsp;Batch filter and its HTML report</a>
   <a href="#t2log">&nbsp;&nbsp;The activity log</a>
   <a href="#curatefilter">&nbsp;&nbsp;The curate filter — what the two metrics actually measure</a>
-  <a href="#t2build">2 · Curate &amp; Build — the Build &amp; QC tab</a>
+  <h4>Tool 3 · Analysis</h4>
+  <a href="#t2build">3 · Analysis — the Build &amp; QC tab</a>
   <a href="#t2buildrow">&nbsp;&nbsp;The build row</a>
   <a href="#t2named">&nbsp;&nbsp;Named builds and the active pointer new</a>
   <a href="#t2loadvsbuild">&nbsp;&nbsp;Build vs Load — and why Load is fast</a>
@@ -237,11 +238,11 @@ mark{ background:var(--accent-soft); color:inherit; border-radius:3px; padding:0
   <a href="#t2panels">&nbsp;&nbsp;The panels, one by one</a>
   <a href="#t2contract">&nbsp;&nbsp;The TrackStruct contract — every field, and what it holds</a>
   <a href="#t2buildtips">&nbsp;&nbsp;Working practices</a>
-  <a href="#t2vectors">2 · Vectors &amp; bleaching</a>
+  <a href="#t2vectors">3 · Vectors &amp; bleaching</a>
   <a href="#t2quiver">&nbsp;&nbsp;The step-vector plot</a>
   <a href="#t2bleach">&nbsp;&nbsp;Bleaching steps, background and the decay</a>
-  <h4>Tool 3 · Analyze</h4>
-  <a href="#t3contact">Tool 3 · Contact sites — the windowed picker</a>
+  <h4>Tool 4 · Contact Sites</h4>
+  <a href="#t3contact">Tool 4 · Contact sites — the windowed picker</a>
   <a href="#t3open">&nbsp;&nbsp;Opening the picker — the controls on the host row</a>
   <a href="#t3cellwin">&nbsp;&nbsp;The cell table, saved status, the status line, and the windows</a>
   <a href="#t3channel">&nbsp;&nbsp;The density channel dropdown diffusion-aware</a>
@@ -255,13 +256,13 @@ mark{ background:var(--accent-soft); color:inherit; border-radius:3px; padding:0
   <a href="#t3explain">&nbsp;&nbsp;🔍 explain spot — the near-miss inspector</a>
   <a href="#t3manual">&nbsp;&nbsp;Adding, removing and clearing sites by hand</a>
   <a href="#t3save">&nbsp;&nbsp;💾 Save — the four files, and what is in them</a>
-  <a href="#t3refine">Tool 3 · Refine — the contact-site boundary editor</a>
+  <a href="#t3refine">Tool 4 · Refine — the contact-site boundary editor</a>
   <a href="#t3refload">&nbsp;&nbsp;▶ Load / build contact sites</a>
   <a href="#t3refauto">&nbsp;&nbsp;The automatic outline — frac and maxR</a>
   <a href="#t3refsigma">&nbsp;&nbsp;outline σ — the scale outlines are made at, and ⟳ Regenerate all</a>
   <a href="#t3refbox">&nbsp;&nbsp;near box — the neighbourhood a site is compared with</a>
   <a href="#t3tess">&nbsp;&nbsp;🔬 Diffusion map — D per tessel, inside the cell</a>
-  <a href="#t3engage">Tool 3 · Dwell — what counts as one engagement</a>
+  <a href="#t3engage">Tool 4 · Dwell — what counts as one engagement</a>
   <a href="#t3engagedetect">&nbsp;&nbsp;The trace rule, against the hand picks</a>
   <a href="#t3engageplot">&nbsp;&nbsp;The distance-from-centre plot</a>
   <a href="#t3trackbind">&nbsp;&nbsp;Engaged or not, per track — and the histogram between conditions</a>
@@ -284,7 +285,7 @@ mark{ background:var(--accent-soft); color:inherit; border-radius:3px; padding:0
   <a href="#t3exportadvisor">&nbsp;&nbsp;&nbsp;&nbsp;advisor_format/ — the lab's published layout</a>
   <a href="#t3exportopen">&nbsp;&nbsp;&nbsp;&nbsp;Opening an advisor_format folder (viewer + snippet)</a>
   <a href="#t3exportcoords">&nbsp;&nbsp;&nbsp;&nbsp;Export coordinates</a>
-  <a href="#t3sites">Tool 3 · Sites — the mapper, membership and the raw-movie player</a>
+  <a href="#t3sites">Tool 4 · Sites — the mapper, membership and the raw-movie player</a>
   <a href="#t3mapper">&nbsp;&nbsp;▶ Run mapper — the controls and what the run does</a>
   <a href="#t3sitestable">&nbsp;&nbsp;The results table</a>
   <a href="#t3inspector">&nbsp;&nbsp;The site inspector</a>
@@ -293,13 +294,13 @@ mark{ background:var(--accent-soft); color:inherit; border-radius:3px; padding:0
   <a href="#t3trackedits">&nbsp;&nbsp;Removing a member track</a>
   <a href="#t3step">&nbsp;&nbsp;The STEP diffusion bridge command line only</a>
   <a href="#t3siteout">&nbsp;&nbsp;What the mapper writes</a>
-  <a href="#t3dwell">Tool 3 · Dwell — residence times and escape rate</a>
+  <a href="#t3dwell">Tool 4 · Dwell — residence times and escape rate</a>
   <a href="#t3dwellevent">&nbsp;&nbsp;What a dwell event is</a>
   <a href="#t3dwellplots">&nbsp;&nbsp;The two plots</a>
   <a href="#t3dwelltables">&nbsp;&nbsp;The per-track table, and the per-site numbers behind it</a>
   <a href="#t3dwellanim">&nbsp;&nbsp;Clicking a row: the animation and the distance trace</a>
   <a href="#t3dwellout">&nbsp;&nbsp;What Dwell writes</a>
-  <a href="#t3engage">Tool 3 · Engagement — is the molecule slowed at the organelle?</a>
+  <a href="#t3engage">Tool 4 · Engagement — is the molecule slowed at the organelle?</a>
   <a href="#engwhat">&nbsp;&nbsp;What it measures</a>
   <a href="#enggaps">&nbsp;&nbsp;Gap-closed steps, and why not Dt</a>
   <a href="#engctrl">&nbsp;&nbsp;The controls</a>
@@ -367,8 +368,9 @@ mark{ background:var(--accent-soft); color:inherit; border-radius:3px; padding:0
   <button role="tab" data-group="home"  aria-selected="true">Start here</button>
   <button role="tab" data-group="setup" aria-selected="false">Set&nbsp;up</button>
   <button role="tab" data-group="t1"    aria-selected="false">1 · Track</button>
-  <button role="tab" data-group="t2"    aria-selected="false">2 · Curate &amp; Build</button>
-  <button role="tab" data-group="t3"    aria-selected="false">3 · Analyze</button>
+  <button role="tab" data-group="t2"    aria-selected="false">2 · Curate</button>
+  <button role="tab" data-group="t2b"   aria-selected="false">3 · Analysis</button>
+  <button role="tab" data-group="t3"    aria-selected="false">4 · Contact Sites</button>
   <button role="tab" data-group="shared" aria-selected="false">Shared</button>
   <button role="tab" data-group="theory" aria-selected="false">How it works</button>
   <button role="tab" data-group="ref"   aria-selected="false">Reference</button>
@@ -378,7 +380,7 @@ mark{ background:var(--accent-soft); color:inherit; border-radius:3px; padding:0
   <div class="hero">
     <h1>SPTinMatlab</h1>
     <p class="sub">Single-particle tracking of an ER membrane protein at ER&ndash;mitochondria contact
-      sites &mdash; from raw movies to per-site residence times. Three focused apps, coupled
+      sites &mdash; from raw movies to per-site residence times. Four focused apps, coupled
       <em>through files only</em>, so you can stop, inspect and resume at any stage.</p>
   </div>
 
@@ -398,19 +400,26 @@ mark{ background:var(--accent-soft); color:inherit; border-radius:3px; padding:0
     </button>
     <button class="card" data-goto="t2" style="--c:var(--t2); --cs:var(--t2-soft)">
       <span class="n">2</span>
-      <h3>Curate &amp; Build</h3>
-      <p>Review every track by eye, repair mislinks, then build a named TrackStruct with MSD and
-         diffusion. The slow step &mdash; done once.</p>
+      <h3>Curate</h3>
+      <p>Review every track by eye and repair mislinks, then export the curated tracks.</p>
       <span class="run">run_curate</span>
       <span class="go">Open Tool 2 &rarr;</span>
     </button>
-    <button class="card" data-goto="t3" style="--c:var(--t3); --cs:var(--t3-soft)">
+    <button class="card" data-goto="t2b" style="--c:var(--t2); --cs:var(--t2-soft)">
       <span class="n">3</span>
-      <h3>Analyze</h3>
+      <h3>Analysis</h3>
+      <p>Build a named TrackStruct with MSD and diffusion &mdash; the slow step, done once &mdash;
+         then read it back: per-track QC, step vectors, bleaching and background.</p>
+      <span class="run">run_analysis</span>
+      <span class="go">Open Tool 3 &rarr;</span>
+    </button>
+    <button class="card" data-goto="t3" style="--c:var(--t3); --cs:var(--t3-soft)">
+      <span class="n">4</span>
+      <h3>Contact Sites</h3>
       <p>Find contact sites, refine their boundaries, map which tracks belong to which, and measure
          how long each one stays.</p>
-      <span class="run">run_analyze</span>
-      <span class="go">Open Tool 3 &rarr;</span>
+      <span class="run">run_contactsites</span>
+      <span class="go">Open Tool 4 &rarr;</span>
     </button>
   </div>
 
@@ -419,7 +428,7 @@ mark{ background:var(--accent-soft); color:inherit; border-radius:3px; padding:0
     <span class="chip">SPT movie + ER seg + mito seg</span><span class="arw">&rarr;</span>
     <span class="chip b">1 &middot; Track</span><span class="arw">&rarr;</span>
     <span class="chip">_tracks_filtered.xml<br>_spots_filtered.csv</span><span class="arw">&rarr;</span>
-    <span class="chip b">2 &middot; Curate &amp; Build</span><span class="arw">&rarr;</span>
+    <span class="chip b">2 &middot; Curate</span><span class="arw">&rarr;</span>
     <span class="chip">analysis/&lt;name&gt;.mat</span><span class="arw">&rarr;</span>
     <span class="chip b">3 &middot; Analyze</span><span class="arw">&rarr;</span>
     <span class="chip">sites &middot; dwell &middot; diffusion</span>
@@ -429,7 +438,7 @@ mark{ background:var(--accent-soft); color:inherit; border-radius:3px; padding:0
   <ol class="steps">
     <li><b>Track</b> &mdash; point the three pickers at <code>spt/</code>, <code>er_seg/</code>,
         <code>mito_seg/</code>, press <kbd>Scan</kbd>, then detect &rarr; track &rarr; filter &rarr; export.</li>
-    <li><b>Curate &amp; Build</b> &mdash; import the curated tracks, type a <b>Name</b>, press
+    <li><b>Curate</b> &mdash; import the curated tracks, type a <b>Name</b>, press
         <kbd>&#9654; Build + QC</kbd>.</li>
     <li><b>Analyze</b> &mdash; set the project folder, then <b>Contact sites</b> &rarr; <b>Refine</b>
         &rarr; <b>Sites</b> &rarr; <b>Dwell</b>.</li>
@@ -483,7 +492,9 @@ launch. Avoid Downloads, and avoid spaces in the path if you can.</p>
 <pre><code>SPTinMatlab/
 ├── run_track.m
 ├── run_curate.m
-├── run_analyze.m
+├── run_analysis.m
+├── run_contactsites.m
+├── run_analyze.m          (the old name for run_contactsites)
 ├── tool1_track/
 ├── tool2_analyze/
 └── docs/</code></pre>
@@ -506,7 +517,7 @@ the rest.</p>
 <div class="warn"><b>Spell them exactly <code>spt</code>, <code>er_seg</code>,
 <code>mito_seg</code></b> — lower case, with the underscore. This one bites people: Tool 1 also
 accepts <code>erseg</code> and <code>mitoseg</code> <i>without</i> the underscore, but Tools 2 and 3
-do not. Name them the short way and Tool 1 looks like it worked, then Tool 3 quietly finds no masks
+do not. Name them the short way and Tool 1 looks like it worked, then Tool 4 quietly finds no masks
 and you get no contact sites, with no error.</div>
 
 <h3 id="setup-naming">The naming rule</h3>
@@ -538,7 +549,7 @@ root:</p>
 <p>With no such file you get the standard ER + mito setup, which is what you want in almost every
 case. See <a href="#transparency">Transparency &amp; provenance</a> for what the roles mean.</p>
 
-<h2 id="setup-run">Set up · Running the three tools</h2>
+<h2 id="setup-run">Set up · Running the four tools</h2>
 
 <h3 id="setup-path">Tell MATLAB where the code is</h3>
 <p>Once per MATLAB session, with your own path:</p>
@@ -549,11 +560,14 @@ case. See <a href="#transparency">Transparency &amp; provenance</a> for what the
 remembered and you can skip this step forever.</div>
 
 <h3 id="setup-order">Then, in order</h3>
-<pre><code>run_track      % Tool 1 — detect and track
-run_curate     % Tool 2 — review, then build
-run_analyze    % Tool 3 — contact sites and dwell</code></pre>
+<pre><code>run_track         % Tool 1 — detect and track
+run_curate        % Tool 2 — review the tracks
+run_analysis      % Tool 3 — build the TrackStruct, then QC it
+run_contactsites  % Tool 4 — contact sites and dwell</code></pre>
+<p><code>run_analyze</code> still opens Tool 4: that is what the name meant when the toolkit had
+three parts, so old notes keep working.</p>
 <p>Each tool reads what the previous one wrote, so the order matters. Full walkthroughs are in
-<a href="#t1">Tool 1</a>, <a href="#t2curate">Tool 2</a> and <a href="#t3contact">Tool 3</a>; the
+<a href="#t1">Tool 1</a>, <a href="#t2curate">Tool 2</a> and <a href="#t3contact">Tool 4</a>; the
 short version:</p>
 <ol>
   <li><b>Tool 1 · Match files</b> — pick the project folder (the one <i>containing</i>
@@ -565,7 +579,7 @@ short version:</p>
       no file picker. Review, then <kbd>Export curated</kbd> (or <kbd>Export + Next ▶</kbd>). On
       <b>Build &amp; QC</b> type a <b>Name</b> and press <kbd>▶ Build + QC</kbd>. This is the slow
       step, done once.</li>
-  <li><b>Tool 3</b> — set the project folder, then <b>Contact sites</b> → <b>Refine</b> →
+  <li><b>Tool 4</b> — set the project folder, then <b>Contact sites</b> → <b>Refine</b> →
       <b>Sites</b> → <b>Dwell</b>.</li>
 </ol>
 
@@ -576,7 +590,7 @@ short version:</p>
   <tr><td><code>Undefined function 'imgaussfilt'</code></td><td>A toolbox is missing</td><td>Install the add-ons, then confirm with <code>ver</code></td></tr>
   <tr><td>Scan finds cells but <b>0</b> ER / mito</td><td>The names do not pair up</td><td>Check the endings and the shared stem</td></tr>
   <tr><td>Scan finds <b>no</b> cells</td><td>Wrong folder, or movies are not <code>.tif</code></td><td>Point at the folder containing <code>spt/</code></td></tr>
-  <tr><td>Tool 3 says there is no build</td><td>Tool 2 never finished one</td><td>Go back and press <kbd>▶ Build + QC</kbd></td></tr>
+  <tr><td>Tool 4 says there is no build</td><td>Tool 2 never finished one</td><td>Go back and press <kbd>▶ Build + QC</kbd></td></tr>
   <tr><td>The first build is slow</td><td>It genuinely is — MSD for every track</td><td>Once per build; later stages are fast</td></tr>
 </table>
 <div class="note"><b>Nothing is ever overwritten silently.</b> Every stage writes new files, so when
@@ -591,28 +605,30 @@ troubleshooting list is in <a href="#trouble">Troubleshooting</a>.</div>
 <div class="note">New here? Read <a href="#overview">Overview</a> → <a href="#quickstart">Quick start</a>, then dip into the deep-dive sections when a control puzzles you. Every deep dive has a concrete worked example with real numbers from the <code>WithER</code> test cell.</div>
 
 <h2 id="overview">Overview &amp; data flow</h2>
-<p>The workflow is split into three focused apps. They couple <em>through files only</em> — each writes what the next reads, so you can stop, inspect, and resume at any stage.</p>
+<p>The workflow is split into four focused apps. They couple <em>through files only</em> — each writes what the next reads, so you can stop, inspect, and resume at any stage.</p>
 <div class="flow">
   <span class="chip">SPT movie + ER seg + mito seg</span><span class="arw">→</span>
   <span class="chip b">Tool 1 · Track</span><span class="arw">→</span>
   <span class="chip">_tracks_filtered.xml + _spots_filtered.csv</span><span class="arw">→</span>
-  <span class="chip b">Tool 2 · Curate &amp; Build</span><span class="arw">→</span>
+  <span class="chip b">Tool 2 · Curate</span><span class="arw">→</span>
   <span class="chip">analysis/&lt;name&gt;.mat (active build)</span><span class="arw">→</span>
-  <span class="chip b">Tool 3 · Analyze</span><span class="arw">→</span>
+  <span class="chip b">Tool 4 · Contact Sites</span><span class="arw">→</span>
   <span class="chip">contact sites · dwell · diffusion</span>
 </div>
 <table>
   <tr><th>Tool</th><th>Launcher</th><th>Does</th></tr>
   <tr><td><b>1 · Track</b></td><td><code>run_track</code> (<code>spt_app</code>)</td><td>Match the 3 input folders → detect spots → link tracks (ER-aware) → filter → export curated tracks.</td></tr>
-  <tr><td><b>2 · Curate &amp; Build</b></td><td><code>run_curate</code> (<code>spt_curate_app</code>)</td><td>Import curated tracks → build a <b>named</b> <code>TrackStruct</code> (MSD, diffusion, precision) → QC each track.</td></tr>
-  <tr><td><b>3 · Analyze</b></td><td><code>run_analyze</code> (<code>spt_analyze_app</code>)</td><td>Contact-site picking → boundary refine → membership mapping → residence times → cross-condition compare.</td></tr>
+  <tr><td><b>2 · Curate</b></td><td><code>run_curate</code> (<code>spt_curate_app</code>)</td><td>Review every track, repair mislinks, export the curated tracks.</td></tr>
+  <tr><td><b>3 · Analysis</b></td><td><code>run_analysis</code></td><td>Build a <b>named</b> <code>TrackStruct</code> (MSD, diffusion, precision) → QC each track → step vectors and bleaching. Reads <code>tracks/</code> on disk, so it does not need Tool 2 open.</td></tr>
+  <tr><td><b>4 · Contact Sites</b></td><td><code>run_contactsites</code> (<code>spt_analyze_app</code>)</td><td>Contact-site picking → boundary refine → membership mapping → residence times → cross-condition compare.</td></tr>
 </table>
 
 <h2 id="quickstart">Quick start</h2>
 <ol>
   <li><b>Track</b> (<code>run_track</code>): point the three folder pickers at <code>spt/</code>, <code>er_seg/</code>, <code>mito_seg/</code> → <kbd>Scan</kbd>. On the Detect tab set the top-percentile (default 6 %); on the Track &amp; filter tab set link/gap distances and pick a <b>Linking mode</b> from the dropdown (Euclidean · ER-penalty · ER-geodesic); run, filter (min length 50), export.</li>
-  <li><b>Curate &amp; Build</b> (<code>run_curate</code>): import the curated tracks, type a <b>Name</b> for this build, then <kbd>▶ Build + QC</kbd> (this is the slow MSD step — done once). QC individual tracks.</li>
-  <li><b>Analyze</b> (<code>run_analyze</code>): set the project folder — it opens the active build; on <b>Contact sites</b> pick a cell → <kbd>Detect all</kbd> → <kbd>Save</kbd>; on <b>Refine</b> tidy the boundaries; on <b>Sites</b> run the mapper; on <b>Dwell</b> compute residence times.</li>
+  <li><b>Curate</b> (<code>run_curate</code>): review the tracks and repair mislinks; the curated tracks go back to <code>tracks/</code>.</li>
+  <li><b>Analysis</b> (<code>run_analysis</code>): type a <b>Name</b> for this build, then <kbd>▶ Build + QC</kbd> (the slow MSD step — done once). QC individual tracks; <b>Vectors &amp; bleaching</b> reads the build back.</li>
+  <li><b>Contact Sites</b> (<code>run_contactsites</code>): set the project folder — it opens the active build; on <b>Contact sites</b> pick a cell → <kbd>Detect all</kbd> → <kbd>Save</kbd>; on <b>Refine</b> tidy the boundaries; on <b>Sites</b> run the mapper; on <b>Dwell</b> compute residence times.</li>
 </ol>
 
 <h2 id="t1">Tool 1 · Track &amp; filter</h2>
@@ -757,7 +773,7 @@ dog = gblur(hp, s1) - gblur(hp, s2)           % band-pass at the spot scale</cod
   <li><b>Thresholds</b> — either the absolute value handed in, or (if none) a per-frame fallback <code>median + 4·MAD</code>, where <code>MAD = 1.4826·median|dog − median|</code>. The status line prints <code>thr MAD</code> when that fallback is in force.</li>
   <li><b>Finds 5×5 local maxima</b> above threshold (<code>dog ≥ imdilate(dog, ones(5,5))</code>), and drops any peak within <b>2 px of the border</b>.</li>
   <li><b>Non-max suppresses</b> in descending quality: accept the strongest first, then reject any candidate within 2 px (Chebyshev) of an accepted one. So detected spots are always &gt; 2 px apart.</li>
-  <li><b>Refines to sub-pixel</b> with a <b>5×5 intensity-weighted centroid on the high-pass image</b> (negatives clipped to zero). There is no fitted PSF width, hence no per-spot Cramér–Rao precision — use Tool 2's MSD-intercept <code>σ_loc</code> instead.</li>
+  <li><b>Refines to sub-pixel</b> with a <b>5×5 intensity-weighted centroid on the high-pass image</b> (negatives clipped to zero). There is no fitted PSF width, hence no per-spot Cramér–Rao precision — use Tool 3's MSD-intercept <code>σ_loc</code> instead.</li>
 </ol>
 <p>Each spot's <b>quality</b> is the DoG value at its integer peak. That is the number on the histogram's x-axis, the number in the <code>QUALITY</code> column, and the number both threshold modes cut on.</p>
 <p>Separately, <code>spt_measure</code> reports <code>MEAN</code>, <code>MAX</code> and <code>TOTAL</code> intensity over a disk of radius <code>(diameter/pixel)/2</code> px (≈ 2.32 px at the defaults) on the <b>raw, non-background-subtracted</b> frame. Border spots use a partial disk — out-of-frame offsets are dropped, not clamped, so edge spots are not inflated.</p>
@@ -959,7 +975,7 @@ cost = ‖p − q‖ · (1 + λ · off)</code></pre>
   <tr><td><b>trails</b></td><td>on</td><td>Draw each track's path up to the current frame, one colour per track, with a filled head marker at the current localization (or the last one before now).</td></tr>
   <tr><td><b>zoom</b></td><td>on</td><td>Clamp the view to a square box around the played tracks (25 % margin, floor ≈ 18 px). Un-tick for the full frame; the axes toolbar pans and zooms further.</td></tr>
   <tr><td><b>ER</b> · <b>mito</b></td><td>off, and disabled unless that segmentation exists for this cell</td><td>Tint the ER (green, α 0.28) and mito (magenta, α 0.42) masks <b>for the current frame</b>.</td></tr>
-  <tr><td><b>CS</b></td><td>always disabled in Tool 1</td><td>A contact-site outline overlay. Tool 1 never supplies one, so this checkbox stays greyed out here; it lights up in Tool 3.</td></tr>
+  <tr><td><b>CS</b></td><td>always disabled in Tool 1</td><td>A contact-site outline overlay. Tool 1 never supplies one, so this checkbox stays greyed out here; it lights up in Tool 4.</td></tr>
   <tr><td><kbd>Save video…</kbd></td><td>—</td><td>Writes the track span as an MP4 at 12 fps (AVI fallback), default name <code>&lt;base&gt;_tracks.mp4</code>. Progress shows in the button; you get a dialog when it finishes.</td></tr>
 </table>
 <div class="good">The player title is written to prevent one specific misreading: <code>250408_WT_012_spt1 — 8 tracks · track span 543–5555 of 5981 frames</code>. The <b>track span is the span of the few tracks being played</b>; the movie is 5981 frames. A player reading "543–5555" is not telling you the movie length.</div>
@@ -1081,7 +1097,7 @@ n_spots,n_tracks,run_time</code></pre>
   <tr><td>file size</td><td>10.9 MB</td><td>10.7 MB</td></tr>
 </table>
 <p>The near-identical file sizes are the giveaway: the filtered file is not a subset, it is the same cloud with 35,102 more blanks in one column. The <b>XML</b> pair is the opposite — <code>_tracks.xml</code> holds 5,564 tracks and <code>_tracks_filtered.xml</code> holds 273, and that one <em>is</em> a genuine subset.</p>
-<div class="good"><b>Why keep the whole cloud?</b> Tool 3's contact-site density is built from <em>every</em> detection, tracked or not. A molecule visible for three frames still says the ER was there. Discarding it for failing to form a long track would bias the density map toward wherever tracking happened to work well — which is exactly the regions you are trying to measure. So the filter is a statement about which <em>trajectories</em> you trust, never about which <em>localizations</em> are real.</div>
+<div class="good"><b>Why keep the whole cloud?</b> Tool 4's contact-site density is built from <em>every</em> detection, tracked or not. A molecule visible for three frames still says the ER was there. Discarding it for failing to form a long track would bias the density map toward wherever tracking happened to work well — which is exactly the regions you are trying to measure. So the filter is a statement about which <em>trajectories</em> you trust, never about which <em>localizations</em> are real.</div>
 <div class="warn"><b>The trap in the numbers.</b> Because the cloud is preserved, <code>filter.n_spots_written</code> equals <code>result.n_spots</code> and tells you nothing about the filter. The number that answers <em>"how much data came through this stage?"</em> is <code>filter.n_spots_in_kept_tracks</code> — 27,194 against 116,092 on the cell above.</div>
 <h5>Where the blanks in <code>_spots.csv</code> come from</h5>
 <p>53,796 detections were in no track at all before any filtering. Sampled across 301 frames of that cell, they split roughly:</p>
@@ -1113,7 +1129,7 @@ n_spots,n_tracks,run_time</code></pre>
 <div class="note">A third, rarer cause worth ruling out: an <b>inverted ER mask</b>. If <code>spt_load_seg</code> warned that the foreground covers more than 90 % of the field, the label was read the wrong way round, and strict linking will have enforced the constraint against the complement of the ER — keeping precisely the off-ER detections. Check that warning before concluding anything about the biology.</div>
 
 <h3 id="t1expt">Tab 1 · Experiment</h3>
-<p>This is the <b>same shared panel</b> that Tools 2 and 3 embed (<code>spt_experiment_panel</code>, which lives in <code>tool2_analyze/app/</code> and is added to the path when Tool 1 starts). It is tab 1 in all three tools so the manifest is always in the same place, and it is here — <em>before</em> tracking — so conditions can be assigned up front, straight from the raw movies. Picking a <b>Project folder</b> on the Match tab points it at <code>&lt;project&gt;/experiment_details.mat</code> and adds that folder to the table, so the conditions you set in any tool are already there in the next one. If the panel file cannot be found you get a plain label saying so instead of the panel, and the rest of Tool 1 works normally.</p>
+<p>This is the <b>same shared panel</b> that Tools 2, 3 and 4 embed (<code>spt_experiment_panel</code>, which lives in <code>tool2_analyze/app/</code> and is added to the path when Tool 1 starts). It is tab 1 in all four tools so the manifest is always in the same place, and it is here — <em>before</em> tracking — so conditions can be assigned up front, straight from the raw movies. Picking a <b>Project folder</b> on the Match tab points it at <code>&lt;project&gt;/experiment_details.mat</code> and adds that folder to the table, so the conditions you set in any tool are already there in the next one. If the panel file cannot be found you get a plain label saying so instead of the panel, and the rest of Tool 1 works normally.</p>
 <h3 id="t1adv">The interleaved / bleedthrough options are collapsed by default</h3>
 <p>Everything in the rest of this section — <b>ridge R ≤</b>, <b>width ≤</b>, <b>align °</b>, <b>thr from</b>, <b>on frames</b>, <b>de-interleave</b> and <b>organelle /</b> — lives behind one disclosure on the Detect tab:</p>
 <pre><code>▸ interleaved acquisition &amp; bleedthrough options</code></pre>
@@ -1203,7 +1219,7 @@ mask (1.66x vs 1.05x), so they are the ORGANELLE channel: set de-interleave to o
 <div class="note"><b>The ratio comes from the whole stack, not from how much of it you run.</b> Deriving it from a truncated run (a partial <code>maxFrames</code> pass) compared the frames processed against the full organelle stack, found no whole ratio and fell back to 1 — and that failure is silent, because every frame still lands on <em>some</em> page. It is now read off the stack's own shape.</div>
 <div class="note"><b>A frame with no page is still reported as having none.</b> Where the map runs past the end of the organelle stack the distance stays <code>NaN</code> and the support stays empty — it is <em>not</em> clamped to the last page, which would hand those frames a mask that is not theirs and call it a measurement. The count is written to <code>frames.no_organelle_page</code> in the settings file and raised as a warning at run time, so the gap is visible rather than silent.</div>
 <p>This is an index mapping, not a rewrite: nothing duplicates your TIFF pages on disk, and memory is unchanged.</p>
-<div class="warn"><b>The map covers DETECTION only — the viewers still expect matching stacks.</b> Tool 1's track player, Tool 2's Import &amp; Curate overlay and Tool 3's picker and Sites/Dwell overlays all read the organelle stack page-for-page. Give them a half-length organelle stack and the overlay either clamps to the last page (drawing a stale outline as though it were current) or stops appearing once the shorter stack runs out. If you want the overlays right, <b>duplicate the organelle frames up to the movie length before you start</b> — see the Fiji script in the project README — rather than relying on this setting.</div>
+<div class="warn"><b>The map covers DETECTION only — the viewers still expect matching stacks.</b> Tool 1's track player, Tool 2's Import &amp; Curate overlay and Tool 4's picker and Sites/Dwell overlays all read the organelle stack page-for-page. Give them a half-length organelle stack and the overlay either clamps to the last page (drawing a stale outline as though it were current) or stops appearing once the shorter stack runs out. If you want the overlays right, <b>duplicate the organelle frames up to the movie length before you start</b> — see the Fiji script in the project README — rather than relying on this setting.</div>
 
 <h2 id="t2curate">2 · Import &amp; Curate — every control</h2>
 <p class="lead">The second tab of <code>run_curate</code> is a full track-inspection workbench (<code>tool2_analyze/app/track_viewer.m</code>, embedded into the tab). It reads Tool 1's curated pair, scores every track for mis-linkage, lets you overrule the automatic decision track by track, and writes the <code>_curated</code> pair that <b>Build &amp; QC</b> then turns into a named build. Nothing here recomputes MSD — this stage is only about <em>which tracks you trust</em>.</p>
@@ -1511,7 +1527,7 @@ Nothing in the shipped app is wired so that these fire — the read suffix and t
 <p>Alongside the log, the four long-running buttons give in-place feedback: the one you clicked turns amber and reads <code>⏳ applying…</code>, <code>⏳ exporting…</code> or <code>⏳ batch running…</code>, while <kbd>Apply filter</kbd>, both Export buttons and <kbd>Run batch filter + HTML report</kbd> are disabled for the duration and restored afterwards — even if the action errors.</p>
 <h3 id="curatefilter">The curate filter — what the two metrics actually measure</h3>
 <p>Before you build, the <b>Import &amp; Curate</b> tab scores every imported track on two numbers and keeps a track only if it passes <em>both</em> sliders (plus the optional jump gate). This is the one control on the tab whose meaning is not obvious, so here it is in full.</p>
-<div class="warn"><b>These are mis-linkage filters, not biology filters.</b> Both metrics ask a single question — <em>could the linker have stitched the wrong detections together here?</em> Neither one selects for confined, mobile, ER-resident or fast/slow molecules, and neither is meant to enrich a phenotype. Use them to throw out tracks you cannot trust as <em>one molecule</em>, then let the biology come out of Tool 3.</div>
+<div class="warn"><b>These are mis-linkage filters, not biology filters.</b> Both metrics ask a single question — <em>could the linker have stitched the wrong detections together here?</em> Neither one selects for confined, mobile, ER-resident or fast/slow molecules, and neither is meant to enrich a phenotype. Use them to throw out tracks you cannot trust as <em>one molecule</em>, then let the biology come out of Tool 4.</div>
 <table>
   <tr><th>Metric</th><th>Computed as</th><th>Track keeps if</th></tr>
   <tr><td><b>Local density</b><br>integer neighbour count</td><td>Per <em>spot</em>: the number of <b>other</b> spots in the <b>same frame</b> lying within the linking radius <code>R</code>. Per <em>track</em>: the <b>maximum</b> over that track's spots.</td><td><code>density ≤ Max density</code></td></tr>
@@ -1538,7 +1554,7 @@ Nothing in the shipped app is wired so that these fire — the read suffix and t
 
 <p>Both histograms in the middle panel show the distribution you are cutting — displacement variance on one, local density on the other (integer bins, since it is a neighbour count) — each with the <b>current threshold drawn as a red dashed vertical line</b>. Drag a slider and the line moves, so you can place the cut relative to the shape of the data instead of guessing. Tracks whose metric is undefined (a single-localization track has no step, hence no variance) are <em>kept</em>, not silently dropped.</p>
 
-<h2 id="t2build">2 · Curate &amp; Build — the <b>Build &amp; QC</b> tab</h2>
+<h2 id="t2build">3 · Analysis — the <b>Build &amp; QC</b> tab</h2>
 <p class="lead">This is the tab that turns curated tracks into the one file the rest of the pipeline reads: <code>analysis/&lt;name&gt;.mat</code>, a <code>Tracks</code> struct holding every tracked localization plus the per-track MSD (the per-track <code>D</code> is fit live from it, never stored) and the per-localization diffusion state. It is also the only place you get to look at all of that at once, per cell or pooled, before anything downstream depends on it.</p>
 
 <div class="flow">
@@ -1546,7 +1562,7 @@ Nothing in the shipped app is wired so that these fire — the read suffix and t
   <span class="chip b">▶ Build + QC</span><span class="arw">→</span>
   <span class="chip">analysis/&lt;name&gt;.mat</span><span class="arw">+</span>
   <span class="chip">analysis/active_trackstruct.txt</span><span class="arw">→</span>
-  <span class="chip b">Tool 3</span>
+  <span class="chip b">Tool 4</span>
 </div>
 
 <p>The tab is laid out in four rows: the <b>build row</b> (Time unit · Name · Build · Load · status), the <b>QC row</b> (QC cell · D fit · fit % · confined ≤ D · per-track readout), the <b>panels</b> — a left column of pooled distributions, a clickable tracks map in the middle, and a right column that fills in when you click a track — and a <b>Build log</b> text area along the bottom that starts at <code>Build log:</code> and accumulates one line per build, load and build switch.</p>
@@ -1560,7 +1576,7 @@ Nothing in the shipped app is wired so that these fire — the read suffix and t
   <li><b><code>seconds</code></b> — <code>T = FRAME · frameInterval</code>.</li>
 </ul>
 <p>The MSD is binned by <em>integer frame lag</em> either way: in <code>seconds</code> mode the importer recovers the frame gap by dividing the time gap by <code>frameInterval</code> and keeps only pairs whose result is an integer to within <code>1e-6</code>. So both settings give the same MSD.</p>
-<div class="warn"><b>Leave it on <code>frame</code> unless you have a specific reason.</b> The Time-unit dropdown lives on this tab, which does not exist in Tool 3 (<code>run_analyze</code>) — and when the dropdown is absent the app assumes <b>frames</b>. Anything that converts a matrix time value back to a frame index (the embedded track players, the Dwell animation) will therefore mis-read a build made in <code>seconds</code> mode when that build is opened in a separately launched Analyze tool.</div>
+<div class="warn"><b>Leave it on <code>frame</code> unless you have a specific reason.</b> The Time-unit dropdown lives on this tab, which does not exist in Tool 4 (<code>run_analyze</code>) — and when the dropdown is absent the app assumes <b>frames</b>. Anything that converts a matrix time value back to a frame index (the embedded track players, the Dwell animation) will therefore mis-read a build made in <code>seconds</code> mode when that build is opened in a separately launched Analyze tool.</div>
 
 <h4 id="t2name">Name — and what Build actually does</h4>
 <p>The <b>Name</b> field (default <code>TrackStruct</code>) names the build. Whatever you type is normalised to <code>&lt;stem&gt;.mat</code> — the extension is added if you leave it off, and an empty field reverts to <code>TrackStruct</code>. <kbd>▶ Build + QC</kbd> then, in order:</p>
@@ -1589,10 +1605,10 @@ Nothing in the shipped app is wired so that these fire — the read suffix and t
   <li>any other <code>.mat</code> in the folder that actually contains a <code>Tracks</code> variable — so a build you copied in by hand still registers without a pointer.</li>
 </ol>
 <p>It returns empty when the folder holds no build at all.</p>
-<div class="good"><b>Everything downstream resolves through that one function</b>, never through a hardcoded filename: Tool 3's own loader, the contact-site picker (<code>cs_window_picker</code>), the window mapper (<code>cs_window_mapper</code>), the footprint builder (<code>cs_footprints_build</code>), <code>cs_refine</code>, the experiment scan (<code>cs_experiment_scan</code>) and the Experiment tab's <b>built</b> lamp (<code>cs_experiment_status</code>). They therefore cannot disagree about which file a folder is working from, and a separately launched <code>run_analyze</code> opens the build the Curate tool last wrote or loaded.</div>
+<div class="good"><b>Everything downstream resolves through that one function</b>, never through a hardcoded filename: Tool 4's own loader, the contact-site picker (<code>cs_window_picker</code>), the window mapper (<code>cs_window_mapper</code>), the footprint builder (<code>cs_footprints_build</code>), <code>cs_refine</code>, the experiment scan (<code>cs_experiment_scan</code>) and the Experiment tab's <b>built</b> lamp (<code>cs_experiment_status</code>). They therefore cannot disagree about which file a folder is working from, and a separately launched <code>run_analyze</code> opens the build the Curate tool last wrote or loaded.</div>
 
 <h4 id="t2buildselector">The top-bar <b>Build</b> selector</h4>
-<p>The <b>Build</b> dropdown in the top bar (present in <em>both</em> tools, so Tool 3 states which build it is analysing rather than only implying it) lists every <code>.mat</code> in <code>analysis/</code> that genuinely contains a <code>Tracks</code> variable — it checks with <code>whos('-file')</code>, which is about a millisecond per file, and skips the known non-builds (<code>cs_calib.mat</code>, <code>CSW_final.mat</code>, <code>cs_window_dwell.mat</code>, <code>CS_footprints.mat</code>, <code>experiment_details.mat</code>). The active one is marked with a trailing <b>●</b>:</p>
+<p>The <b>Build</b> dropdown in the top bar (present in <em>both</em> tools, so Tool 4 states which build it is analysing rather than only implying it) lists every <code>.mat</code> in <code>analysis/</code> that genuinely contains a <code>Tracks</code> variable — it checks with <code>whos('-file')</code>, which is about a millisecond per file, and skips the known non-builds (<code>cs_calib.mat</code>, <code>CSW_final.mat</code>, <code>cs_window_dwell.mat</code>, <code>CS_footprints.mat</code>, <code>experiment_details.mat</code>). The active one is marked with a trailing <b>●</b>:</p>
 <div class="note"><b>The file was renamed.</b> It is <code>experiment_details.mat</code>; projects created before the rename carry <code>experiment_manifest.mat</code>. Both are read — <code>cs_experiment_file</code> resolves them and prefers the new name — and only the new one is written, so opening an older project migrates it on the next change. The old file is left in place, not deleted.</div>
 
 
@@ -1637,12 +1653,12 @@ TrackStruct.mat</code></pre>
 <div class="note">The percentage is of that track's <em>available lags</em>, not of its length. For a gap-free track of L localizations there are L−1 lags, so 25 % of a gap-free 100-localization track (99 lags) is 25 lags; a track that only reaches lag 40 gets 10.</div>
 
 <h4 id="t2confined">confined ≤ D — the confinement threshold</h4>
-<p>A spinner in µm²/s: limits 0.001–100, default <b>0.15</b>, step 0.05, displayed to 3 significant figures. It is a <em>per-localization</em> threshold — a localization whose stepwise <code>D(t)</code> is at or below it is flagged <code>confined</code> — and it defines the flags Tool 3's <b>Confined</b> and <b>State-change</b> density channels run on.</p>
+<p>A spinner in µm²/s: limits 0.001–100, default <b>0.15</b>, step 0.05, displayed to 3 significant figures. It is a <em>per-localization</em> threshold — a localization whose stepwise <code>D(t)</code> is at or below it is flagged <code>confined</code> — and it defines the flags Tool 4's <b>Confined</b> and <b>State-change</b> density channels run on.</p>
 <div class="good"><b>Changing it does not rebuild anything.</b> The flags are re-derived from the <b>stored <code>Dt</code></b>: <code>confined = Dt ≤ threshold</code>, and <code>stateChange</code> is recomputed as the rising edge into each confined run (walking each track's real localizations in frame order). That is arithmetic on an array already in memory — no re-rolling of the estimator, no re-parsing of XML. The new flags are written back into the <b>active</b> build (not unconditionally into <code>TrackStruct.mat</code>, which used to leave a divergent shadow file behind), <code>diffOpts.confineD</code> is updated so the provenance matches, and the QC redraws.</div>
 <p>Because <code>NaN ≤ x</code> is false, padded slots and gaps are never flagged confined. What the spinner cannot change is <code>Dt</code> itself — the window, the mode and the noise floor σ are fixed at Build (see below); to change those you rebuild.</p>
 
 <h3 id="t2statechange">Confinement and state changes — not currently in the pipeline</h3>
-<p>Builds store the <b>rolling diffusion only</b>. <code>Tracks.confined</code> and <code>Tracks.stateChange</code> are no longer written, and Tool 3's contact-site picker no longer has <em>Confined</em> / <em>State-change</em> density channels — its density is always the tracked localization cloud.</p>
+<p>Builds store the <b>rolling diffusion only</b>. <code>Tracks.confined</code> and <code>Tracks.stateChange</code> are no longer written, and Tool 4's contact-site picker no longer has <em>Confined</em> / <em>State-change</em> density channels — its density is always the tracked localization cloud.</p>
 <p>The reason is that every one of those flags depends on a confinement criterion, and picking contact sites by diffusion <em>state</em> would have rested on a parameter nobody was setting. Measured against a matched Brownian null on the reference cell, the criterion that had been shipping fired on <b>45 %</b> of tracks with no state change at all, and on <b>95 %</b> of tracks that were simply slow the whole time — so those channels were selecting largely on noise.</p>
 <p>The capability is intact, not deleted: <code>spt_confine_flags</code> implements four criteria (<code>segment</code>, <code>drop</code>, <code>relative</code>, <code>absolute</code>) with the full benchmark in <code>spt_track_diffusion</code>'s header. To bring it back, pass <code>confMode</code> &amp;c to <code>spt_track_diffusion</code> and store <code>Tk.confined</code> / <code>Tk.stateChange</code> in the build. Old builds that still carry the fields load and display fine; they are simply ignored.</p>
 
@@ -1719,7 +1735,7 @@ D distribution — median &lt;med&gt; µm²/s  ·  adaptive fit &lt;min&gt;–&l
   <li>Title: <em>"stepwise D · med &lt;median&gt; · &lt;p&gt;% confined · n=74.0k"</em> (counts over ~1000 are abbreviated as <code>74.0k</code>). The <em>% confined</em> comes from the stored <code>confined</code> flags when they exist, and falls back to <code>mean(Dt ≤ threshold)</code> when they do not.</li>
   <li>If the build has no <code>Dt</code> the title says <em>"stepwise D (per localization) — not in this TrackStruct"</em>.</li>
 </ul>
-<p><b>How to use it:</b> move the <code>confined ≤ D</code> spinner until the red line sits in the valley between the low-D population and the mobile bulk, then look at the <em>% confined</em> in the title and at Tool 3's Confined channel. Because re-deriving is free, this is a cheap thing to explore; because it re-saves the active build, the value you leave it at is the value Tool 3 will use.</p>
+<p><b>How to use it:</b> move the <code>confined ≤ D</code> spinner until the red line sits in the valley between the low-D population and the mobile bulk, then look at the <em>% confined</em> in the title and at Tool 4's Confined channel. Because re-deriving is free, this is a cheap thing to explore; because it re-saves the active build, the value you leave it at is the value Tool 4 will use.</p>
 
 <h4 id="t2panelcsd">CSD — cumulative displacement</h4>
 <p>Cumulative path length in µm against step number, one faint orange curve per track, the <b>median bold</b>, and the clicked track highlighted in orange on top. Title: <em>"CSD — &lt;n&gt; tracks · median total &lt;µm&gt; µm · median to step &lt;k&gt;"</em>, where <em>median total</em> is the median of each track's final value.</p>
@@ -1750,7 +1766,7 @@ D distribution — median &lt;med&gt; µm²/s  ·  adaptive fit &lt;min&gt;–&l
 <p>Note the sweep panel always spans the <b>full</b> range of windows, regardless of the <b>fit %</b> cap — the cap moves the <code>used</code> line, not the curves. Read it as a stability check: a flat blue plateau with R² ≈ 1 over the short lags means D is well determined and your window choice barely matters; a blue curve that drifts as soon as R² starts falling means the estimate is window-dependent and you should report the window you used. It is the fastest way to see <em>why</em> Adaptive R² picks 10 % for one track and 60 % for another.</p>
 
 <h3 id="t2contract">The TrackStruct contract — every field, and what it holds</h3>
-<p>The build is a <code>1 × nCells</code> struct array called <code>Tracks</code>, one element per cell. Field names and shapes are a contract: Tool 3, the picker, the mapper and the pristine ContactSites suite all read them directly, and the suite freezes <code>file</code>, <code>matrix</code> and <code>vector</code> in particular.</p>
+<p>The build is a <code>1 × nCells</code> struct array called <code>Tracks</code>, one element per cell. Field names and shapes are a contract: Tool 4, the picker, the mapper and the pristine ContactSites suite all read them directly, and the suite freezes <code>file</code>, <code>matrix</code> and <code>vector</code> in particular.</p>
 
 <div class="card">
 <b>The padded <code>[nF × nT]</code> layout.</b> Every per-localization field is a dense rectangle: <code>nT</code> columns = tracks, <code>nF</code> rows = the length of the <b>single longest track in that cell</b>. Shorter tracks are padded, and <b>NaN means "no localization at that frame slot"</b> (logical fields pad with <code>false</code>). Per-step fields are <code>[nF−1 × nT]</code>; a track of length L has L−1 real step rows and padding after.
@@ -1798,10 +1814,10 @@ D distribution — median &lt;med&gt; µm²/s  ·  adaptive fit &lt;min&gt;–&l
   <li><b>Confirm which build is active before you analyse.</b> The top-bar <b>Build</b> dropdown's <b>●</b> is the authoritative answer, in both tools, and the Experiment tab's <b>built</b> lamp resolves through the same pointer.</li>
   <li><b>Re-curating invalidates downstream results.</b> A new build can change <code>nF</code>, and stored linear indices in <code>CSW_final.mat</code> are strided by <code>nF</code>. Re-run the picker, the mapper and Dwell rather than trusting files from the previous build.</li>
   <li><b>A rebuild does <em>not</em> clear downstream state — you must.</b> <kbd>▶ Build + QC</kbd> is the one path that leaves the in-session Refine footprints, Sites mapper results, Dwell results and density/null caches standing: <kbd>📂 Load TrackStruct…</kbd>, the top-bar <b>Build</b> selector and a change of project folder all reset them, but Build does not. Since a rebuild is precisely the operation that can change <code>nF</code>, re-run the downstream stages after building instead of reading the panels still on screen.</li>
-  <li><b>Sanity-check a fresh build in this order:</b> cell table (are all cells there, do <code>mito</code>/<code>ER</code> show <code>✓</code>) → the on-ER % in the readout line → track length (does the left edge match Tool 1's min-length filter) → D distribution median against the sweep panel of two or three clicked tracks → the stepwise histogram, to place the confinement threshold. Only then move to Tool 3.</li>
+  <li><b>Sanity-check a fresh build in this order:</b> cell table (are all cells there, do <code>mito</code>/<code>ER</code> show <code>✓</code>) → the on-ER % in the readout line → track length (does the left edge match Tool 1's min-length filter) → D distribution median against the sweep panel of two or three clicked tracks → the stepwise histogram, to place the confinement threshold. Only then move to Tool 4.</li>
   <li><b>MATLAB apps do not hot-reload.</b> If you edit a source file mid-session, close and relaunch — a stale figure throws phantom callback errors.</li>
 </ul>
-<h2 id="t2vectors">2 · Curate &amp; Build — the <b>Vectors &amp; bleaching</b> tab</h2>
+<h2 id="t2vectors">3 · Analysis — the <b>Vectors &amp; bleaching</b> tab</h2>
 <p class="lead">Two things every build already carries that nothing else in the pipeline reads: the <b>step vectors</b> (<code>Tracks.vector</code>, µm per frame) and the <b>per-localization intensity</b> (<code>Tracks.intens</code>, pages MEAN / MAX / TOTAL, attached from the spots CSV). This tab draws the first and fits the second. Nothing here changes the build; the bleaching fit adds fields to it in memory.</p>
 
 <h3 id="t2quiver">The step-vector plot</h3>
@@ -1828,7 +1844,7 @@ D distribution — median &lt;med&gt; µm²/s  ·  adaptive fit &lt;min&gt;–&l
 <div class="note"><b>A movie that does not decay is not given a decay.</b> When the fit explains almost nothing (R² &lt; 0.1) the answer is <code>τ = Inf</code> and <code>corr = 1</code>. That is the usual result for sptPALM, where photoactivation replaces the molecules that bleach and the count stays flat — as it does in the CysLig data.</div>
 <div class="warn"><b>What this data can and cannot support.</b> On the CysLig movies only about 10% of traces give a single clean step and 53% are flagged mixed, because the background dominates: a total intensity of ≈ 2575 counts sits on a background of ≈ 2500 with steps of ≈ 450 and a trace noise of ≈ 176. Read the <b>background</b> from it — that is measurable on 58% of tracks and consistent — but do not read stoichiometry. Counting fluorophores needs a dedicated bleaching movie: no photoactivation, full-field illumination, and a long enough exposure for the trace to reach its plateau while the tracker still follows the spot.</div>
 
-<h2 id="t3engage">Tool 3 · <b>Dwell</b> — what counts as one engagement</h2>
+<h2 id="t3engage">Tool 4 · <b>Dwell</b> — what counts as one engagement</h2>
 <p class="lead">A dwell time is only as good as the rule that says when a visit starts and ends. The Dwell tab offers two, and the <b>visit rule</b> dropdown picks which one produces the numbers (recompute after changing it; the result records which was used).</p>
 <table>
   <tr><th>Rule</th><th>A visit is…</th><th>Where it bites</th></tr>
@@ -1901,7 +1917,7 @@ D distribution — median &lt;med&gt; µm²/s  ·  adaptive fit &lt;min&gt;–&l
 <p>Both families carry <b><code>pAdj</code>, Holm-adjusted</b> over the comparisons actually made: five conditions are ten comparisons, and one p below 0.05 out of ten is what chance looks like. Quote <code>pAdj</code>.</p>
 <p>On the CysLig data this matters in both directions. Pooled visits separate nothing (every KS p &gt; 0.13). Per cell, <b>Compound 296 vs 314 gives p = 0.004, and 0.040 after Holm</b> — the per-cell medians barely overlap (296: 0.89–1.58 s across 10 cells; 314: 1.55–1.95 s across 4) where the visit distributions do, because censoring compresses them. 314 also has the <em>shortest</em> observation window of the five (2.08 s against 2.46 s), so that difference is not the window. Baseline has 2 cells and cannot be tested against anything.</p></div>
 
-<h2 id="t3contact">Tool 3 · <b>Contact sites</b> — the windowed picker</h2>
+<h2 id="t3contact">Tool 4 · <b>Contact sites</b> — the windowed picker</h2>
 <p class="lead">Tab <b>2 · Contact sites</b> is where a density map becomes a list of candidate contact sites, one list per time window. Everything downstream (Refine → Sites → Dwell → Compare) is built on what you save here, so this is the tab worth understanding control by control.</p>
 
 <div class="flow">
@@ -2116,7 +2132,7 @@ counts = accumarray([Ly Lx], 1, [grid grid]);        % row = y, column = x</code
 
 <hr>
 
-<h2 id="t3refine">Tool 3 · <b>Refine</b> — the contact-site boundary editor</h2>
+<h2 id="t3refine">Tool 4 · <b>Refine</b> — the contact-site boundary editor</h2>
 <p class="lead">Tab <b>3 · Refine</b> turns each pick — a point — into a <em>boundary</em>, and lets you judge and fix that boundary one site at a time. It writes only your overrides, so the mapper can still use its own automatic outline everywhere you did not intervene.</p>
 
 <h3 id="t3refload">▶ Load / build contact sites</h3>
@@ -2251,7 +2267,7 @@ ref(r) = ρ · A_ER(r)                                               % A_ER(r) =
   <li><code>CSdeleted</code> — the skip list: <code>file, csID, window, pickPx</code> for each site you marked deleted (a deleted site needs no boundary).</li>
 </ul>
 <p>Untouched sites are deliberately <b>left out</b>, so they keep being governed by the mapper's own <b>maxR/frac</b> on the Sites tab. Saving with no edits at all is legal and reported as such — the mapper then uses automatic footprints for every site. Saving also invalidates the in-session mapper and dwell results, because refinement changes the mapping; the status line tells you to <b>re-run the mapper (Sites tab) to apply</b>.</p>
-<div class="note">The Refine tab is <em>not</em> <code>drivers/cs_refine.m</code>. That file is the paper suite's standalone freehand refiner — it can be run on its own (<code>cs_refine(analysisDir)</code>), embedded via <code>'Parent'</code>, and restricted with <code>'MitoFlag'</code>, but it works on the legacy chain (<code>Tracks_final.mat</code> + <code>TrackData/&lt;base&gt;_CSdata.mat</code> → <code>CSdata/&lt;base&gt;_CSdata.mat</code>), not on <code>CS_footprints.mat</code>. Tool 3's Refine tab reimplements the same interaction on the windowed pipeline; the two do not read each other's files.</div>
+<div class="note">The Refine tab is <em>not</em> <code>drivers/cs_refine.m</code>. That file is the paper suite's standalone freehand refiner — it can be run on its own (<code>cs_refine(analysisDir)</code>), embedded via <code>'Parent'</code>, and restricted with <code>'MitoFlag'</code>, but it works on the legacy chain (<code>Tracks_final.mat</code> + <code>TrackData/&lt;base&gt;_CSdata.mat</code> → <code>CSdata/&lt;base&gt;_CSdata.mat</code>), not on <code>CS_footprints.mat</code>. Tool 4's Refine tab reimplements the same interaction on the windowed pipeline; the two do not read each other's files.</div>
 
 <hr>
 
@@ -2530,7 +2546,7 @@ Everything in the exported files is in µm, nm or frames computed with <b>this d
 
 <h4 id="t3exportopen">Opening an advisor_format folder — in the tool, or in code</h4>
 <p>Both work on an export's <code>advisor_format/&lt;condition&gt;/</code> folder <b>and on the published VAPB folder itself</b>, because the layout is the same. Neither writes anything.</p>
-<p><b>In the tool:</b> Tool 3 · Contact sites → <kbd>🔍 View advisor format…</kbd>. It starts in the most recent export's advisor folder; pick any folder that holds <code>CS_final*.mat</code> and <code>*_Tracks_final*.mat</code>. From the command line: <code>cs_advisor_viewer(folder)</code>.</p>
+<p><b>In the tool:</b> Tool 4 · Contact sites → <kbd>🔍 View advisor format…</kbd>. It starts in the most recent export's advisor folder; pick any folder that holds <code>CS_final*.mat</code> and <code>*_Tracks_final*.mat</code>. From the command line: <code>cs_advisor_viewer(folder)</code>.</p>
 <ul>
   <li><b>Cells</b> table: mito and other sites per cell (by <code>MitoFlag</code>) and <code>MitoEnrichCoeff</code>, computed from <code>EC</code> as in the published sheet.</li>
   <li><b>Sites</b> table for the selected cell: <code>CS_index</code>, <code>csID</code>, member tracks, localizations inside the outline (<code>refLocIDs</code>) and in the square outside it (<code>neighborIDs</code>), outline area, <code>EllipseFit</code> axes in nm, and the annotated bound tracks (— = not annotated).</li>
@@ -2573,7 +2589,7 @@ MitoEnrichCoeff = MCSprob/OCSprob;                             % blank in the sh
   <li><code>detect_n_loc</code>, <code>detect_n_tracks</code>, <code>detect_enrich</code>, <code>detect_dwell_pct</code> and <code>detect_stability</code> match the picker's site table for that cell.</li>
 </ul>
 
-<h2 id="t3sites">Tool 3 · <b>Sites</b> — the mapper, membership and the raw-movie player</h2>
+<h2 id="t3sites">Tool 4 · <b>Sites</b> — the mapper, membership and the raw-movie player</h2>
 <p class="lead">Tab <b>4 · Sites</b> is where a boundary becomes a measurement: which tracks belong to this site, in this window, and how enriched it is. It produces <code>analysis/CSW_final.mat</code>, the single file the Dwell and Compare tabs read.</p>
 
 <h3 id="t3mapper">▶ Run mapper — the controls and what the run does</h3>
@@ -2670,7 +2686,7 @@ MitoEnrichCoeff = MCSprob/OCSprob;                             % blank in the sh
 
 <hr>
 
-<h2 id="t3dwell">Tool 3 · <b>Dwell</b> — residence times and escape rate</h2>
+<h2 id="t3dwell">Tool 4 · <b>Dwell</b> — residence times and escape rate</h2>
 <p class="lead">Tab <b>5 · Dwell</b> converts membership into time: how long each molecule actually stayed inside each contact site, and how fast molecules leave.</p>
 
 <h3 id="t3dwellevent">What a dwell event is</h3>
@@ -2744,7 +2760,7 @@ MitoEnrichCoeff = MCSprob/OCSprob;                             % blank in the sh
   <tr><td><code>analysis/cs_window_dwell.mat</code></td><td>The full <code>DD</code> struct: <code>dt, events, perSite, perWindow, perTrack, perTrackWin, allDwell</code>. This is also the file the Experiment tab checks for the <b>dwelled</b> status lamp, and what the Compare tab reads for dwell and <code>k_out</code> metrics.</td></tr>
 </table>
 <div class="note"><b>Stage order, and what invalidates what.</b> Picks (<code>_CSsites.txt</code>) → footprint overrides (<code>CS_footprints.mat</code>) → mapping (<code>CSW_final.mat</code>) → dwell (<code>cs_window_dwell.*</code>). Each stage reads only files, so any stage can be re-run alone — but re-picking invalidates everything after it, saving footprints or removals invalidates the mapping and the dwell, and re-running the mapper invalidates the dwell. The Experiment tab's <b>picked · mapped · dwelled</b> lamps are literally "does that file exist", so they tell you how far a cell has got, not whether it is up to date.</div>
-<h2 id="t3engage">Tool 3 · <b>Engagement</b> — is the molecule slowed at the organelle?</h2>
+<h2 id="t3engage">Tool 4 · <b>Engagement</b> — is the molecule slowed at the organelle?</h2>
 <p class="lead">Tab <b>6 · Engagement</b> asks a different question from Dwell. Dwell asks how long a molecule stays inside a contact site you picked; Engagement asks whether molecules <em>anywhere near</em> the organelle move differently from molecules that are not — and it needs no picked sites at all, only a build with an organelle distance. It is the readout to use when the question is <b>"does this compound disturb mitochondrial engagement?"</b></p>
 
 <h3 id="engwhat">What it measures</h3>
@@ -2793,7 +2809,7 @@ MitoEnrichCoeff = MCSprob/OCSprob;                             % blank in the sh
 <p class="lead">One table that knows every cell in the study: which day it came from, which condition you assigned it, how far down the pipeline it has got, and — the part a status lamp cannot tell you — how much data survived each stage. The same panel (<code>tool2_analyze/app/spt_experiment_panel.m</code>) is embedded by all three tools, so there is exactly one place conditions are defined.</p>
 
 <h3 id="exptwhy">Why it is tab 1 in every tool</h3>
-<p>The Experiment tab is the <b>first</b> tab in Tool 1 (<code>1 · Experiment</code>), Tool 2 (<code>1 · Experiment</code>) and Tool 3 (<code>1 · Experiment</code>) — the tab numbering after it is generated per launcher, but the manifest is always at position 1. Two reasons:</p>
+<p>The Experiment tab is the <b>first</b> tab in Tool 1 (<code>1 · Experiment</code>), Tool 2 (<code>1 · Experiment</code>) and Tool 4 (<code>1 · Experiment</code>) — the tab numbering after it is generated per launcher, but the manifest is always at position 1. Two reasons:</p>
 <ul>
   <li><b>The inventory and the condition assignment are the setup step.</b> Its scanner enumerates cells straight from the raw movies (<code>spt_match</code> on <code>spt/</code>, <code>er_seg/</code>, <code>mito_seg/</code> with the <code>_VAPB</code> strip token), so a cell has a row <em>before it has ever been tracked</em>. You can label WT vs KO on day one and never touch it again.</li>
   <li><b>It is always in the same place.</b> Whichever tool you happen to have open, the manifest is one click away and shows the same rows, because all three embed the identical component and read the identical file.</li>
@@ -2887,7 +2903,7 @@ localisations in those surviving tracks.</code></pre>
   <li><b>tracks high, filt tiny</b> — almost nothing reaches the min-track-length cut, so the movie is bleaching out or the detections are noise. Compare against a healthy cell before you spend time curating it.</li>
   <li><b>filt healthy, cur tiny</b> — Tool 2's curate thresholds are cutting hard on this cell. Because those thresholds are absolute and applied unchanged to every cell in a batch, one crowded cell can be gutted by a cut that suits the others.</li>
   <li><b>cur healthy, in build shows <code>–</code></b> — this cell is not in the active build, even though the folder's <b>built</b> lamp is <code>✓</code> (that lamp is folder-level). Either it was built into a <em>different</em> named build, or it was added after the build ran. Rebuild, or switch the active build in the top bar.</li>
-  <li><b>in build fine, trk spots low</b> — the surviving tracks are short. Density, contact-site detection and dwell all live off localizations, not tracks, so this is the count that predicts whether a cell has the statistical power for Tool 3.</li>
+  <li><b>in build fine, trk spots low</b> — the surviving tracks are short. Density, contact-site detection and dwell all live off localizations, not tracks, so this is the count that predicts whether a cell has the statistical power for Tool 4.</li>
 </ul>
 </div>
 <div class="warn">A cell that shows <code>tracked ✓</code> with <b>6</b> surviving tracks looks exactly as healthy as one with <b>800</b> if you only read the lamps. That is the single reason the count block exists — read it before you commit an experiment to a condition mean.</div>
@@ -2940,7 +2956,7 @@ localisations in those surviving tracks.</code></pre>
 <h3 id="tbbuild">The Build selector</h3>
 <p>The <b>Build</b> dropdown names the TrackStruct this project is working from. It lists <em>every</em> <code>.mat</code> in <code>analysis/</code> that actually contains a variable called <code>Tracks</code> — found with <code>whos('-file', …)</code>, which is about a millisecond per file — skipping the files that are known not to be builds (<code>cs_calib.mat</code>, <code>CSW_final.mat</code>, <code>cs_window_dwell.mat</code>, <code>cs_footprints.mat</code>, <code>experiment_details.mat</code>). With no build yet it shows <code>(no build yet)</code>.</p>
 <p>The build currently <b>in force</b> is marked with a <code>●</code> after its name. Its tooltip:</p>
-<div class="card">"The TrackStruct build in force for this project (<code>analysis/&lt;name&gt;.mat</code>). Tool 2 writes named builds; picking one here makes it active, so Tool 3 — and a separately launched Analyze tool — analyse exactly this file."</div>
+<div class="card">"The TrackStruct build in force for this project (<code>analysis/&lt;name&gt;.mat</code>). Tool 2 writes named builds; picking one here makes it active, so Tool 4 — and a separately launched Analyze tool — analyse exactly this file."</div>
 <p>Picking a different entry is a real switch, not a display change: it writes the name into <code>analysis/active_trackstruct.txt</code>, discards the in-session build, <b>resets all downstream state</b> (sites, dwell and Compare results belong to the old build), reloads the new file, repopulates the QC cell list, and logs <code>Active build -&gt; Day1_KO.mat  (n cell(s))</code>. Everything that asks "which build?" — the picker, the mapper, the footprints, the Experiment tab's <b>built</b> lamp — resolves through the same pointer, so they cannot disagree.</p>
 <div class="note">A project with no pointer file falls back to <code>TrackStruct.mat</code>, then <code>Tracks.mat</code>, then any other <code>.mat</code> in the folder that genuinely holds a <code>Tracks</code> variable — so a hand-copied named build still registers.</div>
 
@@ -2970,7 +2986,7 @@ localisations in those surviving tracks.</code></pre>
 </table>
 <p>Each field's <b>tooltip names its source</b>, and a value nothing in the project supports is <b>tinted amber</b>. That matters when you open a second project: the panel has to show <em>something</em>, so it keeps the previous project's number, and a confident white box is exactly what made a wrong pixel size invisible before.</p>
 <div class="warn"><b>Opening a project no longer writes to it.</b> <code>writeCalib</code> used to run unconditionally on open, saving the panel's untouched state into the project — so opening a correctly-tracked folder <em>replaced</em> its calibration with the previous dataset's, and every later read believed the file. It now writes only when the numbers are supported: adopted from the project, or typed by you. It will correct a stale <code>cs_calib.mat</code>, but it will never create one out of defaults. Persisting is tied specifically to a supported <b>pixel size</b> — almost every project can supply <code>dt</code> from its XML, and adopting that must not license asserting a spatial scale the project never stated.</div>
-<div class="note"><b>Where the file goes.</b> Nothing reads <code>tracks/cs_calib.mat</code> — it is staging, copied into <code>analysis/</code> at build time, and <code>analysis/</code> is the only copy <code>cs_config</code> loads. It is now written to both, so correcting a calibration reaches Tool 3 immediately instead of waiting for the next rebuild.</div>
+<div class="note"><b>Where the file goes.</b> Nothing reads <code>tracks/cs_calib.mat</code> — it is staging, copied into <code>analysis/</code> at build time, and <code>analysis/</code> is the only copy <code>cs_config</code> loads. It is now written to both, so correcting a calibration reaches Tool 4 immediately instead of waiting for the next rebuild.</div>
 <div class="warn"><b>If <code>cs_config</code> finds no calibration at all</b> it falls back to the reference rig's numbers — 27.61 µm over 256 px at 0.10785 µm/px, 0.020064 s — and <b>now warns once per run</b> when it does. On any other microscope those are simply wrong, the run still completes, and every site coordinate, area, density and dwell time comes out mis-scaled. A 128 px camera at 0.16 µm/px is off by 1.35×.</div>
 
 <h4 id="tbedit">Correcting a calibration your files don't carry</h4>
@@ -2983,7 +2999,7 @@ localisations in those surviving tracks.</code></pre>
   <tr><td>The <b>build</b></td><td>The importer is told which fields were edited, so a correction outranks the cell's own TIFF tags and the XML's <code>frameInterval</code>.</td></tr>
   <tr><td>Tool 1's <b>tracking</b></td><td>Already honoured it: <code>cellCalib</code> ranks a hand-edited manifest value above the files, so a run tracks at your value and records it in that cell's <code>_settings.txt</code>.</td></tr>
 </table>
-<div class="warn"><b>This did not work before, and the failure was silent.</b> The manifest stored the correction faithfully and <code>spt_project_calib</code> — the one resolver Tool 1's runs, Tool 2's builds and Tool 3's top bar all go through — never read it. So the Experiment tab showed <code>0.107</code> while every other surface went on using the fallback, with nothing on screen to say the two disagreed. If you edited a calibration in an earlier session, <b>re-open the project and check the top bar now shows it</b> — anything built under the old behaviour was built at the fallback scale.</div>
+<div class="warn"><b>This did not work before, and the failure was silent.</b> The manifest stored the correction faithfully and <code>spt_project_calib</code> — the one resolver Tool 1's runs, Tool 3's builds and Tool 4's top bar all go through — never read it. So the Experiment tab showed <code>0.107</code> while every other surface went on using the fallback, with nothing on screen to say the two disagreed. If you edited a calibration in an earlier session, <b>re-open the project and check the top bar now shows it</b> — anything built under the old behaviour was built at the fallback scale.</div>
 <div class="note"><b>Only a value you TYPED outranks the files.</b> Tool 1 also writes each cell's resolved calibration back into the manifest so the table shows what each cell was tracked at. That is a <em>report</em>, not an edit: it is unlocked, and it never outranks the file it was read from. Otherwise the ranking would be circular — a value would end up outranking its own source.</div>
 <h5>Applying one calibration to a whole plate</h5>
 <p>Typing in the table sets <b>one</b> cell. For a plate whose movies carry no metadata that is one identical edit per cell, so the Experiment tab has a bulk row above the table:</p>
@@ -3024,7 +3040,7 @@ localisations in those surviving tracks.</code></pre>
 <div class="note"><b>Tool 1 has its own, smaller calibration bar</b> — <b>Pixel (µm/px)</b> (auto-read from the TIFF where possible) and <b>Frame interval (s)</b>, plus its own <kbd>Auto</kbd> which re-reads the pixel size from the current cell's TIFF, a <b>Map axes</b> µm/px toggle for the kept/removed track map, and <kbd>❓ Help</kbd>. Tool 1 has no FOV or precision field: those only matter once there is a density map.</div>
 
 <h2 id="compare">Compare — grouped statistics across sites, cells and conditions</h2>
-<p>The last tab of Tool 3 turns mapped sites into a grouped comparison: a mean ± sem table, a per-site scatter, a pooled dwell-time CDF, and a CSV. Its unit of analysis is <b>one site in one time window</b> — one element of <code>CSW_final.mat</code> — so "n = 41" means 41 site-windows, not 41 cells.</p>
+<p>The last tab of Tool 4 turns mapped sites into a grouped comparison: a mean ± sem table, a per-site scatter, a pooled dwell-time CDF, and a CSV. Its unit of analysis is <b>one site in one time window</b> — one element of <code>CSW_final.mat</code> — so "n = 41" means 41 site-windows, not 41 cells.</p>
 <p>Five controls plus a <kbd>cells…</kbd> picker, then <kbd>▶ Compute</kbd>, <kbd>Export CSV</kbd> and <kbd>Export points</kbd>. The status label starts at <code>Run the mapper (Sites tab); dwell metrics also need the Dwell tab. Then Compute.</code></p>
 
 <h3 id="cmpsource">Data source: this project vs the whole experiment</h3>
@@ -3135,7 +3151,7 @@ group,n,mean,sem,median,mode</code></pre>
   <tr><td>occupancy of the padded planes</td><td><b>23.2 %</b> (73,994 real slots of 319,278)</td></tr>
   <tr><td><code>load()</code> time</td><td><b>51 ms</b></td></tr>
 </table>
-<p><code>Tracks</code> is a struct array <em>over cells</em>, all cells of a project in one <code>.mat</code>, and Tool 3 loads the <b>whole active build</b> when it needs it. So the growth term is <b>cells per project folder</b>, and it is linear:</p>
+<p><code>Tracks</code> is a struct array <em>over cells</em>, all cells of a project in one <code>.mat</code>, and Tool 4 loads the <b>whole active build</b> when it needs it. So the growth term is <b>cells per project folder</b>, and it is linear:</p>
 <table>
   <tr><th>Cells in one project folder</th><th>Resident</th></tr>
   <tr><td>1</td><td>70.7 MB</td></tr>
@@ -3146,9 +3162,9 @@ group,n,mean,sem,median,mode</code></pre>
 <div class="good"><b>The manifest is the scaling layer.</b> It <em>references</em> each day/batch folder and <b>never merges the TrackStructs</b>. <a href="#cmpagg">Compare's aggregation</a> reads each folder's <code>CSW_final.mat</code> and <code>cs_window_dwell.mat</code>, tags every site and event with that cell's condition and source folder, and concatenates the <b>results</b> — which are small. No raw track data is ever pooled, so cross-condition comparison is <b>flat in memory</b> however many cells the experiment contains.</div>
 <h3 id="scalecombine">combine_trackstructs — and why not to reach for it at scale</h3>
 <p><code>combine_trackstructs(files, outPath, sourceLabels)</code> does the opposite: it merges N builds into <b>one struct array</b> — union of fields (missing ones filled with <code>[]</code>), cells concatenated in file order, a <code>source</code> label saved per cell for provenance, and a warning if a cell filename appears in more than one source (per-cell outputs are keyed on filename, so duplicates would collide). It is legitimate for a handful of cells that genuinely must be analysed as one unit.</p>
-<div class="warn"><b>Do not use it to build a study-wide TrackStruct.</b> Merging N cells into one build is exactly how you land in the bottom row of the table above — 200 cells in one folder is ~14 GB resident, and Tool 3 loads the whole build.</div>
+<div class="warn"><b>Do not use it to build a study-wide TrackStruct.</b> Merging N cells into one build is exactly how you land in the bottom row of the table above — 200 cells in one folder is ~14 GB resident, and Tool 4 loads the whole build.</div>
 <div class="card">
-<b>The practical rule.</b> Keep project folders <b>per day / per condition</b>, each with a manageable number of cells, and compare across them through the Experiment manifest. Tool 3 is a per-project tool, so the number that matters is <b>cells per folder</b>, not cells in the study — and the manifest is what lets the study be large while every folder stays small.
+<b>The practical rule.</b> Keep project folders <b>per day / per condition</b>, each with a manageable number of cells, and compare across them through the Experiment manifest. Tool 4 is a per-project tool, so the number that matters is <b>cells per folder</b>, not cells in the study — and the manifest is what lets the study be large while every folder stays small.
 </div>
 <h2 id="density">Density &amp; counts (tracked-only)</h2>
 <p>A contact site is a place where the protein <em>concentrates</em>, so everything downstream is built on a localization-density map. Two rules matter:</p>
@@ -3223,7 +3239,7 @@ L  = watershed(I);                           % → one label per genuine peak</c
 <h2 id="filesref">File reference — what writes what, and who reads it</h2>
 <p class="lead">The three tools couple through files only, so this table is the contract between them. Every row names the exact pattern on disk, the stage that writes it, the stages that read it, and what is inside. <code>&lt;base&gt;</code> is the SPT stack's file name without its extension (e.g. <code>250408_WT_012_spt1</code>); <code>&lt;cell&gt;</code> is the same string as it appears in <code>Tracks(i).file</code>.</p>
 
-<div class="note">Two folders matter. <code>&lt;project&gt;/tracks/</code> is Tool 1's output and Tool 2's input. <code>&lt;project&gt;/analysis/</code> holds the build and everything Tool 3 produces. Nothing downstream ever reads the raw <code>spt/</code>, <code>er_seg/</code>, <code>mito_seg/</code> folders except the players and overlay code, which re-open the movie and the segmentation stacks directly.</div>
+<div class="note">Two folders matter. <code>&lt;project&gt;/tracks/</code> is Tool 1's output and Tool 2's input. <code>&lt;project&gt;/analysis/</code> holds the build and everything Tool 4 produces. Nothing downstream ever reads the raw <code>spt/</code>, <code>er_seg/</code>, <code>mito_seg/</code> folders except the players and overlay code, which re-open the movie and the segmentation stacks directly.</div>
 
 <h3 id="filesref-tracks">tracks/ — detections, tracks, provenance</h3>
 <table>
@@ -3346,7 +3362,7 @@ filter.exported        = 2026-07-29 11:02:13</code></pre>
   <tr>
     <td><code>&lt;name&gt;.mat</code><br><span class="tag you">named build</span></td>
     <td>Tool 2 · Build &amp; QC · <kbd>▶ Build + QC</kbd> (and by <kbd>📂 Load TrackStruct…</kbd>, which copies a build in under its own name). Default name <code>TrackStruct.mat</code>.</td>
-    <td>Everything downstream, always via <code>cs_active_trackstruct</code>: Tool 3's tabs, <code>cs_window_picker</code>, <code>cs_window_mapper</code>, <code>cs_footprints_build</code>, <code>cs_refine</code>, <code>cs_experiment_scan/status</code></td>
+    <td>Everything downstream, always via <code>cs_active_trackstruct</code>: Tool 4's tabs, <code>cs_window_picker</code>, <code>cs_window_mapper</code>, <code>cs_footprints_build</code>, <code>cs_refine</code>, <code>cs_experiment_scan/status</code></td>
     <td>One variable, <code>Tracks</code> — a <code>1 × nCells</code> struct. Per cell: <code>file, lengths, matrix, center, rawSteps, steps, MSDdata, MSD, MSDstdev, MSDerror, CSD, CSDnorm, rawVector, vector, intens, allSpots, mitoDist, erDist, trackIDs, frameInterval</code>, plus <code>Dt, confined, stateChange, diffOpts</code> added at build. <code>matrix</code> is <code>[nF × nT × 3]</code> = (frame, x µm, y µm), NaN-padded to the <b>longest</b> track. Saved <code>-v7.3</code>.</td>
   </tr>
 
@@ -3366,98 +3382,98 @@ filter.exported        = 2026-07-29 11:02:13</code></pre>
 
   <tr>
     <td><code>Densities/&lt;cell&gt;_rho.tif</code><br><code>Density_&lt;cell&gt;.mat</code><br><code>Density_&lt;cell&gt;.tif</code></td>
-    <td><code>_rho.tif</code>: Tool 3 · Contact sites, on <kbd>▶ Open windowed picker</kbd>, for any cell that has none yet (<code>saveDensityFiles</code>). All three, plus sites: <kbd>📦 Export</kbd>, into <code>exports/&lt;name&gt;/</code> (<code>cs_advisor_export</code>). Both are built from the filtered tracked localizations minus hand-rejected tracks.</td>
+    <td><code>_rho.tif</code>: Tool 4 · Contact sites, on <kbd>▶ Open windowed picker</kbd>, for any cell that has none yet (<code>saveDensityFiles</code>). All three, plus sites: <kbd>📦 Export</kbd>, into <code>exports/&lt;name&gt;/</code> (<code>cs_advisor_export</code>). Both are built from the filtered tracked localizations minus hand-rejected tracks.</td>
     <td><code>cs_default_gridsf</code> and <code>cs_window_picker</code>'s <code>pickGrid</code> read only the <b>height</b> of <code>_rho.tif</code>, to set the density grid and therefore <code>SF</code>; the legacy <code>cs_identify</code> reads <code>Density_&lt;cell&gt;.tif</code> as its display density</td>
     <td>The advisor's density export, reproduced exactly. <code>_rho.tif</code> is a full-range turbo RGB image of the smoothed count map; <code>Density_&lt;cell&gt;.mat</code> holds <code>imG = 30 × smoothed counts</code> and the <code>.tif</code> is the <code>uint16</code> version of the same array. Grid: <code>binNm</code>-wide bins over the FOV, smoothed with <code>imgaussfilt(...,[2 2])</code>, then transposed to image convention. <b>The windowed picker does not use these files for its density</b> — it computes the per-window density live from the build. They exist for the legacy mapper and to fix the grid size.</td>
   </tr>
 
   <tr>
     <td><code>mips/&lt;prefix&gt;_er_mip.tif</code><br><code>mips/&lt;prefix&gt;_mito_mip.tif</code></td>
-    <td>Tool 3, on <kbd>▶ Open windowed picker</kbd> (<code>ensureMips</code>), only for cells that do not have them yet</td>
+    <td>Tool 4, on <kbd>▶ Open windowed picker</kbd> (<code>ensureMips</code>), only for cells that do not have them yet</td>
     <td>The picker's fallback ER support (<code>opts.mipDir</code>); <code>cs_identify</code>'s overlay</td>
     <td>Whole-movie <b>max-occupancy</b> projections of the ER and mito segmentations, 8-bit, so an overlay never has to re-read the full stack. <code>&lt;prefix&gt;</code> is <code>&lt;base&gt;</code> with the trailing <code>_spt&lt;n&gt;</code> token stripped.</td>
   </tr>
 
   <tr>
     <td><code>csIDs/&lt;cell&gt;_CSsites.txt</code></td>
-    <td>Tool 3 · Contact sites · <kbd>Save</kbd> (<code>cs_window_picker</code>)</td>
+    <td>Tool 4 · Contact sites · <kbd>Save</kbd> (<code>cs_window_picker</code>)</td>
     <td><code>cs_read_sites</code> → <code>cs_window_mapper</code>, <code>cs_footprints_build</code>, <code>cs_refine</code>; its mere existence is the Experiment tab's <b>picked</b> lamp</td>
     <td>Tab-separated, 8 columns with a header row: <code>(index) X Y XM YM Slice Counter Count</code>. <code>X/Y</code> and <code>XM/YM</code> are the same site centre in <b>density pixels</b> (the reader prefers <code>XM/YM</code> when present, which is where a legacy refiner would have written a moved centre). <code>Slice</code> = <b>window index</b>, 1-based. <code>Counter</code> = the mito flag (<code>1</code> = mito-contact, <code>2</code> = non-mito). <code>Count</code> is always <code>0</code>. Every window's sites are concatenated into one file. <b>If you save with no sites in any window the file is deleted</b>, so that a cell you cleared does not keep stale picks.</td>
   </tr>
 
   <tr>
     <td><code>csIDs/&lt;cell&gt;_CSsites_stats.csv</code></td>
-    <td>Tool 3 · Contact sites · <kbd>Save</kbd></td>
+    <td>Tool 4 · Contact sites · <kbd>Save</kbd></td>
     <td>Nothing downstream — this is the record you cite.</td>
     <td>One row per saved site with the numbers behind the pick: <code>site,window,x_px,y_px,mito,manual,peak,pval,enrich,nLocs,nTracks,stability,dwell_pct,area_um2</code>. Written inside a <code>try</code>, so a failure here does not lose the picks themselves.</td>
   </tr>
 
   <tr>
     <td><code>csIDs/&lt;cell&gt;_CSsites_provenance.json</code></td>
-    <td>Tool 3 · Contact sites · <kbd>Save</kbd></td>
+    <td>Tool 4 · Contact sites · <kbd>Save</kbd></td>
     <td>Nothing downstream — reproducibility stamp.</td>
     <td>Pretty-printed JSON of the exact detection state: <code>date, cell, densitySource ("tracked (matrix)"), method, alpha_sens, MC_sims, sigma_px, minArea_px, splitPeaks, minEnrich, minTracks, minSiteLocs, contactUm, framesPerWindow, stepFrames, nWindows, windowRanges, grid, SF_umPerPx, FOV_um, binNm, totalDetections, trackedLocs, nSites</code>.</td>
   </tr>
 
   <tr>
     <td><code>Density_&lt;cell&gt;_CSwindows.mat</code></td>
-    <td>Tool 3 · Contact sites · <kbd>Save</kbd></td>
+    <td>Tool 4 · Contact sites · <kbd>Save</kbd></td>
     <td><code>cs_load_windows</code> → the mapper, the footprint builder and Refine. <b>Authoritative</b>: window ranges are never recomputed downstream.</td>
     <td>One struct <code>windows</code>: <code>framesPerWindow</code>, <code>nWindows</code>, <code>ranges</code> (<code>[nW × 2]</code>, <b>inclusive</b> frame bins), <code>grid</code>, <code>SF_umPerPx</code>, <code>frameInterval</code>, and <code>source</code> — the density source the picker used, which <b>locks</b> the mapper's and Refine's density source to match. Without this file, downstream falls back to <em>one whole-movie window</em> (<code>[-Inf Inf]</code>) per distinct <code>Slice</code>, and the source reads as unknown.</td>
   </tr>
 
   <tr>
     <td><code>CS_footprints.mat</code></td>
-    <td>Tool 3 · Refine · <kbd>💾 Save</kbd>. <code>cs_footprints_build</code> can also write it headless (<code>opts.save</code>, default <code>false</code>).</td>
+    <td>Tool 4 · Refine · <kbd>💾 Save</kbd>. <code>cs_footprints_build</code> can also write it headless (<code>opts.save</code>, default <code>false</code>).</td>
     <td><code>cs_window_mapper</code> (via <code>opts.footprintFile</code>, honoured while the Sites tab's <b>use refined</b> toggle is on); Refine itself, to resume</td>
     <td><code>CSfoot</code> — one element per footprint: <code>file, cellIndex, csID, window, winFrames, pickPx, center [µm], refboundary [K×2 µm relative to center], mode, frac, maxRadiusUm, SF, grid, densSrc, mito, areaUm2, edited, deleted</code>. Plus a <code>CSdeleted</code> list of sites you removed. <b>Only sites you actually edited or deleted are persisted</b>; re-opening Refine rebuilds the full auto list and merges the saved entries back on. The mapper keys entries as <code>file|csID|window</code> and applies one only if the saved <code>pickPx</code> is within <b>1.5 density px</b> of the current pick — a staleness guard, because <code>csID</code> is only a positional index.</td>
   </tr>
 
   <tr>
     <td><code>CS_trackedits.mat</code></td>
-    <td>Tool 3 · Sites · <kbd>💾 Save removals (re-run)</kbd>. <kbd>🗑 Mark/unmark track for removal</kbd> only marks a track (pending, shown red); nothing reaches disk until you save, and saving then re-runs the mapper once to apply every marked removal.</td>
+    <td>Tool 4 · Sites · <kbd>💾 Save removals (re-run)</kbd>. <kbd>🗑 Mark/unmark track for removal</kbd> only marks a track (pending, shown red); nothing reaches disk until you save, and saving then re-runs the mapper once to apply every marked removal.</td>
     <td><code>cs_window_mapper</code> on its next run</td>
     <td><code>CSexclude</code> — per-site track exclusions, keyed <code>file|csID|window</code>, each carrying <code>pickPx</code> and the <code>trackCol</code> to drop. Kept in a <b>separate</b> file so that saving a track exclusion can never clobber <code>CS_footprints.mat</code>. Same 1.5 px staleness guard.</td>
   </tr>
 
   <tr>
     <td><code>CSW_final.mat</code></td>
-    <td>Tool 3 · Sites (the mapper)<br><code>cs_window_mapper.m</code></td>
-    <td>Tool 3 · Sites, Dwell and Compare all read this one file, so each stage is independently re-runnable; its existence is the Experiment tab's <b>mapped</b> lamp</td>
+    <td>Tool 4 · Sites (the mapper)<br><code>cs_window_mapper.m</code></td>
+    <td>Tool 4 · Sites, Dwell and Compare all read this one file, so each stage is independently re-runnable; its existence is the Experiment tab's <b>mapped</b> lamp</td>
     <td><code>CSW</code> — one <b>flat</b> element per (site × window), <b>µm everywhere</b>. Geometry: <code>siteUID, file, cellIndex, csID, window, winFrames, pickPx, center, refCenter, refboundary, footprintMode, EllipseFit, boundaries, SF, grid, binAreaUm2, dt</code>. Membership: <code>tracks</code> (column indices into <code>matrix</code>), <code>nTracks</code>, <code>LocIDs</code>, <code>nMemberLocs</code>, <code>trackLocsInside</code>, <code>trackLocsWin</code>, <code>trackPctInside</code>, <code>CSmatrix</code> (frame, x, y µm <em>relative to the site centre</em> — the coordinate frame Dwell works in), <code>MitoFlag</code>. Metrics: <code>areaUm2, nLocInside, cellTotalLocWin, probMass, peakProb, peakProbRaw, localDens, cellBgDens, enrichment, densSrc</code>.</td>
   </tr>
 
   <tr>
     <td><code>cs_window_metrics.csv</code></td>
-    <td>Tool 3 · Sites (the mapper)</td>
+    <td>Tool 4 · Sites (the mapper)</td>
     <td>Nothing downstream — the flat table for your own plots.</td>
     <td><code>file,cellIndex,csID,window,f0,f1,mitoCS,areaUm2,nLocInside,nMemberLocs,nTracks,probMass,peakProb,enrichment</code>, one row per site×window. <code>f0/f1</code> are the window's inclusive frame bounds (<code>-Inf/Inf</code> for a whole-movie fallback window).</td>
   </tr>
 
   <tr>
     <td><code>cs_window_dwell.csv</code></td>
-    <td>Tool 3 · Dwell<br><code>cs_window_dwell.m</code></td>
+    <td>Tool 4 · Dwell<br><code>cs_window_dwell.m</code></td>
     <td>Nothing downstream.</td>
     <td>One row <b>per dwell event</b>: <code>file,cellIndex,csID,window,siteUID,mito,trackCol,entryFrame,exitFrame,dwell_s</code>. Keyed by cell · site · window · track, so every row traces back to one molecule at one site in one time window.</td>
   </tr>
 
   <tr>
     <td><code>cs_window_track_labels.csv</code></td>
-    <td>Tool 3 · Dwell</td>
+    <td>Tool 4 · Dwell</td>
     <td>Nothing downstream.</td>
     <td>One row <b>per (site, window, member track)</b>: <code>file,cellIndex,csID,window,siteUID,trackCol,label,numDwell,longest_s,total_s</code>. <code>label</code> is the paper's classification of how the track meets the site over the window (resident / enters / exits / both), from <code>classifyInside</code> in <code>cs_dwell_primitives</code>.</td>
   </tr>
 
   <tr>
     <td><code>cs_window_dwell.mat</code></td>
-    <td>Tool 3 · Dwell</td>
-    <td>Tool 3 · Compare, for the dwell and <code>k_out</code> metrics; its existence is the Experiment tab's <b>dwelled</b> lamp</td>
+    <td>Tool 4 · Dwell</td>
+    <td>Tool 4 · Compare, for the dwell and <code>k_out</code> metrics; its existence is the Experiment tab's <b>dwelled</b> lamp</td>
     <td>The whole <code>DD</code> struct: <code>dt</code>, <code>minPctInside</code> (the <b>≥% in</b> threshold it was computed at — 0 = every member track), <code>events</code>, <code>perSite</code> (numDwell, longest_s, total_s, meanDwell, medianDwell, kout), <code>perWindow</code> (nEvents, kout_w, medianDwell, meanDwell and the pooled dwell values), <code>perTrack</code> (+ each track's <code>pctInside</code>), <code>perTrackWin</code> (residence merged across overlapping footprints in the same window, so a track is not double-counted), <code>allDwell</code>.</td>
   </tr>
 
   <tr>
     <td><code>cs_compare_&lt;metric&gt;_by_&lt;group&gt;.csv</code></td>
-    <td>Tool 3 · Compare · <kbd>Export CSV</kbd></td>
+    <td>Tool 4 · Compare · <kbd>Export CSV</kbd></td>
     <td>Nothing downstream.</td>
     <td>The grouped table exactly as shown: <code>group,n,mean,sem</code>. The file name encodes the metric and grouping you chose, so repeated exports do not overwrite each other.</td>
   </tr>
@@ -3610,7 +3626,7 @@ filter.exported        = 2026-07-29 11:02:13</code></pre>
     <td><b>D — stepwise</b><br><code>Dt</code>, µm²/s, one per <em>localization</em></td>
     <td>Noise-corrected rolling estimator over a window of <b>7 localizations</b> (default; must be odd, minimum 3): <code>D = ⟨dr²⟩/(4·dt) − σ²/dt</code>, <b>floored at 0</b>, where <code>⟨dr²⟩</code> is the mean single-step squared displacement in the window and <code>σ</code> is the localization precision (default <b>0.030 µm</b>, taken from <code>binNm</code> at build). An alternative <code>'msdfit'</code> mode fits a local MSD slope over up to 4 lags instead. <b>A different quantity from the MSD-fit D above</b> — same units, different estimator, different granularity.</td>
     <td><code>drivers/spt_track_diffusion.m</code>, run at build after the MSD import</td>
-    <td>Build &amp; QC · <b>stepwise D (per localization)</b> (pooled, log-y, top 0.5 % dropped rather than clamped) and <b>stepwise D(t)</b> for the clicked track. It is what <code>confined</code> and <code>stateChange</code> — and therefore Tool 3's diffusion-state density channels — are derived from.</td>
+    <td>Build &amp; QC · <b>stepwise D (per localization)</b> (pooled, log-y, top 0.5 % dropped rather than clamped) and <b>stepwise D(t)</b> for the clicked track. It is what <code>confined</code> and <code>stateChange</code> — and therefore Tool 4's diffusion-state density channels — are derived from.</td>
   </tr>
 
   <tr>
@@ -3904,7 +3920,7 @@ filter.exported        = 2026-07-29 11:02:13</code></pre>
     ['setup-install','setup'], ['setup-folders','setup'], ['setup-run','setup'],
     ['overview','home'], ['quickstart','home'],
     ['t1','t1'],
-    ['t2curate','t2'], ['t2build','t2'],
+    ['t2curate','t2'], ['t2build','t2b'], ['t2vectors','t2b'],
     ['t3contact','t3'], ['t3refine','t3'], ['t3sites','t3'], ['t3dwell','t3'],
     ['expt','shared'], ['topbar','shared'], ['compare','shared'], ['scale','shared'],
     ['density','theory'], ['windowing','theory'], ['mcnull','theory'], ['peaks','theory'],
@@ -4025,7 +4041,7 @@ filter.exported        = 2026-07-29 11:02:13</code></pre>
     // Mirror the hits into the MAIN pane. A sidebar-only result list leaves the page looking broken.
     pre.classList.add('off');
     var GL = {home:'Start here', t1:'Tool 1 · Track', t2:'Tool 2 · Curate & Build',
-              t3:'Tool 3 · Analyze', shared:'Shared', theory:'How it works', ref:'Reference'};
+              t3:'Tool 4 · Contact Sites', shared:'Shared', theory:'How it works', ref:'Reference'};
     var GC = {t1:'var(--t1)', t2:'var(--t2)', t3:'var(--t3)'};
     var html = '', nSec = 0;
     sections.forEach(function(s2){

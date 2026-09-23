@@ -1,11 +1,11 @@
 # SPT–ContactSites pipeline — full reference
 
 Single-particle tracking of **VAPB** (an ER membrane protein) and its **ER–mitochondria contact sites**,
-in MATLAB, as three tools that hand off through files. This document is the reference of record for the
+in MATLAB, as four tools that hand off through files. This document is the reference of record for the
 **code, inputs/outputs, folder organization, and algorithms**. Kept up to date as the pipeline is built.
 
 - MATLAB R2024b. Launch: `spt_app` (Tool 1 · Track) · `spt_curate_app` (Tool 2 · Curate & Build) ·
-  `spt_analyze_app` (Tool 3 · Analyze). Tools 2 + 3 are ONE implementation (`spt_analyze_app.m`) behind a
+  `spt_analyze_app` (Tool 4 · Analyze). Tools 2 + 3 are ONE implementation (`spt_analyze_app.m`) behind a
   `mode` argument — `spt_curate_app` just calls `spt_analyze_app('curate')`, `spt_analyze_app` defaults to
   `'analyze'`, `spt_analyze_app('full')` shows every tab in one window.
 
@@ -14,22 +14,24 @@ in MATLAB, as three tools that hand off through files. This document is the refe
 ## 1. Architecture
 
 ```
-Tool 1 · TRACK              handoff (files)      Tool 2 · CURATE & BUILD    handoff (file)     Tool 3 · ANALYZE
+Tool 1 · TRACK              handoff (files)      Tool 2 · CURATE & BUILD    handoff (file)     Tool 4 · ANALYZE
 raw SPT + ER-seg + mito ─▶  tracks/*_filtered ─▶ import → curate → build ─▶ analysis/         ─▶ density → contact
 match·detect·track·filter    .xml + .csv          the slow MSD step         <name>.mat  +        sites → refine →
                              + _settings.txt      → analysis/<name>.mat     active_trackstruct   sites → dwell → compare
 ```
 
-Three tools, coupled only through files. **Tool 1** (`spt_app`, new, built from scratch) tracks + filters and
+Four tools, coupled only through files. **Tool 1** (`spt_app`, new, built from scratch) tracks + filters and
 writes `tracks/<base>_tracks_filtered.xml` + `_spots_filtered.csv`. **Tool 2** (`spt_curate_app`) curates those
-tracks (embeds `track_viewer`) and runs `build_trackstruct` (the slow MSD step) → a **named build**
-`analysis/<name>.mat` (`TrackStruct.mat` unless you name it), recorded as the one in force in
-`analysis/active_trackstruct.txt`. **Tool 3** (`spt_analyze_app`) starts from that build — which it resolves
+tracks (embeds `track_viewer`) and writes them back as `*_tracks_curated.xml`. **Tool 3** (`'analysis'` mode)
+runs `build_trackstruct` (the slow MSD step) → a **named build** `analysis/<name>.mat` (`TrackStruct.mat`
+unless you name it), recorded as the one in force in `analysis/active_trackstruct.txt`, and reads that build
+back on **Vectors & bleaching**. It takes its input from `tracks/` on disk, not from Tool 2's state, so the
+two are separate jobs in separate windows. **Tool 4** (`spt_analyze_app`) starts from that build — which it resolves
 through `cs_active_trackstruct` (§7.2), never by a hardcoded filename: density → contact-site picker →
 mapper → dwell → compare. A shared **Experiment** tab (`spt_experiment_panel`) is **tab 1 in all three
 tools** — the multi-folder / per-condition manifest (day, condition, exclude, notes, derived tracked/curated/built/
 picked/mapped/dwelled status and the per-stage spot/track counts behind it) that ties the dataset together and
-drives Tool 3's cross-condition Compare. It lives with the project as `<project>/experiment_details.mat`.
+drives Tool 4's cross-condition Compare. It lives with the project as `<project>/experiment_details.mat`.
 
 ---
 
@@ -38,7 +40,7 @@ drives Tool 3's cross-condition Compare. It lives with the project as `<project>
 ### 2.1 Repository
 ```
 SPTinMatlab/
-├── run_track.m run_curate.m run_analyze.m   launchers (Tool 1 / Tool 2 / Tool 3)
+├── run_track.m run_curate.m run_analysis.m run_contactsites.m   launchers (Tools 1-4)
 ├── README.md                          quick overview
 ├── docs/PIPELINE.md                   ← this file
 ├── tool1_track/                       TOOL 1 · Track (spt_app + engine)
@@ -59,10 +61,10 @@ SPTinMatlab/
 │   ├── app/spt_analyze_app.m          the tab app; MODE selects the tab set (Experiment always tab 1,
 │   │                                  the rest numbered 2…N per launcher):
 │   │                                    'curate'  → Tool 2: Experiment · Import&Curate · Build&QC · Vectors&bleaching
-│   │                                    'analyze' → Tool 3: Experiment · Contact sites · Refine · Sites · Dwell · Engagement · Compare
+│   │                                    'analyze' → Tool 4: Experiment · Contact sites · Refine · Sites · Dwell · Engagement · Compare
 │   │                                    'full'    → Experiment then both sets in one window
 │   ├── app/spt_curate_app.m           Tool 2 launcher (thin wrapper: spt_analyze_app('curate'))
-│   ├── app/spt_experiment_panel.m     SHARED Experiment tab embedded by all three tools
+│   ├── app/spt_experiment_panel.m     SHARED Experiment tab embedded by all four tools
 │   ├── app/track_viewer.m             embedded Import&Curate tool
 │   ├── drivers/                       the build and the per-track layer, shared by both tools:
 │   │                                    TrackImporter_direct, build_trackstruct, spt_track_diffusion,
@@ -83,8 +85,14 @@ SPTinMatlab/
                                          advisor layout (cs_advisor_*, export_template/), and
                                          cs_experiment_aggregate
 ```
-The two tools keep their own windows (`run_curate`, `run_analyze`) and their own drivers; they share
-the project folder, the manifest and the build. The source-file split is under way, tab by tab:
+The tools keep their own windows (`run_curate`, `run_analysis`, `run_contactsites`) and their own
+drivers; they share the project folder, the manifest and the build. **Four tools since the split:**
+curation is Tool 2 (Experiment + Import & Curate), building the TrackStruct and reading it back is
+Tool 3 (Build & QC + Vectors & bleaching), and the contact-site work is Tool 4. The build takes its
+input from `tracks/` on disk rather than from the curation tab's state — `onBuild` picks the pattern
+with `curatePattern()`, preferring `*_tracks_curated.xml` — so the two are genuinely separable and
+each window is one job. `run_analyze` still opens Tool 4, which is what that name meant when there
+were three tools. The source-file split is under way, tab by tab:
 **Compare** now lives in `tool3_contactsites/app/spt_compare_tab.m` (`api = spt_compare_tab(parent, ctx)`),
 which keeps its own state and takes everything it needs from the host in one context struct —
 `anaDir`, `ensureCSW`, `ensureDD`, `csw`, `dd`, `exptCtl`, `matched`, `siteTrackStats`. It reads that
@@ -113,7 +121,7 @@ contact-site tabs are still in `spt_analyze_app.m` behind the `analyze` mode.
 │   ├── batch_filter_report.html    Tool 2 batch-filter summary
 │   └── cs_calib.mat                per-dataset calibration (written by Tool 2)
 ├── experiment_details.mat     the shared Experiment tab's manifest (day/condition/exclude/notes)
-└── analysis/                   ← Tool 2 writes the build here, Tool 3 reads it
+└── analysis/                   ← Tool 2 writes the build here, Tool 4 reads it
     ├── <name>.mat              a NAMED build (Tracks struct); TrackStruct.mat by default, several may coexist
     ├── active_trackstruct.txt  one line: the basename of the build IN FORCE (§7.2)
     ├── cs_calib.mat            copied in from tracks/ at build time
@@ -469,7 +477,7 @@ project pixel size → leave alone**, with the source named in the overlay statu
 unsupported width tinted amber. Regression: `spt_overlay_fov_smoke`, which asserts the broken state
 first so the fix cannot pass for an unrelated reason.
 
-**Tool 3 has the same exposure one layer down, and it is fixed at the source.** Tool 3 reads no
+**Tool 4 has the same exposure one layer down, and it is fixed at the source.** Tool 4 reads no
 movie metadata at draw time — it draws the raw frame at `(rawW-1)*Tracks(k).calib.pixSizeUm` and the
 organelle mask across `Tracks(k).calib.fovUm`, both stamped once at build. `cell_calib` resolved that
 pixel size from the cell's own **image metadata**, then the panel, then `0.10785`, and **never read
@@ -498,7 +506,7 @@ A cell that can resolve nothing falls back to the **panel** value. That fallback
 named in the run log, recorded in that cell's `_settings.txt` as `calibration.pixel_um_src = panel`, and
 shown as `panel ⚠` in the manifest table.
 
-Tool 2 and Tool 3 additionally read **`cs_calib.mat`** (a `calib` struct) via **`cs_config.m`** for the
+Tool 2 and Tool 4 additionally read **`cs_calib.mat`** (a `calib` struct) via **`cs_config.m`** for the
 project-level fields Tool 1 does not record (field of view, localization precision, density bin);
 defaults apply when absent.
 
@@ -643,7 +651,7 @@ link". SPT frame *t* now reads organelle page `ceil(t/segEvery)`; `auto` takes t
 counts only when it is a clean integer. A frame past the end keeps its `NaN` and is **counted**
 (`nFramesNoSegPage`, `frames.no_organelle_page`, plus a run-time warning) rather than clamped to the last
 page, which would hand it a mask that is not its own. It is an index map — no TIFF pages are duplicated. **Detection only**: every VIEWER (Tool 1's track player,
-Tool 2's curate overlay, Tool 3's picker and Sites/Dwell overlays) still reads the organelle stack
+Tool 2's curate overlay, Tool 4's picker and Sites/Dwell overlays) still reads the organelle stack
 page-for-page and expects matching lengths — pre-duplicate the organelle frames if you want the overlays to
 follow (Fiji script in the README).
 
@@ -918,16 +926,16 @@ New tab app `spt_analyze_app.m`; built on the `drivers/` layer. Build order:
    resolver** — resolution order: (1) `active_trackstruct.txt` when it names a file that exists, (2)
    `TrackStruct.mat` (the default name, what every pre-naming project has), (3) `Tracks.mat` (legacy), (4)
    any other `.mat` in the folder that actually contains a `Tracks` variable, so a hand-copied build
-   registers even without a pointer; `''` when the folder holds no build. Tool 3, the contact-site picker
+   registers even without a pointer; `''` when the folder holds no build. Tool 4, the contact-site picker
    (`cs_window_picker`), the window mapper (`cs_window_mapper`), the footprint builder
    (`cs_footprints_build`), `cs_refine`, the experiment scan (`cs_experiment_scan`) and the Experiment
    **built** lamp (`cs_experiment_status`) all resolve through it, so they can never disagree about which
-   file the folder is working from — and a separately launched `run_analyze` opens the build the Curate tool
-   last wrote or loaded. The picker also accepts an already-loaded struct via `opts.Tracks` (plus
-   `opts.tsFile`), so Tool 3 does not put a second full copy of the same build in RAM; it falls back to
+   file the folder is working from — and a separately launched `run_contactsites` opens the build the
+   Analysis tool last wrote or loaded. The picker also accepts an already-loaded struct via `opts.Tracks` (plus
+   `opts.tsFile`), so Tool 4 does not put a second full copy of the same build in RAM; it falls back to
    `cs_active_trackstruct` when run standalone. **`Tracks.mat` is legacy**: it is written only by
    `run_contactsite_analysis`, which only the old one-window `spt_pipeline_app` / `pipeline_gui` invoke, so
-   it never appears in the `run_curate` → `run_analyze` flow.
+   it never appears in the `run_curate` → `run_analysis` → `run_contactsites` flow.
 
    **Per-localization diffusion is computed at build** (`addDiffusion` → `drivers/spt_track_diffusion.m`,
    after the MSD import and before the save; also filled in on Load for an older build that lacks it). It is
@@ -939,7 +947,7 @@ New tab app `spt_analyze_app.m`; built on the `drivers/` layer. Build order:
    capture event), **`diffOpts`** (provenance: `dt, sigmaUm, win, mode, confineD, method`). The **confined ≤ D**
    spinner (default 0.15 µm²/s) re-derives `confined`/`stateChange` from the **stored** `Dt` — cheap, no
    re-rolling and no rebuild — re-saves the **active** build (not `TrackStruct.mat` unconditionally, which
-   used to leave a divergent shadow file) and refreshes the QC. These fields are what Tool 3's **Confined /
+   used to leave a divergent shadow file) and refreshes the QC. These fields are what Tool 4's **Confined /
    State-change** density channels run on (§7.3).
 
    **Gap-closed steps.** Tool 1's linker closes gaps (**Max gap (fr)**, routinely 1), so one step can span
@@ -960,7 +968,7 @@ New tab app `spt_analyze_app.m`; built on the `drivers/` layer. Build order:
    further panels off the diffusion + step fields —
    - **stepwise D (per localization)** — the pooled `Dt` histogram. A *different quantity* from the
      D-distribution above: that one fits an MSD per **track**, this is the rolling D at every
-     **localization**, and it is what the `confined`/`stateChange` flags (and Tool 3's density channels) are
+     **localization**, and it is what the `confined`/`stateChange` flags (and Tool 4's density channels) are
      derived from. Log-y (the confined peak sits orders below the bulk); the top 0.5% is **dropped**, not
      clamped into the last bin (clamping built a false spike that read as a real population); confinement
      threshold marked; titled median · % confined · n.
@@ -1282,7 +1290,7 @@ New tab app `spt_analyze_app.m`; built on the `drivers/` layer. Build order:
    tracks. A `.mat` rather than an XML/CSV round trip because the round trip would lose the MSD
    curves, the per-localization D and the distances that are already computed. **The interactive
    overlaid video is Tool 2's own player** — load the file there, click a track, and it plays over
-   the raw movie with the ER/mito overlay. There is deliberately no second player in Tool 3.
+   the raw movie with the ER/mito overlay. There is deliberately no second player in Tool 4.
    Fields are sliced by SHAPE, not by a named list, so a field added later cannot be silently left
    at full width with its columns no longer corresponding — and **two** layouts occur, not one:
    `[* x nT]` (matrix, MSD, Dt, CSD, steps, distances) and `[nT x 1]` per-track column vectors

@@ -44,8 +44,10 @@ fprintf('survives cla + replot\n');
 % ---- 3. sweep every app ----------------------------------------------------------------------------
 % An axes that is cleared and rebuilt must not be left armed. Axes are only exempt if nothing ever
 % redraws them, which is not true of any plot in these apps.
-apps = {@() spt_app(), @() spt_analyze_app('curate'), @() spt_analyze_app('analyze')};
-names = {'spt_app', 'spt_analyze_app curate', 'spt_analyze_app analyze'};
+apps = {@() spt_app(), @() spt_analyze_app('curate'), @() spt_analyze_app('analysis'), ...
+        @() spt_analyze_app('contactsites')};
+names = {'spt_app', 'spt_analyze_app curate', 'spt_analyze_app analysis', 'spt_analyze_app contactsites'};
+assert(numel(names) == numel(apps), 'the sweep names must keep step with the apps it opens');
 bad = {};
 for i = 1:numel(apps)
     g = apps{i}(); gc = onCleanup(@() closeQuiet(g));

@@ -1,5 +1,5 @@
 function fig = spt_app()
-%SPT_APP  Single-particle "Track" tool (Tool 1 of 3): match -> detect -> track -> filter -> export.
+%SPT_APP  Single-particle "Track" tool (Tool 1 of 4): match -> detect -> track -> filter -> export.
 %
 % Upstream of the existing SPT_ContactSites_Pipeline analysis app. Takes three input folders
 % (single-particle TIFF, ER segmentation, mito segmentation), matches cells, and (as tabs are
@@ -57,7 +57,7 @@ fig.CloseRequestFcn = @(s,e) onClose();
 gl = uigridlayout(fig,[2 1],'RowHeight',{32,'1x'},'Padding',[8 8 8 8],'RowSpacing',6);
 top = uigridlayout(gl,[1 10],'ColumnWidth',{'1x',86,66,110,66,58,10,90,64,60}, ...
     'Padding',[0 0 0 0],'ColumnSpacing',6);
-uilabel(top,'Text','SPT Track — Tool 1 of 3','FontWeight','bold','FontColor',[0.25 0.25 0.3]);
+uilabel(top,'Text','SPT Track — Tool 1 of 4','FontWeight','bold','FontColor',[0.25 0.25 0.3]);
 uilabel(top,'Text','Pixel (µm/px)','HorizontalAlignment','right');
 eCalPx = uieditfield(top,'numeric','Value',FBPXUM,'ValueDisplayFormat','%.5g','Limits',[1e-4 10], ...
     'Tooltip','µm per pixel for the CELL selected in the Detect tab — resolved from that cell; edit to override it.', ...
