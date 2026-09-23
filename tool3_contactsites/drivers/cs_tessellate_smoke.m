@@ -17,6 +17,9 @@ function cs_tessellate_smoke()
 %   5. WITHOUT THE TESSELLATION nothing breaks: the diffusion fields are NaN and every other number
 %      the mapper reports is unchanged.
 %   6. ROLLING D IS SPLIT THE SAME WAY (DtIn / DtNear), from the per-localization Dt the build makes.
+%   7. THE APP RUNS IT OVER A WHOLE PROJECT and says what it found. Two cells, because the summary
+%      has to combine per-cell results of DIFFERENT lengths - a one-cell project hides that, and the
+%      first version of this button crashed on the second cell's tessels when a user pressed it.
 %
 % Synthetic; reads no dataset.
 
@@ -51,7 +54,22 @@ T = struct('file','cellA','matrix',cat(3,Fr,X,Y),'frameInterval',dt,'lengths',re
     'trackIDs',(1:nTr)','allSpots',struct('X',X(:),'Y',Y(:),'FRAME',Fr(:)),'Dt',Dt, ...
     'vector',cat(3,diff(X,1,1),diff(Y,1,1)), ...
     'calib',struct('fovUm',fov,'binNm',bin,'pixSizeUm',0.16,'dt_s',dt,'precNm',1000*sig));
-Tracks = T; %#ok<NASGU>
+% a SECOND cell, smaller: the per-cell results then have different lengths, which is what the app's
+% summary line has to survive
+rng(12); nTrB = 70;
+XB = nan(nF,nTrB); YB = XB;
+for j = 1:nTrB
+    p = nan(nF,2); p(1,:) = [2 2] + 10*rand*[1 1] + 0.25*randn(1,2);
+    for t = 2:nF, p(t,:) = p(t-1,:) + sqrt(2*Dfast*dt)*randn(1,2); end
+    p = p + sig*randn(nF,2);
+    XB(:,j) = p(:,1); YB(:,j) = p(:,2);
+end
+FrB = repmat((0:nF-1)',1,nTrB);
+TB = struct('file','cellB','matrix',cat(3,FrB,XB,YB),'frameInterval',dt,'lengths',repmat(nF,nTrB,1), ...
+    'trackIDs',(1:nTrB)','allSpots',struct('X',XB(:),'Y',YB(:),'FRAME',FrB(:)),'Dt',nan(nF,nTrB), ...
+    'vector',cat(3,diff(XB,1,1),diff(YB,1,1)), ...
+    'calib',struct('fovUm',fov,'binNm',bin,'pixSizeUm',0.16,'dt_s',dt,'precNm',1000*sig));
+Tracks = [T TB]; %#ok<NASGU>
 save(fullfile(ana,'TrackStruct.mat'),'Tracks','-v7.3');
 calib = struct('pixSizeUm',0.16,'fovUm',fov,'dt_s',dt,'binNm',bin,'snapFovUm',fov); %#ok<NASGU>
 save(fullfile(ana,'cs_calib.mat'),'calib');
@@ -62,6 +80,7 @@ fclose(fid);
 windows = struct('framesPerWindow',nF,'nWindows',1,'ranges',[0 nF-1],'grid',n,'SF_umPerPx',SF, ...
                  'frameInterval',dt,'source','tracked'); %#ok<NASGU>
 save(cs_ana_path(ana,'density','Density_cellA_CSwindows.mat'),'windows');
+save(cs_ana_path(ana,'density','Density_cellB_CSwindows.mat'),'windows');
 
 %% (5) the mapper without a tessellation ------------------------------------------------------------
 W0 = cs_window_mapper(ana, struct('save',false,'verbose',false));
@@ -118,10 +137,38 @@ assert(W2.boxUm == 2.0 && W2.nLocNear > W.nLocNear && W2.nLocInside == W.nLocIns
     'widening the box should take in more neighbours (%d -> %d) and change nothing inside', W.nLocNear, W2.nLocNear);
 delete(fullfile(ana,'CS_footprints.mat'));
 
+%% (7) the app's button, over both cells ------------------------------------------------------------
+here2 = fileparts(mfilename('fullpath'));
+addpath(fullfile(fileparts(fileparts(here2)),'tool2_analyze','app'));
+app = spt_analyze_app('analyze'); app.Visible = 'off';
+closeApp = onCleanup(@() closeQuietly(app));
+pe = findobj(app,'Type','uieditfield');
+for q = 1:numel(pe)
+    if contains(lower(string(pe(q).Placeholder)),'project')
+        pe(q).Value = proj; cb = pe(q).ValueChangedFcn; if ~isempty(cb), cb(pe(q), struct('Value',proj)); end
+    end
+end
+Rapp = app.UserData.runTessellation(true);      % true = no confirmation dialog
+assert(numel(Rapp) == 2, 'the app should map both cells, got %d', numel(Rapp));
+lbl = findobj(app,'Type','uilabel');
+txt = '';
+for q = 1:numel(lbl)
+    t = char(strjoin(string(lbl(q).Text),' '));
+    if contains(t,'Diffusion map:'), txt = t; break; end
+end
+assert(contains(txt,'2 cell(s)') && contains(txt,'median D'), ...
+    'the app should report what it found over both cells, said: "%s"', txt);
+assert(isfile(fullfile(ana,'CS_tessellation.mat')), 'the app run should have saved the map');
+
 fprintf(['tessellation: %d tessels over %d locs, clipped to the cell (%.0f of %.0f um^2); D %.3f in the patch ' ...
          'vs %.3f outside (truth %.2f / %.2f, uncorrected %.3f)\n'], e.nTessels, e.nLoc, sum(e.areaUm2,'omitnan'), ...
          supportUm2, Din, Dout, Dslow, Dfast, raw);
 fprintf('site: %d inside / %d near in a %.3f um box · Deff %.3f vs %.3f · rolling D %.3f vs %.3f\n', ...
     W.nLocInside, W.nLocNear, W.boxUm, W.DeffIn, W.DeffNear, W.DtIn, W.DtNear);
+fprintf('app: both cells mapped and reported — "%s"\n', txt);
 fprintf('\nTESSELLATE SMOKE PASSED.\n');
+end
+
+function closeQuietly(h)
+try, if ~isempty(h) && isgraphics(h), close(h); end, catch, end
 end

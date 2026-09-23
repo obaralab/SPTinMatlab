@@ -236,6 +236,27 @@ balances bleaching. On the CysLig data: ~10% of traces give one clean step, 53% 
 ≈ 2500 of a total intensity of ≈ 2575, and no movie-wide decay. `spt_bleach_quiver_smoke`,
 `spt_vectors_tab_smoke`.
 
+**Engagement, without the clicking.** The VAPB dwell times were picked BY HAND on a plot of a
+molecule's distance from the site centre (`DwellTimeManualv2.m`: click the entry, click the exit).
+`cs_engage_detect` reads that same trace: a Schmitt trigger with two radii scaled to the site's own
+equivalent radius (enter at 2R, stay until 3.5R — one threshold chatters on noise), a tolerance for
+brief excursions (0.11 s by default, expressed in SECONDS so it transfers across frame rates), and a
+minimum duration. Censored events (the track starts or ends inside) are flagged, and `.maxDepth`
+optionally requires the visit to REACH the site rather than graze it. **Scored against the 734
+hand-picked events**: on the tracks its annotator marked as bound it recovers 83% of them at 87%
+precision, with dwell times at a median ratio of 0.96 (Spearman 0.81) — `cs_engage_smoke` asserts
+this whenever the published folder is on the machine. The events it finds on tracks the annotator
+did NOT mark are shallow (they reach 0.42 R against 0.12 R for his picks), which is the difference
+between proximity and binding, and what `.maxDepth` 0.4–0.6 buys back as precision.
+`cs_window_dwell` takes it as `opts.method 'trace'` beside the original `'inside'` (a run of
+localizations inside the outline), records which rule produced `DD`, and the Dwell tab offers both.
+On the CysLig data the two disagree by design: 10,386 visits of median 0.080 s by the polygon rule,
+2,173 of median 1.18 s by the trace rule, which joins the fragments the outline test splits.
+`cs_engage_plot` draws the paper's Fig. 2c — one trace per member track, every engagement bracketed
+and labelled with its dwell time — and the Dwell tab's histogram is now relative abundance, as in
+Fig. 2d. The diffusion map runs behind a cancellable progress dialog (`opts.progress` /
+`opts.cancelled`; nothing is saved on cancel).
+
 **📦 Export** (`cs_advisor_export`) asks for a folder name (`cs_advisor_export_name`
 makes it folder-safe; a used name is refused — exports are never written over) and writes
 `analysis/exports/<name>/`: the external code's `Density_<cell>.mat/.tif` and `Densities/<cell>_rho.tif`

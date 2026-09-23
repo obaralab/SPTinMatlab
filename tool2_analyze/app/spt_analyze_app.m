@@ -101,7 +101,7 @@ sitePlayer=[]; siteSelIdx=0; btnPlaySite=[]; btnPlayOne=[]; btnDelTrack=[]; chkU
 pendExcl=struct('file',{},'csID',{},'window',{},'pickPx',{},'trackCol',{});
 pendDelSite=struct('file',{},'csID',{},'window',{},'pickPx',{});   % whole-site deletions marked but not yet saved   % track removals marked but not yet applied
 % Dwell tab handles
-axDwHist=[]; axKout=[]; tblDwell=[]; axDwTrace=[]; axDwDens=[]; lblDwell=[]; dwellRowMap=[];
+axDwHist=[]; axKout=[]; tblDwell=[]; axDwTrace=[]; axDwDens=[]; lblDwell=[]; dwellRowMap=[]; ddDwRule=[];
 btnDwPlay=[]; sldDwFrame=[]; chkDwChan=gobjects(1,0); eDwFps=[]; lblDwAnim=[]; dwellAnim=[]; ddDwBg=[]; eDwContrast=[];
 % Compare tab handles
 % Experiment tab — the shared experiment/condition panel (spt_experiment_panel)
@@ -1287,13 +1287,28 @@ end
             if ~strcmp(c, 'Compute'), lblRef.Text = 'Diffusion map cancelled.'; return; end
         end
         lblRef.Text = 'Computing the diffusion map…'; drawnow;
-        try, R = cs_tessellate(anaDir, struct('verbose', false));
-        catch ME, lblRef.Text = ['Diffusion map failed: ' ME.message]; return; end
+        % The dialog is how the user watches it and how they stop it - but it is not what does the
+        % work, and a figure that is not on screen cannot host one (a test, or a hidden window). Run
+        % either way: no dialog just means no bar and no cancel button.
+        dlg = [];
+        try, dlg = uiprogressdlg(fig, 'Title', 'Diffusion map', 'Message', 'Starting…', ...
+                                 'Cancelable', 'on', 'Value', 0); catch, end
+        closeDlg = onCleanup(@() delete(dlg));
+        try
+            R = cs_tessellate(anaDir, struct('verbose', false, ...
+                'progress', @(frac, msg) tessProgress(dlg, frac, msg), ...
+                'cancelled', @() tessCancelled(dlg)));
+        catch ME
+            lblRef.Text = ['Diffusion map failed: ' ME.message]; return;
+        end
+        if tessCancelled(dlg)
+            lblRef.Text = 'Diffusion map cancelled — nothing was saved.'; return;
+        end
         if isempty(R), lblRef.Text = 'Diffusion map: no cell had enough localizations.'; return; end
         CSW = []; DD = [];
         lblRef.Text = sprintf(['Diffusion map: %d cell(s), %d tessels, median D %.3f µm²/s. Re-run the ' ...
             'mapper (Sites tab) to attach it to every site.'], numel(R), sum([R.nTessels]), ...
-            median(cell2mat(cellfun(@(d) d(:), {R.D}, 'uni', 0)), 'omitnan'));
+            median(vertcat(R.D), 'omitnan'));   % vertcat: each cell has its own number of tessels
     end
 
     function sp = refSigPx(e)
@@ -1346,6 +1361,16 @@ end
             'moved to their outline''s peak (⚠ in the list). Previous outlines: %s.mat · per-site ' ...
             'report: %s.csv. Re-run the mapper (Sites tab).'], R.n, R.sigmaNm, R.areaOld, R.areaNew, ...
             R.nMoved, tern(isempty(bn), '(none)', bn), rn);
+    end
+
+    function tessProgress(dlg, frac, msg)
+        if isempty(dlg) || ~isvalid(dlg), return; end
+        dlg.Value = min(max(frac, 0), 1);
+        dlg.Message = sprintf('%s  (%.0f%%)', msg, 100*frac);
+    end
+
+    function tf = tessCancelled(dlg)
+        tf = ~isempty(dlg) && isvalid(dlg) && dlg.CancelRequested;
     end
 
     function s = sigmaLine(e)
@@ -2354,7 +2379,7 @@ end
     % ================= Tab 6 · Dwell (residence times + per-window escape rate k_out(w)) =================
     function buildDwellTab(parent)
         g = uigridlayout(parent,[2 1],'RowHeight',{34,'1x'},'Padding',[10 10 10 10],'RowSpacing',6);
-        r = uigridlayout(g,[1 5],'ColumnWidth',{170, 44, 72, '1x', 0},'Padding',[0 0 0 0],'ColumnSpacing',8);
+        r = uigridlayout(g,[1 5],'ColumnWidth',{170, 44, 72, 148, '1x'},'Padding',[0 0 0 0],'ColumnSpacing',8);
         uibutton(r,'Text','▶ Compute dwell','FontWeight','bold','BackgroundColor',[0.18 0.45 0.70],'FontColor','w', ...
             'Tooltip','Residence of each member track in its site''s own window (span+1 accounting) -> analysis/cs_window_dwell.csv.', ...
             'ButtonPushedFcn',@(s,e) onComputeDwell());
@@ -2366,8 +2391,15 @@ end
             'localizations INSIDE the site — dwelling molecules rather than ones passing through. ' ...
             '0 = every member. Raising it can only raise mean dwell and lower k_out (it removes the ' ...
             'short visits), so report the threshold alongside the number. Recompute after changing it.']);
+        ddDwRule = uidropdown(r,'Tag','dwRule','Items',{'inside outline','distance trace'},'Value','inside outline', ...
+            'Tooltip',['What counts as ONE visit. "inside outline": a run of consecutive localizations ' ...
+                       'inside the outline — it ends the first frame a molecule steps out, so one ' ...
+                       'visit with a wobble counts as several. "distance trace": the visit is read ' ...
+                       'off the distance-to-centre plot (two radii scaled to the site, brief ' ...
+                       'excursions tolerated) — the rule the VAPB dwell times were picked by hand ' ...
+                       'on, and it reproduces 83% of those picks at 87% precision. Recompute after ' ...
+                       'changing it; the table says which rule produced the numbers.']);
         lblDwell = uilabel(r,'Text','Run the mapper (Sites tab) first, then Compute dwell.','FontColor',[0.2 0.4 0.5]);
-        uilabel(r,'Text','');
         mn = uigridlayout(g,[1 2],'ColumnWidth',{'1x','1x'},'Padding',[0 0 0 0],'ColumnSpacing',8);
         lc = uigridlayout(mn,[2 1],'RowHeight',{'1.4x','1x'},'Padding',[0 0 0 0],'RowSpacing',6);
         axDwHist = uiaxes(lc); title(axDwHist,'dwell-time distribution');
@@ -2416,7 +2448,8 @@ end
         if ~ensureCSWloaded(), lblDwell.Text='Run the mapper (Sites tab) first — no CSW_final.mat.'; return; end
         lblDwell.Text='Computing dwell…'; drawnow;
         mp = 0; if ~isempty(eMinDwPct) && isgraphics(eMinDwPct), mp = eMinDwPct.Value; end
-        try, DD = cs_window_dwell(anaDir, struct('save',true,'verbose',false,'minPctInside',mp));
+        rule = 'inside'; if ~isempty(ddDwRule) && isgraphics(ddDwRule) && startsWith(ddDwRule.Value,'distance'), rule = 'trace'; end
+        try, DD = cs_window_dwell(anaDir, struct('save',true,'verbose',false,'minPctInside',mp,'method',rule));
         catch ME, lblDwell.Text=['Dwell error: ' ME.message]; return; end
         drawDwell();
         % Say what was computed — the label used to be left reading "Computing dwell…" forever, and
@@ -2431,10 +2464,11 @@ end
         d = DD.allDwell; d = d(isfinite(d)&d>0);
         cla(axDwHist);
         if ~isempty(d)
-            histogram(axDwHist, d, min(50,max(6,round(numel(d)/8))), 'FaceColor',[0.4 0.55 0.8],'EdgeColor','none');
-            try, set(axDwHist,'YScale','log'); catch, end
+            histogram(axDwHist, d, min(50,max(6,round(numel(d)/8))), 'FaceColor',[0.4 0.55 0.8], ...
+                'EdgeColor','none', 'Normalization','probability');
+            try, set(axDwHist,'YScale','linear'); catch, end
         end
-        xlabel(axDwHist,'dwell (s)'); ylabel(axDwHist,'events'); title(axDwHist, sprintf('dwell-time distribution (median %.3g s, n=%d)', median0_(d), numel(d)));
+        xlabel(axDwHist,'dwell time (s)'); ylabel(axDwHist,'relative abundance'); title(axDwHist, sprintf('dwell-time distribution (median %.3g s, n=%d)', median0_(d), numel(d)));
         % k_out per window
         pw = DD.perWindow; cla(axKout);
         if ~isempty(pw)
@@ -2484,15 +2518,18 @@ end
         dwellStopTimer();
         dwellPrepare(ee, pt, fr, xr+cUm(1), yr+cUm(2), ii, cUm);
 
-        % (2) distance-to-centre vs frame with the dwell frames marked
-        cla(axDwTrace); hold(axDwTrace,'on');
-        plot(axDwTrace, fr, rdist, '-','Color',[0.6 0.6 0.7],'LineWidth',0.6);
-        plot(axDwTrace, fr(ii), rdist(ii), 'o','MarkerFaceColor',[0.85 0.2 0.3],'MarkerEdgeColor','none','MarkerSize',4);
-        plot(axDwTrace, fr(~ii), rdist(~ii), 'o','MarkerFaceColor',[0.6 0.6 0.7],'MarkerEdgeColor','none','MarkerSize',3);
-        hold(axDwTrace,'off');
-        xlabel(axDwTrace,'frame'); ylabel(axDwTrace,'dist to centre (µm)');
-        title(axDwTrace, sprintf('cell %d track %d @ site %d (win %d) · %s · %d in / %d total', ...
-            pt.cellIndex, pt.trackCol, ee.csID, pt.window, pt.label, nnz(ii), numel(fr)));
+        % (2) distance from the site centre against time, this track in colour and its site's other
+        % member tracks behind it, with every engagement bracketed and its dwell time named — the
+        % plot the VAPB dwell times were read off by hand (cs_engage_plot).
+        inf2 = struct('nEvents',0,'radiusUm',NaN);
+        try
+            inf2 = cs_engage_plot(axDwTrace, ee, struct('highlight', jj, 'maxLabels', 4));
+        catch ME
+            cla(axDwTrace); text(axDwTrace, 0.5, 0.5, ME.message, 'Units','normalized', 'HorizontalAlignment','center');
+        end
+        spt_axes_policy(axDwTrace);
+        title(axDwTrace, sprintf('cell %d track %d @ site %d (win %d) · %s · %d in / %d total · %d engagement(s) detected', ...
+            pt.cellIndex, pt.trackCol, ee.csID, pt.window, pt.label, nnz(ii), numel(fr), inf2.nEvents));
     end
 
     % ---- Dwell density animator: play the selected track over the contact-site density + ER/mito overlay ----

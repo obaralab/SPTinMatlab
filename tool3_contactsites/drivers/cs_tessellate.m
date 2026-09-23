@@ -36,6 +36,10 @@ function varargout = cs_tessellate(varargin)
 %       .minSteps (20) steps a tessel needs before D is reported
 %       .estimator ('lag1'|'cve')  .sigmaUm (project precNm, else 0.03)  .maskImage ([])
 %       .cells (cellstr) .save (true) .verbose (true) .seed (0, for reproducible k-means)
+%       .progress  f(frac, msg) called before each cell - a few seconds per cell is long enough
+%                  that a window with no progress looks hung
+%       .cancelled f() -> true to stop early. Nothing is saved when it does: half a diffusion map
+%                  saved under the same name as a whole one is worse than no map.
 %
 % OUTPUT TS(k): file, nLoc, nTessels, centres [t x 2 um], D [t x 1 um^2/s], nLocs, nSteps,
 %   areaUm2, density (locs/um^2), poly {t x 1} clipped polygons [p x 2 um] (NaN rows separate the
@@ -62,6 +66,8 @@ minSteps  = getf(opts, 'minSteps', 20);
 estimator = lower(getf(opts, 'estimator', 'lag1'));
 maskImg   = getf(opts, 'maskImage', []);
 doSave    = getf(opts, 'save', true);
+onProg    = getf(opts, 'progress', []);
+isCancel  = getf(opts, 'cancelled', []);
 verb      = getf(opts, 'verbose', true);
 seed      = getf(opts, 'seed', 0);
 wantCells = getf(opts, 'cells', {});
@@ -73,9 +79,18 @@ try, Tracks = cs_track_exclusions('blank', cs_track_exclusions('load', fileparts
 [gridDef, SFdef] = cs_default_gridsf(anaDir);
 
 TS = struct([]); nanFrac = [];
-for i = 1:numel(Tracks)
+todo = 1:numel(Tracks);
+if ~isempty(wantCells)
+    todo = todo(arrayfun(@(i) ismember(cellBase(Tracks(i).file), wantCells), todo));
+end
+for q = 1:numel(todo)
+    i = todo(q);
     [~, base] = fileparts(char(Tracks(i).file));
-    if ~isempty(wantCells) && ~ismember(base, wantCells), continue; end
+    if ~isempty(isCancel) && isCancel()
+        if verb, fprintf('cs_tessellate: cancelled after %d of %d cells - nothing saved\n', q-1, numel(todo)); end
+        varargout{1} = TS; return;
+    end
+    if ~isempty(onProg), onProg((q-1)/numel(todo), sprintf('%s (%d of %d)', base, q, numel(todo))); end
     M = Tracks(i).matrix;
     if isempty(M), continue; end
     X = M(:,:,2); Y = M(:,:,3); F = M(:,:,1);
@@ -153,6 +168,7 @@ if ~isempty(nanFrac) && mean(nanFrac) > 0.2 && verb
              'Raise minLocs (bigger tessels, coarser map) or lower minSteps (noisier D) - on data ' ...
              'with short tracks minLocs 60-100 typically leaves under 10%%.\n'], 100*mean(nanFrac), minSteps);
 end
+if ~isempty(onProg), onProg(1, 'done'); end
 if doSave && ~isempty(TS)
     save(fullfile(anaDir, 'CS_tessellation.mat'), 'TS', '-v7.3');
     if verb, fprintf('cs_tessellate: %d cell(s) -> %s\n', numel(TS), fullfile(anaDir, 'CS_tessellation.mat')); end
@@ -256,6 +272,8 @@ try
 catch
 end
 end
+
+function b = cellBase(f), [~, b] = fileparts(char(f)); end
 
 function v = getf(s,f,d), if isstruct(s)&&isfield(s,f)&&~isempty(s.(f)), v=s.(f); else, v=d; end, end
 function v = getf2(s,f,d), if isstruct(s)&&isfield(s,f)&&~isempty(s.(f)), v=s.(f); else, v=d; end, end

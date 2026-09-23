@@ -261,6 +261,9 @@ mark{ background:var(--accent-soft); color:inherit; border-radius:3px; padding:0
   <a href="#t3refsigma">&nbsp;&nbsp;outline σ — the scale outlines are made at, and ⟳ Regenerate all</a>
   <a href="#t3refbox">&nbsp;&nbsp;near box — the neighbourhood a site is compared with</a>
   <a href="#t3tess">&nbsp;&nbsp;🔬 Diffusion map — D per tessel, inside the cell</a>
+  <a href="#t3engage">Tool 3 · Dwell — what counts as one engagement</a>
+  <a href="#t3engagedetect">&nbsp;&nbsp;The trace rule, against the hand picks</a>
+  <a href="#t3engageplot">&nbsp;&nbsp;The distance-from-centre plot</a>
   <a href="#t3refdraw">&nbsp;&nbsp;✎ Draw centre + boundary — the manual refine</a>
   <a href="#t3refcentre">&nbsp;&nbsp;✥ Move centre only</a>
   <a href="#t3refsmooth">&nbsp;&nbsp;✨ Smooth boundary</a>
@@ -1823,6 +1826,28 @@ D distribution — median &lt;med&gt; µm²/s  ·  adaptive fit &lt;min&gt;–&l
 <div class="note"><b>A movie that does not decay is not given a decay.</b> When the fit explains almost nothing (R² &lt; 0.1) the answer is <code>τ = Inf</code> and <code>corr = 1</code>. That is the usual result for sptPALM, where photoactivation replaces the molecules that bleach and the count stays flat — as it does in the CysLig data.</div>
 <div class="warn"><b>What this data can and cannot support.</b> On the CysLig movies only about 10% of traces give a single clean step and 53% are flagged mixed, because the background dominates: a total intensity of ≈ 2575 counts sits on a background of ≈ 2500 with steps of ≈ 450 and a trace noise of ≈ 176. Read the <b>background</b> from it — that is measurable on 58% of tracks and consistent — but do not read stoichiometry. Counting fluorophores needs a dedicated bleaching movie: no photoactivation, full-field illumination, and a long enough exposure for the trace to reach its plateau while the tracker still follows the spot.</div>
 
+<h2 id="t3engage">Tool 3 · <b>Dwell</b> — what counts as one engagement</h2>
+<p class="lead">A dwell time is only as good as the rule that says when a visit starts and ends. The Dwell tab offers two, and the <b>visit rule</b> dropdown picks which one produces the numbers (recompute after changing it; the result records which was used).</p>
+<table>
+  <tr><th>Rule</th><th>A visit is…</th><th>Where it bites</th></tr>
+  <tr><td><b>inside outline</b> (default)</td><td>a run of consecutive localizations inside the outline</td><td>Crisp and local, but it ends at the <em>first</em> localization outside: a molecule that steps out for one frame and comes back is counted as two visits. On the CysLig data this gives 10,386 visits with a median of 0.080 s — three frames.</td></tr>
+  <tr><td><b>distance trace</b></td><td>a stretch of the distance-to-centre trace, read the way a person reads it</td><td>Joins the fragments: 2,173 visits with a median of 1.18 s on the same data. This is the rule the published dwell times were picked by, so it is the comparable one.</td></tr>
+</table>
+<h3 id="t3engagedetect">How the trace rule works, and how well it matches the hand picks</h3>
+<p>The published dwell times were clicked by hand on exactly this plot: a molecule's distance from the site centre against time, entry and exit marked by eye. <code>cs_engage_detect</code> does the same with a <b>Schmitt trigger</b>:</p>
+<ul>
+  <li><b>Two radii, not one.</b> Enter below <b>2R</b>, stay until <b>3.5R</b>, where R is the site's own equivalent radius (<code>√(area/π)</code>). A single threshold chatters — a molecule sitting on it enters and leaves on noise alone, and every wobble becomes another "event".</li>
+  <li><b>Brief excursions are tolerated</b> (0.11 s by default). A molecule that steps out for one frame was never gone; localization error alone produces such steps.</li>
+  <li><b>A minimum duration</b> (0.11 s), so a single close approach is not a visit. Both durations are in <em>seconds</em>, not frames, so they mean the same thing at 11 ms and at 26.7 ms.</li>
+  <li><b>Censoring is recorded.</b> A track that starts or ends inside has no observed entry or exit, and its duration is a lower bound — the distinction the VAPB classifier kept by hand as "entry only" / "exit only".</li>
+  <li><b>Depth is optional.</b> <code>maxDepth</code> requires the visit to reach the site rather than graze it.</li>
+</ul>
+<div class="note check"><span class="tag">Checked against the hand picks</span>
+<p>Run on the published data, on the tracks its annotator marked as bound, the detector recovers <b>83% of his 734 events at 87% precision</b>, and the dwell times agree to a median ratio of <b>0.96</b> (Spearman 0.81). The test asserts this whenever that folder is on the machine.</p>
+<p>It also finds events on tracks he marked as <em>not</em> binding — about 0.6 per track. Those are shallow: they reach 0.42 R while his picks reach 0.12 R. That is the difference between being near a site and engaging with it, and it is a definition you set rather than a bug: <code>maxDepth</code> 0.4–0.6 pushes precision to 0.92–0.93 at the cost of recall.</p></div>
+<h3 id="t3engageplot">The distance-from-centre plot</h3>
+<p>Clicking a row in the dwell table draws the paper's Fig. 2c for that site: every member track's distance from the centre against time, the selected track in red and the rest in grey, each detected engagement bracketed by dotted verticals and labelled with its dwell time, the site's own radius marked, and zero dashed. The dwell histogram beside it is plotted as <b>relative abundance</b> and the escape rate <code>k<sub>out</sub></code> beneath it, as in Fig. 2d. It is available as a driver too: <code>cs_engage_plot(ax, CSW(k), opts)</code>.</p>
+
 <h2 id="t3contact">Tool 3 · <b>Contact sites</b> — the windowed picker</h2>
 <p class="lead">Tab <b>2 · Contact sites</b> is where a density map becomes a list of candidate contact sites, one list per time window. Everything downstream (Refine → Sites → Dwell → Compare) is built on what you save here, so this is the tab worth understanding control by control.</p>
 
@@ -2081,7 +2106,7 @@ counts = accumarray([Ly Lx], 1, [grid grid]);        % row = y, column = x</code
 <p>The mapper records, per site: <code>boxUm</code>, <code>boxLocIDs</code>, <code>neighborIDs</code> (box minus outline), <code>nLocNear</code>, <code>nTracksNear</code>, and the diffusion of both sides (below). A track you removed from a site on the Sites tab is not counted as its neighbour either.</p>
 
 <h3 id="t3tess">🔬 Diffusion map — D per tessel, inside the cell</h3>
-<p><kbd>🔬 Diffusion map…</kbd> (Refine tab, beside the box) runs <code>cs_tessellate</code> over every cell and writes <code>analysis/CS_tessellation.mat</code>. It is this pipeline's answer to the VAPB dataset's JBM maps, and the reason a site's diffusion can be compared with its surroundings at all.</p>
+<p><kbd>🔬 Diffusion map…</kbd> (Refine tab, beside the box) runs <code>cs_tessellate</code> over every cell and writes <code>analysis/CS_tessellation.mat</code>. It shows a progress dialog, cell by cell, and can be cancelled — on cancel nothing is saved, because half a diffusion map under the name of a whole one is worse than none. It is this pipeline's answer to the VAPB dataset's JBM maps, and the reason a site's diffusion can be compared with its surroundings at all.</p>
 <ul>
   <li><b>Tessels follow the data.</b> Seeds are placed on the localizations themselves (k-means, one seed per 30 localizations by default), not on a grid and not on rings around a site.</li>
   <li><b>Every tessel is clipped to the cell.</b> The region is the localization support — where molecules were actually seen, dilated and hole-filled (<code>cs_support_mask</code>) — so a tessel's area is cell area and its density is a real density. Pass your own mask (an ER segmentation resampled to the density grid) as <code>opts.maskImage</code> when a project has one; with an ER probe and no ER channel, the support <em>is</em> the ER.</li>

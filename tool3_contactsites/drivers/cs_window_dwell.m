@@ -12,6 +12,18 @@ function DD = cs_window_dwell(anaDir, opts)
 %
 % Reuses cs_dwell_primitives (csInsideMask/runsToEvents/mergeIntervals/classifyInside) verbatim.
 %
+% TWO DEFINITIONS OF A VISIT, one result. opts.method:
+%   'inside' (default) a visit is a run of consecutive localizations INSIDE the outline. Crisp, and
+%            it ends at the first localization outside - a molecule that steps out for one frame
+%            starts a new visit.
+%   'trace'  the visit is read off the distance-to-centre trace instead (cs_engage_detect): a
+%            Schmitt trigger with two radii and a tolerance for brief excursions - what the VAPB
+%            work marked by hand on that same plot. On its annotated data this reproduces 83% of
+%            the hand-picked events at 87% precision, with dwell times agreeing to a median ratio
+%            of 0.96 (cs_engage_smoke). Thresholds scale with each site's own radius.
+% Everything downstream (the table, k_out, the labels) is the same either way, so the two are
+% directly comparable - and DD.method records which one produced the numbers.
+%
 % opts: .save (true) writes analysis/cs_window_dwell.csv + cs_window_track_labels.csv; .verbose (true);
 %       .minPctInside (0) keeps only member tracks with at least this % of their window
 %       localizations INSIDE the footprint — the mapper's own trackPctInside criterion, the same one
@@ -37,6 +49,8 @@ if nargin<2 || ~isstruct(opts), opts = struct(); end
 doSave = getf(opts,'save',true);
 verb   = getf(opts,'verbose',true);
 minPct = getf(opts,'minPctInside',0);
+method = lower(getf(opts,'method','inside'));            % 'inside' | 'trace'
+engOpts = getf(opts,'engage',struct());                  % passed to cs_engage_detect for 'trace'
 assert(isscalar(minPct) && isfinite(minPct) && minPct>=0 && minPct<=100, ...
     'cs_window_dwell:minPct','minPctInside must be a percentage in [0 100], got %s', mat2str(minPct));
 
@@ -78,7 +92,17 @@ for k = 1:numel(CSW)
         nSeen = nSeen + 1;
         if pctIn < minPct, continue; end                     % passing-through, not dwelling
         nKept = nKept + 1;
-        rev = P.runs(inside, fr, dt);                        % [entryF exitF dwell]
+        if strcmp(method, 'trace')
+            % the same visit, read off the distance trace: r(t) from the site centre, thresholds
+            % scaled by the site's own equivalent radius
+            Rsite = sqrt(max(polyarea(bx, by), eps)/pi);
+            o = engOpts; o.dt = dt; o.siteRadius = Rsite;
+            E = cs_engage_detect(hypot(xr(wm), yr(wm)), fr(wm), o);
+            rev = zeros(numel(E), 3);
+            for r = 1:numel(E), rev(r,:) = [E(r).entryFrame E(r).exitFrame E(r).dwell_s]; end
+        else
+            rev = P.runs(inside, fr, dt);                    % [entryF exitF dwell]
+        end
         if isempty(rev), continue; end
         tcol = e.tracks(jj);
         for r = 1:size(rev,1)
@@ -97,7 +121,7 @@ end
 
 allDwell = [ev.dwell]';
 DD = struct();
-DD.dt = dt; DD.events = ev; DD.perTrack = perTrack; DD.allDwell = allDwell;
+DD.dt = dt; DD.method = method; DD.events = ev; DD.perTrack = perTrack; DD.allDwell = allDwell;
 DD.minPctInside = minPct;      % travels with the result: a consumer must be able to say what it is looking at
 
 % ---- per (site x window) aggregation ----
