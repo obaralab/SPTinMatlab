@@ -25,7 +25,9 @@ writes `tracks/<base>_tracks_filtered.xml` + `_spots_filtered.csv`. **Tool 2** (
 tracks (embeds `track_viewer`) and writes them back as `*_tracks_curated.xml`. **Tool 3** (`'analysis'` mode)
 runs `build_trackstruct` (the slow MSD step) → a **named build** `analysis/<name>.mat` (`TrackStruct.mat`
 unless you name it), recorded as the one in force in `analysis/active_trackstruct.txt`, and reads that build
-back on **Vectors & bleaching**. It takes its input from `tracks/` on disk, not from Tool 2's state, so the
+back on the same tab: **Build, QC & vectors** is one tab, with the step vectors and the bleaching read-out
+under the build controls that produced them (`buildVectorsTab` drops its grid into the row `buildBuildTab`
+reserves for it, so neither panel was rewritten). It takes its input from `tracks/` on disk, not from Tool 2's state, so the
 two are separate jobs in separate windows. **Tool 4** (`spt_analyze_app`) starts from that build — which it resolves
 through `cs_active_trackstruct` (§7.2), never by a hardcoded filename: density → contact-site picker →
 mapper → dwell → compare. A shared **Experiment** tab (`spt_experiment_panel`) is **tab 1 in all three
@@ -88,7 +90,7 @@ SPTinMatlab/
 The tools keep their own windows (`run_curate`, `run_analysis`, `run_contactsites`) and their own
 drivers; they share the project folder, the manifest and the build. **Four tools since the split:**
 curation is Tool 2 (Experiment + Import & Curate), building the TrackStruct and reading it back is
-Tool 3 (Build & QC + Vectors & bleaching), and the contact-site work is Tool 4. The build takes its
+Tool 3 (Build, QC & vectors — one tab), and the contact-site work is Tool 4. The build takes its
 input from `tracks/` on disk rather than from the curation tab's state — `onBuild` picks the pattern
 with `curatePattern()`, preferring `*_tracks_curated.xml` — so the two are genuinely separable and
 each window is one job. `run_analyze` still opens Tool 4, which is what that name meant when there

@@ -5,7 +5,7 @@ function fig = spt_analyze_app(mode)
 % same codebase backs two focused launchers (Tool 1 "Track" = spt_app.m is a separate app):
 %
 %   spt_analyze_app('curate')       -> Tool 2 "Curate": Experiment -> Import & Curate.
-%   spt_analyze_app('analysis')     -> Tool 3 "Analysis": Build & QC -> Vectors & bleaching.
+%   spt_analyze_app('analysis')     -> Tool 3 "Analysis": Build, QC & vectors (one tab).
 %   spt_analyze_app('contactsites') -> Tool 4 "Contact Sites" (DEFAULT, and what 'analyze' now means).
 %                                 Curate the tracked cells and build the TrackStruct.mat the next tool reads.
 %   spt_analyze_app('analyze') -> Tool 3 "Analyze" (DEFAULT): Contact sites -> Refine -> Sites -> Dwell
@@ -31,7 +31,7 @@ mode = lower(char(mode));
 if strcmp(mode,'analyze'), mode = 'contactsites'; end   % what this mode was called when there were 3 tools
 mode = validatestring(mode, {'curate','analysis','contactsites','full'});
 showCurate   = any(strcmp(mode,{'curate','full'}));        % Import & Curate
-showAnalysis = any(strcmp(mode,{'analysis','full'}));      % Build & QC + Vectors & bleaching
+showAnalysis = any(strcmp(mode,{'analysis','full'}));      % Build, QC & vectors (one tab)
 showAnalyze  = any(strcmp(mode,{'contactsites','full'}));  % Contact sites + Refine + Sites + Dwell + Engagement + Compare
 switch mode
     case 'curate',       toolName = 'SPT Curate — Tool 2 of 4';
@@ -200,9 +200,9 @@ end
 if showAnalysis
     % Building the TrackStruct and reading what it says are ANALYSIS, not curation: the build takes
     % its input from the tracks folder on disk, not from the curation tab's state, so the two are
-    % genuinely separable and each tool is one job.
-    nTab=nTab+1; tBuild  = uitab(tg,'Title',sprintf('%d · Build & QC',nTab));
-    nTab=nTab+1; tVec    = uitab(tg,'Title',sprintf('%d · Vectors & bleaching',nTab));
+    % genuinely separable and each tool is one job. Within this tool it is ONE tab — the vectors and
+    % the bleaching describe the build sitting above them.
+    nTab=nTab+1; tBuild  = uitab(tg,'Title',sprintf('%d · Build, QC & vectors',nTab));
 end
 if showAnalyze
     nTab=nTab+1; tCS     = uitab(tg,'Title',sprintf('%d · Contact sites',nTab));
@@ -217,8 +217,7 @@ if showCurate
     placeholder(tImport, 'Pick a Tool 1 project folder above — the track curation tool loads here.');
 end
 if showAnalysis
-    buildBuildTab(tBuild);
-    buildVectorsTab(tVec);
+    buildBuildTab(tBuild);          % which builds the vectors/bleaching half into its own grid
 end
 if showAnalyze
     buildContactTab(tCS);
@@ -337,9 +336,15 @@ end
         refreshBuildList();
     end
 
-    % ---------------- Tab 2: Build & QC (build + interactive per-track inspection) ----------------
+    % -------- Tab 2: Build, QC & vectors (build, inspect it, and read what it already holds) --------
+    % ONE tab, not two. Building a TrackStruct and looking at what it holds are the same sitting, and
+    % the vector/bleaching panel was a tab away from the build it describes. Each half keeps its own
+    % layout — buildVectorsTab drops its whole grid into the row reserved for it below — so the merge
+    % is a change of host, not a rewrite of either panel.
     function buildBuildTab(parent)
-        g = uigridlayout(parent,[4 1],'RowHeight',{30,28,'1x',44},'Padding',[10 10 10 10],'RowSpacing',6);
+        % The build half carries a cell table, a filter row and three stacked plots in its left column
+        % alone, so it needs roughly twice the height of the vector/bleaching half to stay readable.
+        g = uigridlayout(parent,[5 1],'RowHeight',{30,28,'1.7x','1x',44},'Padding',[10 10 10 10],'RowSpacing',6);
         % row 1 — build controls
         r1 = uigridlayout(g,[1 6],'ColumnWidth',{200,188,206,190,'1x',0},'Padding',[0 0 0 0],'ColumnSpacing',8);
         r1a = uigridlayout(r1,[1 2],'ColumnWidth',{72,'1x'},'Padding',[0 0 0 0],'ColumnSpacing',6);
@@ -501,6 +506,7 @@ end
         % cleared and rebuilt under the pointer.
         spt_axes_policy([axDist axDdist axCSD axMSD axDtrace axSweep]);
         spt_axes_policy(axCov);   % click-to-select a track coexists with zoom/pan
+        buildVectorsTab(g);       % row 4: the step vectors and the bleaching read-out, same tab
         txtBuild = uitextarea(g,'Editable','off','Value',{'Build log:'});
     end
 
@@ -720,7 +726,7 @@ end
         catch, imwrite(uint16(30*sm), fullfile(dOut, ['Density_' base '.tif'])); end
     end
 
-    % ================= Tab 4 · Vectors & bleaching (what the build already holds, looked at) ==========
+    % ========== The lower half of that tab · Vectors & bleaching (what the build already holds) ==========
     % Two things every build carries that nothing else reads: the per-step VECTORS, and the
     % per-localization INTENSITY. The vectors drawn as arrows are the view the VAPB figures used per
     % contact site (one quiver per track); the intensities, fitted for bleaching steps, say how many
@@ -741,7 +747,7 @@ end
                        'comparable; MATLAB''s own quiver autoscaling (each track scaled by its own ' ...
                        'longest arrow) is deliberately off.']);
         chkVecLines = uicheckbox(r,'Text','track lines','Value',true,'ValueChangedFcn',@(s,e) drawVectors());
-        lblVec = uilabel(r,'Text','Load a build (Build & QC tab) to draw its step vectors.','FontColor',[0.2 0.4 0.5]);
+        lblVec = uilabel(r,'Text','Build or load above, then pick a cell to draw its step vectors.','FontColor',[0.2 0.4 0.5]);
         mn = uigridlayout(g,[1 3],'ColumnWidth',{190,'1.6x','1x'},'Padding',[0 0 0 0],'ColumnSpacing',8);
         lc = uigridlayout(mn,[3 1],'RowHeight',{18,'1x',26},'Padding',[0 0 0 0],'RowSpacing',4);
         uilabel(lc,'Text','tracks','FontWeight','bold');
@@ -749,15 +755,19 @@ end
         chkVecAll = uicheckbox(lc,'Text','all tracks of the cell','Value',false,'ValueChangedFcn',@(s,e) drawVectors(), ...
             'Tooltip','Draw every track at once: a flow map for the cell. Pick a few tracks to read one.');
         axVec = uiaxes(mn,'Tag','vecAxes'); title(axVec,'step vectors'); axVec.Toolbar.Visible='off'; spt_axes_policy(axVec);
-        rc = uigridlayout(mn,[4 1],'RowHeight',{28,'1x','1x','1.1x'},'Padding',[0 0 0 0],'RowSpacing',4);
+        % The two bleaching plots SIDE BY SIDE, not stacked: sharing a tab with the build leaves this
+        % half about a third of the window, and two axes stacked in it are too short to read a step
+        % count off. Width is what there is spare.
+        rc = uigridlayout(mn,[3 1],'RowHeight',{28,'1x',62},'Padding',[0 0 0 0],'RowSpacing',4);
         uibutton(rc,'Text','▶ Analyse bleaching','FontWeight','bold','BackgroundColor',[0.18 0.45 0.70],'FontColor','w', ...
             'Tag','runBleach','ButtonPushedFcn',@(s,e) onBleaching(), ...
             'Tooltip',['Fit every track''s intensity trace for photobleaching steps (spt_bleaching): how many ' ...
                        'fluorophores the spot held, the height of one step, and the level after the last drop ' ...
                        '— the background under that molecule, subtracted to give intensCorr. Also fits how ' ...
                        'the movie decays, giving a per-frame factor that puts late counts on the early scale.']);
-        axBleachK = uiaxes(rc); title(axBleachK,'bleaching steps per track'); axBleachK.Toolbar.Visible='off'; spt_axes_policy(axBleachK);
-        axBleachDecay = uiaxes(rc); title(axBleachDecay,'localizations per frame'); axBleachDecay.Toolbar.Visible='off'; spt_axes_policy(axBleachDecay);
+        bx = uigridlayout(rc,[1 2],'ColumnWidth',{'1x','1x'},'Padding',[0 0 0 0],'ColumnSpacing',6);
+        axBleachK = uiaxes(bx); title(axBleachK,'bleaching steps per track'); axBleachK.Toolbar.Visible='off'; spt_axes_policy(axBleachK);
+        axBleachDecay = uiaxes(bx); title(axBleachDecay,'localizations per frame'); axBleachDecay.Toolbar.Visible='off'; spt_axes_policy(axBleachDecay);
         lblBleach = uilabel(rc,'Tag','bleachInfo','Text','Not run yet.','WordWrap','on','VerticalAlignment','top','FontColor',[0.35 0.35 0.42]);
     end
 

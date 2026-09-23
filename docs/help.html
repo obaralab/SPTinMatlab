@@ -228,7 +228,7 @@ mark{ background:var(--accent-soft); color:inherit; border-radius:3px; padding:0
   <a href="#t2log">&nbsp;&nbsp;The activity log</a>
   <a href="#curatefilter">&nbsp;&nbsp;The curate filter — what the two metrics actually measure</a>
   <h4>Tool 3 · Analysis</h4>
-  <a href="#t2build">3 · Analysis — the Build &amp; QC tab</a>
+  <a href="#t2build">3 · Analysis — the Build, QC &amp; vectors tab</a>
   <a href="#t2buildrow">&nbsp;&nbsp;The build row</a>
   <a href="#t2named">&nbsp;&nbsp;Named builds and the active pointer new</a>
   <a href="#t2loadvsbuild">&nbsp;&nbsp;Build vs Load — and why Load is fast</a>
@@ -238,7 +238,7 @@ mark{ background:var(--accent-soft); color:inherit; border-radius:3px; padding:0
   <a href="#t2panels">&nbsp;&nbsp;The panels, one by one</a>
   <a href="#t2contract">&nbsp;&nbsp;The TrackStruct contract — every field, and what it holds</a>
   <a href="#t2buildtips">&nbsp;&nbsp;Working practices</a>
-  <a href="#t2vectors">3 · Vectors &amp; bleaching</a>
+  <a href="#t2vectors">3 · Vectors &amp; bleaching (same tab)</a>
   <a href="#t2quiver">&nbsp;&nbsp;The step-vector plot</a>
   <a href="#t2bleach">&nbsp;&nbsp;Bleaching steps, background and the decay</a>
   <h4>Tool 4 · Contact Sites</h4>
@@ -619,7 +619,7 @@ troubleshooting list is in <a href="#trouble">Troubleshooting</a>.</div>
   <tr><th>Tool</th><th>Launcher</th><th>Does</th></tr>
   <tr><td><b>1 · Track</b></td><td><code>run_track</code> (<code>spt_app</code>)</td><td>Match the 3 input folders → detect spots → link tracks (ER-aware) → filter → export curated tracks.</td></tr>
   <tr><td><b>2 · Curate</b></td><td><code>run_curate</code> (<code>spt_curate_app</code>)</td><td>Review every track, repair mislinks, export the curated tracks.</td></tr>
-  <tr><td><b>3 · Analysis</b></td><td><code>run_analysis</code></td><td>Build a <b>named</b> <code>TrackStruct</code> (MSD, diffusion, precision) → QC each track → step vectors and bleaching. Reads <code>tracks/</code> on disk, so it does not need Tool 2 open.</td></tr>
+  <tr><td><b>3 · Analysis</b></td><td><code>run_analysis</code></td><td>Build a <b>named</b> <code>TrackStruct</code> (MSD, diffusion, precision) → QC each track → step vectors and bleaching, all in <b>one tab</b>. Reads <code>tracks/</code> on disk, so it does not need Tool 2 open.</td></tr>
   <tr><td><b>4 · Contact Sites</b></td><td><code>run_contactsites</code> (<code>spt_analyze_app</code>)</td><td>Contact-site picking → boundary refine → membership mapping → residence times → cross-condition compare.</td></tr>
 </table>
 
@@ -1554,7 +1554,7 @@ Nothing in the shipped app is wired so that these fire — the read suffix and t
 
 <p>Both histograms in the middle panel show the distribution you are cutting — displacement variance on one, local density on the other (integer bins, since it is a neighbour count) — each with the <b>current threshold drawn as a red dashed vertical line</b>. Drag a slider and the line moves, so you can place the cut relative to the shape of the data instead of guessing. Tracks whose metric is undefined (a single-localization track has no step, hence no variance) are <em>kept</em>, not silently dropped.</p>
 
-<h2 id="t2build">3 · Analysis — the <b>Build &amp; QC</b> tab</h2>
+<h2 id="t2build">3 · Analysis — the <b>Build, QC &amp; vectors</b> tab</h2>
 <p class="lead">This is the tab that turns curated tracks into the one file the rest of the pipeline reads: <code>analysis/&lt;name&gt;.mat</code>, a <code>Tracks</code> struct holding every tracked localization plus the per-track MSD (the per-track <code>D</code> is fit live from it, never stored) and the per-localization diffusion state. It is also the only place you get to look at all of that at once, per cell or pooled, before anything downstream depends on it.</p>
 
 <div class="flow">
@@ -1817,7 +1817,8 @@ D distribution — median &lt;med&gt; µm²/s  ·  adaptive fit &lt;min&gt;–&l
   <li><b>Sanity-check a fresh build in this order:</b> cell table (are all cells there, do <code>mito</code>/<code>ER</code> show <code>✓</code>) → the on-ER % in the readout line → track length (does the left edge match Tool 1's min-length filter) → D distribution median against the sweep panel of two or three clicked tracks → the stepwise histogram, to place the confinement threshold. Only then move to Tool 4.</li>
   <li><b>MATLAB apps do not hot-reload.</b> If you edit a source file mid-session, close and relaunch — a stale figure throws phantom callback errors.</li>
 </ul>
-<h2 id="t2vectors">3 · Analysis — the <b>Vectors &amp; bleaching</b> tab</h2>
+<h2 id="t2vectors">3 · Analysis — <b>Vectors &amp; bleaching</b>, the lower half of that tab</h2>
+<p class="lead">Not a tab of its own: these two panels sit under the build controls, because they describe the build sitting above them and you read them in the same sitting. The build half gets roughly two thirds of the height; the two bleaching plots sit side by side rather than stacked, which is what makes them legible in the space left.</p>
 <p class="lead">Two things every build already carries that nothing else in the pipeline reads: the <b>step vectors</b> (<code>Tracks.vector</code>, µm per frame) and the <b>per-localization intensity</b> (<code>Tracks.intens</code>, pages MEAN / MAX / TOTAL, attached from the spots CSV). This tab draws the first and fits the second. Nothing here changes the build; the bleaching fit adds fields to it in memory.</p>
 
 <h3 id="t2quiver">The step-vector plot</h3>
@@ -3033,7 +3034,7 @@ localisations in those surviving tracks.</code></pre>
 </table>
 <p>The <b>Build &amp; QC</b> cell table shows all four per cell in its last four columns, and they are <b>editable</b>. A <code>*</code> after a value means it was inherited from the panel rather than measured from that cell's own file — so you can see at a glance which cells were actually calibrated. Editing one writes it into the active build and saves immediately.</p>
 <div class="good"><b>Why this matters.</b> It is what lets a single comparison span acquisitions from <b>different cameras at different frame rates</b> — a collaborator's dataset alongside your own, say, as a null for contact-site detection. Previously the panel applied one camera's numbers to every cell in view, so opening a second project silently re-scaled the first one's cached data. Now each cell answers in its own units, and <a href="#compare">Compare</a> — which already works in µm and s — puts them side by side correctly.</div>
-<div class="note">Editing a cell's <b>precision</b> or <b>dt</b> changes the diffusion coefficient, because <code>D = &lang;Δr²&rang;/(4·dt) − σ²/dt</code> reads both. The stored <code>Dt</code> is <em>not</em> retroactively recomputed — rebuild (or re-derive on the Build &amp; QC tab) to pick the correction up.</div>
+<div class="note">Editing a cell's <b>precision</b> or <b>dt</b> changes the diffusion coefficient, because <code>D = &lang;Δr²&rang;/(4·dt) − σ²/dt</code> reads both. The stored <code>Dt</code> is <em>not</em> retroactively recomputed — rebuild (or re-derive on the Build, QC &amp; vectors tab) to pick the correction up.</div>
 
 <h3 id="tbauto">The Auto button</h3>
 <p><kbd>Auto</kbd> reads the first <code>*_tracks*.xml</code> in the tracks folder and takes its <code>frameInterval="…"</code> attribute into the <b>dt s</b> field (only if it parses to a finite positive number), then rewrites <code>cs_calib.mat</code>. It leaves pixel size, FOV and loc precision as they are — those you set yourself. It runs automatically whenever you set a project, so in the normal flow <code>dt</code> is already correct from Tool 1's own record and you never touch the button.</p>

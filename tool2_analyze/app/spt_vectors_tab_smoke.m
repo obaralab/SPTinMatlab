@@ -3,8 +3,9 @@ function spt_vectors_tab_smoke()
 %vectors as arrows, and what the intensity traces say about bleaching.
 %
 % WHAT IS ASSERTED:
-%   1. THE TAB IS THE ANALYSIS TOOL's: "Vectors & bleaching" appears in analysis mode and NOT in the
-%      contact-site tool or the curation tool, each of which has its own window.
+%   1. IT SHARES THE BUILD'S TAB: the vectors and the bleaching read-out sit under the build they
+%      describe, in the Analysis tool's one tab — not in the curation tool or the contact-site tool,
+%      each of which has its own window.
 %   2. LOADING A BUILD FILLS IT: the cells appear, picking one lists its tracks, and the axes gets
 %      one quiver per selected track - drawn at true length, so two tracks can be compared.
 %   3. THE BLEACHING BUTTON gives the same numbers as the driver, and says them: step height,
@@ -40,16 +41,18 @@ save(fullfile(ana,'TrackStruct.mat'),'Tracks','-v7.3');
 f = spt_analyze_app('analysis'); f.Visible = 'off'; f.Position = [1 1 1600 950];
 closer = onCleanup(@() closeQuietly(f));
 titles = tabTitles(f);
-assert(any(contains(titles, 'Vectors & bleaching')), 'the Analysis tool has no Vectors & bleaching tab (%s)', strjoin(titles, ' | '));
+assert(any(contains(lower(titles), 'vectors')), 'the Analysis tool has no vectors panel (%s)', strjoin(titles, ' | '));
+assert(any(contains(titles, 'Build, QC & vectors')), ...
+    'the vectors and the build should share ONE tab, got: %s', strjoin(titles, ' | '));
 g = spt_analyze_app('contactsites'); g.Visible = 'off';
-assert(~any(contains(tabTitles(g), 'Vectors')), 'the contact-site tool should not carry the Analysis tool''s vectors tab');
+assert(~any(contains(lower(tabTitles(g)), 'vectors')), 'the contact-site tool should not carry it');
 closeQuietly(g);
 h = spt_analyze_app('curate'); h.Visible = 'off';
-assert(~any(contains(tabTitles(h), 'Vectors')), 'nor should the curation tool');
+assert(~any(contains(lower(tabTitles(h)), 'vectors')), 'nor should the curation tool');
 closeQuietly(h);
 
-%% (2) a build fills it ------------------------------------------------------------------------------
-selectTab(f, 'Vectors');
+%% (2) a build fills it, in the same tab as the build controls ------------------------------------------------------------------------------
+selectTab(f, 'Build, QC');
 f.UserData.loadTracksFile(fullfile(ana,'TrackStruct.mat')); drawnow;
 dd = one(findobj(f,'Tag','vecCell'), 'cell dropdown');
 assert(isequal(dd.Items, {'cellA'}), 'the build''s cells should be listed');
