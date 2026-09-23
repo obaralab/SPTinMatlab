@@ -102,6 +102,7 @@ pendExcl=struct('file',{},'csID',{},'window',{},'pickPx',{},'trackCol',{});
 pendDelSite=struct('file',{},'csID',{},'window',{},'pickPx',{});   % whole-site deletions marked but not yet saved   % track removals marked but not yet applied
 % Dwell tab handles
 axDwHist=[]; axKout=[]; tblDwell=[]; axDwTrace=[]; axDwDens=[]; lblDwell=[]; dwellRowMap=[]; ddDwRule=[];
+eDwEngage=[]; ddDwGroup=[]; ddDwView=[];
 btnDwPlay=[]; sldDwFrame=[]; chkDwChan=gobjects(1,0); eDwFps=[]; lblDwAnim=[]; dwellAnim=[]; ddDwBg=[]; eDwContrast=[];
 % Compare tab handles
 % Experiment tab — the shared experiment/condition panel (spt_experiment_panel)
@@ -130,6 +131,9 @@ fig.UserData = struct('activeTs',@activeTsNow, 'tracks',@tracksNow, 'loadTracks'
     'refSetSigma',@setRefSigma, 'refRegen',@onRefRegen, ...          % Refine: outline smoothing, regenerate (no dialog)
     'refSetBox',@setRefBox, 'runTessellation',@onTessellate, ...     % neighbourhood box; the diffusion map
     'vecSelect',@vecSelectCell, 'runBleaching',@onBleaching, 'bleachRes',@bleachResNow, ...   % Vectors & bleaching
+    'runDwell',@onComputeDwell, 'dwellRes',@dwellResNow, ...          % Dwell: compute, and read the result
+    'dwSetEngage',@dwSetEngage, 'dwSetRule',@dwSetRule, ...           % engaged-if threshold; visit rule
+    'dwSetGroup',@dwSetGroup, 'dwSetView',@dwSetView, ...
     'csExport',@onCSExport, 'refExport',@onRefExport, ...            % export under a given name, no dialog
     'viewAdvisor',@onViewAdvisor);                                  % open a ContactSites folder in the viewer
 gl = uigridlayout(fig,[2 1],'RowHeight',{34,'1x'},'Padding',[8 8 8 8],'RowSpacing',6);
@@ -2379,7 +2383,8 @@ end
     % ================= Tab 6 · Dwell (residence times + per-window escape rate k_out(w)) =================
     function buildDwellTab(parent)
         g = uigridlayout(parent,[2 1],'RowHeight',{34,'1x'},'Padding',[10 10 10 10],'RowSpacing',6);
-        r = uigridlayout(g,[1 5],'ColumnWidth',{170, 44, 72, 148, '1x'},'Padding',[0 0 0 0],'ColumnSpacing',8);
+        r = uigridlayout(g,[1 9],'ColumnWidth',{168, 42, 58, 132, 68, 56, 120, 130, '1x'}, ...
+            'Padding',[0 0 0 0],'ColumnSpacing',7);
         uibutton(r,'Text','▶ Compute dwell','FontWeight','bold','BackgroundColor',[0.18 0.45 0.70],'FontColor','w', ...
             'Tooltip','Residence of each member track in its site''s own window (span+1 accounting) -> analysis/cs_window_dwell.csv.', ...
             'ButtonPushedFcn',@(s,e) onComputeDwell());
@@ -2399,14 +2404,37 @@ end
                        'excursions tolerated) — the rule the VAPB dwell times were picked by hand ' ...
                        'on, and it reproduces 83% of those picks at 87% precision. Recompute after ' ...
                        'changing it; the table says which rule produced the numbers.']);
+        % ENGAGED OR NOT. A member track is engaged if it has a visit at least this long; the rest of
+        % its site's member tracks are the denominator. 0.30 s is where this rule agrees best with the
+        % VAPB hand labelling (80% of 1,312 labelled tracks). Changing it reclassifies immediately -
+        % it costs nothing to re-read the traces, so there is no need to recompute the dwell.
+        uilabel(r,'Text','engaged ≥','HorizontalAlignment','right');
+        eDwEngage = uispinner(r,'Limits',[0 30],'Value',0.30,'Step',0.05,'Tag','dwEngage','ValueDisplayFormat','%.2f s', ...
+            'Tooltip',['How long a visit must last for its track to count as ENGAGED with the site. ' ...
+            'In seconds, so it means the same at any frame rate. 0.30 s reproduces the VAPB hand ' ...
+            'labelling best: 80% of his 1,312 labelled member tracks, at 0.81 sensitivity and 0.80 ' ...
+            'specificity. 0 counts every visit the detector finds. Raising it can only un-engage ' ...
+            'tracks, and it raises the mean dwell by removing the short visits — quote it with the number.'], ...
+            'ValueChangedFcn',@(s,e) onDwEngage());
+        ddDwGroup = uidropdown(r,'Tag','dwGroup','Items',{'pool all','by condition','by cell','mito vs non-mito'}, ...
+            'Value','pool all','ValueChangedFcn',@(s,e) drawDwell(), ...
+            'Tooltip',['What the dwell-time histogram is split by. "by condition" is the comparison ' ...
+            'you want between treatments — it needs conditions assigned in the experiment manifest ' ...
+            '(Compare tab); a single folder has none and falls back to pooling everything. Two groups ' ...
+            'also get a Kolmogorov-Smirnov test, and each gets its own tau.']);
+        ddDwView = uidropdown(r,'Tag','dwView','Items',{'k_out per window','engagements per track','fraction engaged per site'}, ...
+            'Value','k_out per window','ValueChangedFcn',@(s,e) drawDwell(), ...
+            'Tooltip',['What the lower-left axes shows. "engagements per track" is his trackBinding ' ...
+            'distribution: how many separate visits each engaged track made. "fraction engaged per ' ...
+            'site" is how many of a site''s member tracks engaged it at all.']);
         lblDwell = uilabel(r,'Text','Run the mapper (Sites tab) first, then Compute dwell.','FontColor',[0.2 0.4 0.5]);
         mn = uigridlayout(g,[1 2],'ColumnWidth',{'1x','1x'},'Padding',[0 0 0 0],'ColumnSpacing',8);
         lc = uigridlayout(mn,[2 1],'RowHeight',{'1.4x','1x'},'Padding',[0 0 0 0],'RowSpacing',6);
-        axDwHist = uiaxes(lc); title(axDwHist,'dwell-time distribution');
-        axKout   = uiaxes(lc); title(axKout,'escape rate k_{out}(window)');
+        axDwHist = uiaxes(lc); title(axDwHist,'dwell-time distribution'); axDwHist.Tag = 'dwHist';
+        axKout   = uiaxes(lc); title(axKout,'escape rate k_{out}(window)'); axKout.Tag = 'dwKout';
         rc = uigridlayout(mn,[3 1],'RowHeight',{'0.9x','1x',30},'Padding',[0 0 0 0],'RowSpacing',6);
-        tblDwell = uitable(rc,'ColumnName',{'cell','site','win','track','class','#','longest s','total s'}, ...
-            'ColumnWidth',{'auto',40,36,44,88,32,62,56},'SelectionType','row', ...
+        tblDwell = uitable(rc,'ColumnName',{'cell','site','win','track','class','#','longest s','total s','engaged'}, ...
+            'ColumnWidth',{'auto',40,36,44,88,32,62,56,62},'SelectionType','row', ...
             'CellSelectionCallback',@(s,e) onDwellSelect(e));
         bc = uigridlayout(rc,[1 2],'ColumnWidth',{'1x','1x'},'Padding',[0 0 0 0],'ColumnSpacing',6);
         axDwDens = uiaxes(bc); title(axDwDens,'track on contact-site density (click a row)'); axDwDens.Toolbar.Visible='off'; axDwDens.Tag='dwDens';
@@ -2449,34 +2477,182 @@ end
         lblDwell.Text='Computing dwell…'; drawnow;
         mp = 0; if ~isempty(eMinDwPct) && isgraphics(eMinDwPct), mp = eMinDwPct.Value; end
         rule = 'inside'; if ~isempty(ddDwRule) && isgraphics(ddDwRule) && startsWith(ddDwRule.Value,'distance'), rule = 'trace'; end
-        try, DD = cs_window_dwell(anaDir, struct('save',true,'verbose',false,'minPctInside',mp,'method',rule));
+        me = 0.30; if ~isempty(eDwEngage) && isgraphics(eDwEngage), me = eDwEngage.Value; end
+        try, DD = cs_window_dwell(anaDir, struct('save',true,'verbose',false,'minPctInside',mp, ...
+                'method',rule,'minEngage_s',me));
         catch ME, lblDwell.Text=['Dwell error: ' ME.message]; return; end
         drawDwell();
         % Say what was computed — the label used to be left reading "Computing dwell…" forever, and
         % with a threshold in play the reader has to be told which tracks are behind the numbers.
         nEv = numel(DD.events); nSite = numel(DD.perSite); nTr = numel(DD.perTrack);
-        lblDwell.Text = sprintf('%d events · %d site-windows · %d member tracks%s', nEv, nSite, nTr, ...
-            tern(mp>0, sprintf(' with ≥%g%% of their localizations inside', mp), ''));
+        lblDwell.Text = sprintf('%d events · %d site-windows · %d member tracks%s%s', nEv, nSite, nTr, ...
+            tern(mp>0, sprintf(' with ≥%g%% of their localizations inside', mp), ''), engageLine());
+    end
+
+    function v = dwellResNow(), v = DD; end
+
+    function dwSetEngage(v)
+        if isempty(eDwEngage) || ~isgraphics(eDwEngage), return; end
+        eDwEngage.Value = v; onDwEngage();
+    end
+
+    function dwSetRule(name)
+        if isempty(ddDwRule) || ~isgraphics(ddDwRule), return; end
+        ddDwRule.Value = pickItem(ddDwRule, name);
+    end
+
+    function dwSetGroup(name)
+        if isempty(ddDwGroup) || ~isgraphics(ddDwGroup), return; end
+        ddDwGroup.Value = pickItem(ddDwGroup, name); drawDwell();
+    end
+
+    function dwSetView(name)
+        if isempty(ddDwView) || ~isgraphics(ddDwView), return; end
+        ddDwView.Value = pickItem(ddDwView, name); drawDwell();
+    end
+
+    function tf = hasEngage()
+        tf = ~isempty(DD) && isstruct(DD) && isfield(DD,'engage') && isstruct(DD.engage) ...
+             && isfield(DD.engage,'dwell') && ~isempty(DD.engage.dwell);
+    end
+
+    function k = dwGroupKey()
+        k = 'none';
+        if isempty(ddDwGroup) || ~isgraphics(ddDwGroup), return; end
+        switch ddDwGroup.Value
+            case 'by condition', k = 'condition';
+            case 'by cell',      k = 'file';
+            case 'mito vs non-mito', k = 'mito';
+        end
+    end
+
+    function k = dwViewKey()
+        k = 'kout';
+        if isempty(ddDwView) || ~isgraphics(ddDwView), return; end
+        if startsWith(ddDwView.Value,'engagements'), k = 'perTrack';
+        elseif startsWith(ddDwView.Value,'fraction'), k = 'fracEngaged'; end
+    end
+
+    function t = histTitle(H)
+        % Each group's own tau, and the test when there are exactly two to compare.
+        parts = cell(1,numel(H.groups));
+        for q = 1:numel(H.groups)
+            g = H.groups(q);
+            parts{q} = sprintf('%s τ=%.2fs (n=%d%s)', g.name, g.tau, g.n, ...
+                tern(g.nCensored>0, sprintf(', %d censored', g.nCensored), ''));
+        end
+        t = ['engagement dwell · ' strjoin(parts, '  |  ')];
+        if isscalar(H.test)
+            t = sprintf('%s · KS p=%.2g', t, H.test.p);
+        end
+    end
+
+    function m = engagedMap()
+        m = containers.Map('KeyType','char','ValueType','double');
+        if ~hasEngage(), return; end
+        pt = DD.engage.perTrack;
+        for q = 1:numel(pt)
+            m(sprintf('%d|%d', pt(q).siteUID, pt(q).trackCol)) = pt(q).nEngage;
+        end
+    end
+
+    function s = engageLine()
+        % The engaged/not split, which is the one number the events table cannot show: its rows are
+        % visits, and a track that never approached has none.
+        s = '';
+        if ~hasEngage(), return; end
+        pt = DD.engage.perTrack; eng = logical([pt.engaged]); ne = [pt.nEngage];
+        if isempty(pt), return; end
+        s = sprintf(' · %d of %d member tracks engaged (%.0f%%), %.2f engagements each', ...
+            nnz(eng), numel(pt), 100*mean(eng), mean0(ne(eng)));
+    end
+
+    function onDwEngage()
+        % Reclassifying only re-reads the traces, so it does not need the dwell recomputed - but it
+        % does need the sites, and it changes every number that says "engaged".
+        if isempty(DD) || ~isfield(DD,'engage'), return; end
+        if ~ensureCSWloaded(), return; end
+        me = eDwEngage.Value;
+        try
+            DD.engage = cs_engage_classify(CSW, struct('verbose',false,'minEngage_s',me, ...
+                'minPctInside',DD.engage.params.minPctInside,'detect',DD.engage.params.detect));
+        catch ME
+            lblDwell.Text = ['Reclassify failed: ' ME.message]; return;
+        end
+        drawDwell();
     end
 
     function drawDwell()
         if isempty(DD) || ~isfield(DD,'allDwell'), return; end
         d = DD.allDwell; d = d(isfinite(d)&d>0);
         cla(axDwHist);
-        if ~isempty(d)
-            histogram(axDwHist, d, min(50,max(6,round(numel(d)/8))), 'FaceColor',[0.4 0.55 0.8], ...
-                'EdgeColor','none', 'Normalization','probability');
-            try, set(axDwHist,'YScale','linear'); catch, end
+        % The histogram of the ENGAGEMENTS when they have been classified, grouped as asked and with
+        % each group's tau (which uses the censored visits for their time but not as completions);
+        % otherwise every event, as before.
+        if hasEngage()
+            try
+                H = cs_dwell_histogram(DD.engage, struct('group', dwGroupKey(), 'ax', axDwHist));
+                title(axDwHist, histTitle(H));
+                % Censoring-limited dwells, or groups watched for unequal lengths of time, make this
+                % histogram say something other than what it looks like. Put it on the figure.
+                try
+                    if isfield(H,'warnings') && ~isempty(H.warnings)
+                        subtitle(axDwHist, ['⚠ ' H.warnings{1}], 'FontSize', 8.5, 'Color', [0.62 0.36 0.08]);
+                    else
+                        subtitle(axDwHist, '');
+                    end
+                catch, end
+            catch ME
+                cla(axDwHist); title(axDwHist, ['histogram failed: ' ME.message]);
+            end
+        else
+            if ~isempty(d)
+                histogram(axDwHist, d, min(50,max(6,round(numel(d)/8))), 'FaceColor',[0.4 0.55 0.8], ...
+                    'EdgeColor','none', 'Normalization','probability');
+                try, set(axDwHist,'YScale','linear'); catch, end
+            end
+            xlabel(axDwHist,'dwell time (s)'); ylabel(axDwHist,'relative abundance');
+            title(axDwHist, sprintf('dwell-time distribution (median %.3g s, n=%d)', median0_(d), numel(d)));
         end
-        xlabel(axDwHist,'dwell time (s)'); ylabel(axDwHist,'relative abundance'); title(axDwHist, sprintf('dwell-time distribution (median %.3g s, n=%d)', median0_(d), numel(d)));
-        % k_out per window
-        pw = DD.perWindow; cla(axKout);
-        if ~isempty(pw)
-            w = [pw.window]; k = [pw.kout_w];
-            bar(axKout, w, k, 0.6, 'FaceColor',[0.7 0.4 0.3],'EdgeColor','none');
-            xlabel(axKout,'window'); ylabel(axKout,'k_{out} (1/s)');
-            title(axKout, sprintf('escape rate per window (pooled %.2f /s)', numel(d)/max(sum(d),eps)));
-            xticks(axKout, w);
+        cla(axKout);
+        switch dwViewKey()
+            case 'perTrack'
+                % his trackBinding distribution: how many separate visits each engaged track made
+                if hasEngage()
+                    ne = [DD.engage.perTrack.nEngage]; ne = ne([DD.engage.perTrack.engaged]);
+                    if ~isempty(ne)
+                        edges = 0.5:1:(max(ne)+0.5);
+                        histogram(axKout, ne, edges, 'FaceColor',[0.35 0.55 0.45],'EdgeColor','none', ...
+                            'Normalization','probability');
+                        xticks(axKout, 1:max(ne));
+                        title(axKout, sprintf('engagements per engaged track (mean %.2f, n=%d tracks)', mean(ne), numel(ne)));
+                    end
+                    xlabel(axKout,'engagements'); ylabel(axKout,'fraction of engaged tracks');
+                else
+                    title(axKout,'compute dwell first');
+                end
+            case 'fracEngaged'
+                if hasEngage()
+                    fe = [DD.engage.perSite.fracEngaged];
+                    if ~isempty(fe)
+                        histogram(axKout, fe, 0:0.1:1, 'FaceColor',[0.45 0.45 0.65],'EdgeColor','none', ...
+                            'Normalization','probability');
+                        title(axKout, sprintf('fraction of member tracks engaged, per site (median %.2f, n=%d sites)', ...
+                            median0_(fe), numel(fe)));
+                    end
+                    xlabel(axKout,'fraction engaged'); ylabel(axKout,'fraction of sites');
+                else
+                    title(axKout,'compute dwell first');
+                end
+            otherwise
+                pw = DD.perWindow;
+                if ~isempty(pw)
+                    w = [pw.window]; k = [pw.kout_w];
+                    bar(axKout, w, k, 0.6, 'FaceColor',[0.7 0.4 0.3],'EdgeColor','none');
+                    xlabel(axKout,'window'); ylabel(axKout,'k_{out} (1/s)');
+                    title(axKout, sprintf('escape rate per window (pooled %.2f /s)', numel(d)/max(sum(d),eps)));
+                    xticks(axKout, w);
+                end
         end
         % per-track table (with the contact-site id, so each row is traceable to cell·site·win·track)
         pt = DD.perTrack; dwellRowMap = 1:numel(pt);
@@ -2484,18 +2660,26 @@ end
         if isfield(DD,'perSite') && ~isempty(DD.perSite)
             for q = 1:numel(DD.perSite), uid2cs(DD.perSite(q).siteUID) = DD.perSite(q).csID; end
         end
-        T = cell(numel(pt),8);
+        T = cell(numel(pt),9);
+        engMap = engagedMap();            % (siteUID,track) -> how many engagements, '' when unclassified
         for i = 1:numel(pt)
             if isfield(pt,'csID') && ~isempty(pt(i).csID), cs = pt(i).csID;
             elseif isKey(uid2cs, pt(i).siteUID),            cs = uid2cs(pt(i).siteUID);
             else,                                           cs = NaN; end
             csStr = '—'; if isfinite(cs), csStr = sprintf('%d', cs); end
+            ek = sprintf('%d|%d', pt(i).siteUID, pt(i).trackCol);
+            if isKey(engMap, ek)
+                n = engMap(ek);
+                engStr = tern(n > 0, sprintf('yes (%d)', n), 'no');
+            else
+                engStr = '—';
+            end
             T(i,:) = {sprintf('%d',pt(i).cellIndex), csStr, sprintf('%d',pt(i).window), sprintf('%d',pt(i).trackCol), ...
-                      pt(i).label, sprintf('%d',pt(i).numDwell), sprintf('%.3g',pt(i).longest_s), sprintf('%.3g',pt(i).total_s)};
+                      pt(i).label, sprintf('%d',pt(i).numDwell), sprintf('%.3g',pt(i).longest_s), sprintf('%.3g',pt(i).total_s), engStr};
         end
         tblDwell.Data = T;
-        lblDwell.Text = sprintf('%d events · %d member-tracks · median dwell %.3g s · pooled k_out %.2f /s — click a row for its trace.', ...
-            numel(DD.events), numel(pt), median0_(d), numel(d)/max(sum(d),eps));
+        lblDwell.Text = sprintf('%d events · %d member-tracks · median dwell %.3g s · pooled k_out %.2f /s%s — click a row for its trace.', ...
+            numel(DD.events), numel(pt), median0_(d), numel(d)/max(sum(d),eps), engageLine());
     end
 
     function onDwellSelect(e)
@@ -4624,6 +4808,13 @@ end
 function v = fieldOr(s, f)
 % struct field s.(f) if present and a struct, else [] — so QC survives structs without erDist/MSD.
 if isstruct(s) && isfield(s,f), v = s.(f); else, v = []; end
+end
+
+function v = pickItem(dd, name)
+% The first item that contains `name`, so a hook can say 'condition' without repeating the wording.
+v = dd.Value;
+hit = find(contains(lower(string(dd.Items)), lower(string(name))), 1);
+if ~isempty(hit), v = dd.Items{hit}; end
 end
 
 function m = median0_(v)

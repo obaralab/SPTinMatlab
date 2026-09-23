@@ -44,6 +44,11 @@ function DD = cs_window_dwell(anaDir, opts)
 %   .perTrack      per (site,track): label, numDwell, longest_s, total_s
 %   .perTrackWin   per (cell,window,track): merged total residence (dedup overlapping sites)
 %   .allDwell      pooled event dwell durations (s)
+%   .engage        cs_engage_classify: EVERY member track with .engaged / .nEngage (the tracks that
+%                  never approached included, because they are the denominator), the per-site
+%                  fraction engaged, and the dwell rows a histogram is built from. opts.classify
+%                  (true) turns it off; opts.minEngage_s (0.30 s) is how long a visit must last for
+%                  the track to count as engaged.
 
 if nargin<2 || ~isstruct(opts), opts = struct(); end
 doSave = getf(opts,'save',true);
@@ -122,6 +127,15 @@ end
 allDwell = [ev.dwell]';
 DD = struct();
 DD.dt = dt; DD.method = method; DD.events = ev; DD.perTrack = perTrack; DD.allDwell = allDwell;
+% ENGAGED OR NOT, per member track. perTrack above only holds tracks that visited at all, so it
+% cannot answer "what fraction of the tracks at this site engaged it" - the tracks that stayed away
+% are the denominator. cs_engage_classify keeps every member track and applies a duration threshold
+% chosen against his hand labelling, which is the trackBinding the VAPB work assigned by eye.
+if getf(opts,'classify',true)
+    DD.engage = cs_engage_classify(CSW, struct('verbose',false,'minPctInside',minPct, ...
+        'minEngage_s',getf(opts,'minEngage_s',0.30),'maxDepth',getf(opts,'maxDepth',Inf), ...
+        'detect',engOpts,'save',doSave,'anaDir',anaDir));
+end
 DD.minPctInside = minPct;      % travels with the result: a consumer must be able to say what it is looking at
 
 % ---- per (site x window) aggregation ----

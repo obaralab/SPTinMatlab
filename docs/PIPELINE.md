@@ -257,6 +257,55 @@ and labelled with its dwell time — and the Dwell tab's histogram is now relati
 Fig. 2d. The diffusion map runs behind a cancellable progress dialog (`opts.progress` /
 `opts.cancelled`; nothing is saved on cancel).
 
+**Engaged or not, per member track** — his `trackBinding`, which is a number per track and not a
+list of events. `cs_engage_classify` keeps EVERY member track, including the ones that never
+approach, because they are the denominator of "what fraction of this site's tracks engaged it"; the
+events table cannot hold them (its rows are visits, and they have none). A track is engaged if it
+has at least one visit lasting `minEngage_s` (0.30 s). **Over his 1,312 hand-labelled member tracks
+that agrees with the human on 80%** (sens 0.81, spec 0.80), and on the tracks both call engaged it
+gets the NUMBER of engagements exactly 78% of the time and within one 97% (his mean 1.35, this 1.19).
+A four-feature discriminant fitted to the same labels scores 0.808 cross-validated against the rule's
+0.805, so **no trained model ships**: the rule is as good and carries no dataset's fingerprint. What
+separates his labels, as AUC: fraction of the track within 2R **0.89**, longest visit **0.88**,
+closest approach 0.88 (inverted), slow-down during the visit only 0.62 (a member track's "outside"
+is itself near the site, so there is little free diffusion to compare against — `mobRatio` is
+reported as independent evidence, not used in the decision), track length 0.48. The residual
+disagreement is mostly definitional: the tracks this calls engaged and he did not have a median
+longest visit of 0.52 s. It runs with the dwell as `DD.engage` and writes `cs_engage_tracks.csv` +
+`cs_engage_sites.csv`.
+
+**The denominator decides what "fraction engaged" means**, and it is the easy thing to get wrong.
+The mapper calls a track a MEMBER once it has a localization INSIDE the outline, so membership already
+implies it touched the site: 90% of CysLig member tracks come out engaged, which describes the
+selection more than the biology (his wider set reads 41%). `opts.denominator = 'box'` adds the tracks
+that entered the neighbourhood box in the window and never entered the outline — the mapper keeps only
+their count, so they are rebuilt from the build. On CysLig that takes the denominator from 1,762 to
+2,306 tracks and the engaged fraction from 90% to **73%** (of the 544 box-only tracks, 17.5% engage);
+the median site drops from 1.00 to 0.80. Neither is wrong — "of those that reached the site" versus
+"of those that came near" — so a figure has to say which, and `perTrack.member` /
+`perSite.nMembers` keep them separable.
+
+**The dwell histogram between conditions.** `cs_dwell_histogram` pools the engagements by condition
+(from the experiment manifest), cell, or mito/non-mito on SHARED bins, normalized to relative
+abundance so different n compare, with a two-sample KS test written out so it needs no toolbox. Each
+group reports `tau = (total time engaged)/(visits seen to END)`, the exponential MLE that counts a
+censored visit for its time but not as a completion — the mean of the observed durations is biased
+LOW, because a visit still running when its track ends lasted AT LEAST that long, and those are the
+long visits the histogram is being asked about (on simulated 1.5 s visits truncated at 2 s: tau 1.52
+vs observed mean 1.12). The Dwell tab gains an **engaged ≥** spinner (reclassifies without
+recomputing), a **group** dropdown, and a second-axes view of k_out / engagements per track /
+fraction engaged per site.
+
+**CysLig dwell is censoring-limited, and that constrains the comparison.** 66% of its engagements are
+still running when their track ends, and the median visit (1.42 s) is 71% of the median observable
+track (2.00 s) — the tracks are too short, relative to the visits, to see most exits. τ = 5.07 s is
+therefore what an exponential would have to be to produce those observations, not a watched mean, and
+1.42 s is a lower bound. The same effect makes a condition with longer tracks show longer dwells for
+that reason alone, so each group carries `censoredFrac` and `medianWindow_s`, and `H.warnings` (printed
+under the histogram in the app) fires when over half a group is censored or when two groups were not
+watched for the same length of time. Match track lengths across conditions, or compare τ rather than
+the observed median.
+
 **📦 Export** (`cs_advisor_export`) asks for a folder name (`cs_advisor_export_name`
 makes it folder-safe; a used name is refused — exports are never written over) and writes
 `analysis/exports/<name>/`: the external code's `Density_<cell>.mat/.tif` and `Densities/<cell>_rho.tif`
