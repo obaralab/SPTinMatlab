@@ -344,7 +344,7 @@ end
     function buildBuildTab(parent)
         % The build half carries a cell table, a filter row and three stacked plots in its left column
         % alone, so it needs roughly twice the height of the vector/bleaching half to stay readable.
-        g = uigridlayout(parent,[5 1],'RowHeight',{30,28,'1.7x','1x',44},'Padding',[10 10 10 10],'RowSpacing',6);
+        g = uigridlayout(parent,[5 1],'RowHeight',{30,28,'2.1x','1x',44},'Padding',[10 10 10 10],'RowSpacing',6);
         % row 1 — build controls
         r1 = uigridlayout(g,[1 6],'ColumnWidth',{200,188,206,190,'1x',0},'Padding',[0 0 0 0],'ColumnSpacing',8);
         r1a = uigridlayout(r1,[1 2],'ColumnWidth',{72,'1x'},'Padding',[0 0 0 0],'ColumnSpacing',6);

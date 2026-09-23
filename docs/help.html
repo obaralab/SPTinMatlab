@@ -1818,7 +1818,7 @@ D distribution — median &lt;med&gt; µm²/s  ·  adaptive fit &lt;min&gt;–&l
   <li><b>MATLAB apps do not hot-reload.</b> If you edit a source file mid-session, close and relaunch — a stale figure throws phantom callback errors.</li>
 </ul>
 <h2 id="t2vectors">3 · Analysis — <b>Vectors &amp; bleaching</b>, the lower half of that tab</h2>
-<p class="lead">Not a tab of its own: these two panels sit under the build controls, because they describe the build sitting above them and you read them in the same sitting. The build half gets roughly two thirds of the height; the two bleaching plots sit side by side rather than stacked, which is what makes them legible in the space left.</p>
+<p class="lead">Not a tab of its own: these two panels sit under the build controls, because they describe the build sitting above them and you read them in the same sitting. The build half gets about 68% of the height — its left column alone stacks a cell table, a filter row and three plots — and the two bleaching plots sit side by side rather than stacked, which is what makes them legible in the space left. On a 1150-px-tall window that puts the build's plots at ~153 px each and the bleaching pair at ~140.</p>
 <p class="lead">Two things every build already carries that nothing else in the pipeline reads: the <b>step vectors</b> (<code>Tracks.vector</code>, µm per frame) and the <b>per-localization intensity</b> (<code>Tracks.intens</code>, pages MEAN / MAX / TOTAL, attached from the spots CSV). This tab draws the first and fits the second. Nothing here changes the build; the bleaching fit adds fields to it in memory.</p>
 
 <h3 id="t2quiver">The step-vector plot</h3>
