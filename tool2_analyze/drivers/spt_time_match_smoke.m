@@ -36,6 +36,14 @@ assert(all(abs(abs(M2.dt_s(between)) - dt) < 1e-12), ...
     'the ones between B frames should report a one-frame gap, not zero (%.4f)', max(abs(M2.dt_s(between))));
 assert(abs(M2.medianSpacingB - 2*dt) < 1e-12, 'B''s spacing should be reported as twice A''s');
 assert(abs(M2.tol_s - dt) < 1e-12, 'the default tolerance should be half of B''s spacing');
+% THE BOUNDARY IS THE COMMON CASE. Interleaved acquisition puts every partner at exactly the
+% default tolerance, and 0.14 - 0.13 is 0.010000000000000009 — a bare > rejected half the frames
+% for a reason no user could see. Walk a long axis so the rounding actually bites.
+tAl = (0:299)'*dt; tBl = (0:2:298)'*dt + dt;
+Mb = spt_time_match(tAl, tBl);
+assert(Mb.nUnmatched == 0, ...
+    ['%d of %d partners sat exactly on the tolerance and were rejected by floating-point rounding ' ...
+     'alone — that is every other frame of an interleaved acquisition'], Mb.nUnmatched, numel(tAl));
 
 %% (3) a gap in B is not crossed ------------------------------------------------------------------
 tB3 = [(0:2:40)'; (80:2:98)']*dt;        % B stops imaging in the middle

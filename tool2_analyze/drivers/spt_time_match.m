@@ -51,6 +51,13 @@ if isempty(tol)
     if isfinite(spB), tol = spB/2; else, tol = Inf; end
 end
 
+% THE BOUNDARY IS THE COMMON CASE, so it cannot be left to rounding. The default tolerance is
+% exactly half of B's spacing, and interleaved acquisition puts every partner at exactly that
+% distance — 0.14 - 0.13 evaluates to 0.010000000000000009, which a bare > rejects. Half the frames
+% then come back unmatched for no reason a user could ever see. A relative slack of 1e-9 is far
+% below any real timing and far above the arithmetic.
+tolEff = tol * (1 + 1e-9) + 1e-12;
+
 M = struct('idx',zeros(nA,1), 'dt_s',nan(nA,1), 'matched',false(nA,1), ...
            'nUnmatched',nA, 'tol_s',tol, 'rule',rule, 'medianSpacingB',spB);
 if nA == 0 || nB == 0, return; end
@@ -80,7 +87,7 @@ for i = 1:nA
     end
     if cand < 1 || cand > numel(ts), continue; end
     gap = ts(cand) - t;
-    if abs(gap) > tol, continue; end
+    if abs(gap) > tolEff, continue; end
     M.idx(i) = ord(cand);                  % back to the caller's own ordering
     M.dt_s(i) = gap;
     M.matched(i) = true;
