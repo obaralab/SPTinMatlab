@@ -19,9 +19,10 @@ function spt_vectors_tab_smoke()
 %      selection already in force rather than blank until the next click.
 %   3. BLEACHING IS READ PER TRACK, and only per track: the picked track's own trace is fitted and
 %      reported on its own - how many fluorophores were in THAT spot. There is no per-cell run.
-%   4. A TRACK IS NAMED AS THE BUILD NAMES IT: the list, the per-track panel and the QC readout all
-%      say the track's own trackID, not the column it happens to sit in - on a sliced build those
-%      are different numbers, and the ID is the one the exports and the contact-site tables use.
+%   4. A TRACK IS NAMED AS THE BUILD NAMES IT: the list, the per-track panel, the QC readout and the
+%      player over the raw movie all say the track's own trackID, not the column it happens to sit
+%      in - on a sliced build those differ, and the ID is what the exports and the contact-site
+%      tables use.
 %
 % Synthetic; reads no dataset.
 
@@ -180,8 +181,16 @@ for hh = [axSw axEr axCs]
         char(strjoin(string(hh.Title.String),' ')));
 end
 rp = axSw.Parent; lp = axEr.Parent;
+axDt = one(findobj(f,'Tag','qcDtrace'), 'stepwise D(t) axes');
+axMs = one(findobj(f,'Tag','qcMSD'), 'MSD axes');
+assert(isequal(axDt.Parent, axMs.Parent) && ~isequal(axDt.Parent, rp), ...
+    'the stepwise D(t) and the MSD fit should share one row, side by side');
+assert(numel(axDt.Parent.ColumnWidth) == 2, 'two columns in that row, got %d', numel(axDt.Parent.ColumnWidth));
 assert(isequal(axCs.Parent, lp), 'the ER/mito and CSD panels share the left column');
-assert(isequal(rp.RowHeight{4}, 0), 'the sweep row should take no height');
+assert(isequal(rp.RowHeight{3}, 0), 'the sweep row should take no height');
+assert(numel(rp.RowHeight) == 3, ...
+    ['the right column should be three rows — the player, the two per-track plots sharing one, ' ...
+     'and the folded sweep — got %d'], numel(rp.RowHeight));
 assert(isequal(lp.RowHeight{3}, 0) && isequal(lp.RowHeight{5}, 0), ...
     'the ER/mito and CSD rows should take no height, so the D distribution gets it');
 assert(isequal(lp.RowHeight{4}, '1x'), 'the D distribution stays — it is not a diagnostic');
@@ -195,7 +204,7 @@ dg.Value = true; dg.ValueChangedFcn(dg, struct()); drawnow;
 for hh = [axSw axEr axCs]
     assert(strcmp(hh.Visible,'on'), '"%s" should come back', char(strjoin(string(hh.Title.String),' ')));
 end
-assert(isequal(rp.RowHeight{4},'1x') && isequal(lp.RowHeight{3},'1x') && isequal(lp.RowHeight{5},'1x'), ...
+assert(isequal(rp.RowHeight{3},'1x') && isequal(lp.RowHeight{3},'1x') && isequal(lp.RowHeight{5},'1x'), ...
     'and their rows should take height again');
 assert(~contains(swTitle(),'click a track'), ...
     'the sweep should be computed for the track already selected, not left blank until the next click');
@@ -205,6 +214,16 @@ dg.Value = false; dg.ValueChangedFcn(dg, struct()); drawnow;
 for hh = [axSw axEr axCs]
     assert(strcmp(hh.Visible,'off'), 'unticking should fold them away again');
 end
+
+%% (2e) the QC readout names the track too --------------------------------------------------------------
+f.UserData.qcSelect(3); drawnow;
+qcTxt = '';
+for q = 1:numel(findobj(f,'Type','uilabel'))
+    hs = findobj(f,'Type','uilabel'); tq = char(strjoin(string(hs(q).Text),' '));
+    if contains(tq,'spots ·') && contains(tq,'D ='), qcTxt = tq; break; end
+end
+assert(contains(qcTxt, sprintf('track %d', trackId0+2)), ...
+    'the QC readout should name the track by its build ID: "%s"', qcTxt);
 
 %% (3) the per-track read-out — the only bleaching there is now -------------------------------------------------------------------------
 axT = one(findobj(f,'Tag','trkIntAxes'), 'per-track intensity axes');

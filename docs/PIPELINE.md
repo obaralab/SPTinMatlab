@@ -36,8 +36,11 @@ two screen pixels, so on the whole-cell map the arrows are invisible.
 Bleaching is read PER TRACK and only per track: the picked track's trace is fitted with `spt_pbsa_steps`
 and drawn with its step fit, since stoichiometry is a per-molecule question; the per-cell run and its
 histogram are gone (the `spt_bleaching` driver is untouched for headless use). The tab is **Build /
-Analyse**, with ONE cell selector — the QC cell above names the cell for the whole tab. Tracks are named
-by their own `trackIDs` (TrackMate's TRACK_ID, carried per column by the importer and sliced with
+Analyse**, with ONE cell selector — the QC cell above names the cell for the whole tab. The embedded player takes the height of the right column and names the
+track in its title; the stepwise D(t) and the MSD fit share one row beneath it. The QC exports take a
+format beside the buttons — `csv` (two files), `xlsx` (two sheets) or `mat` (one file with the vector,
+the table and the fit settings) — writing the same wide and long tables either way, both carrying
+`track_id`. Tracks are named by their own `trackIDs` (TrackMate's TRACK_ID, carried per column by the importer and sliced with
 everything else) rather than by the column they sit in, since the column means nothing outside the tab
 and the two differ on a sliced build; a NaN ID — the importer's value where the XML omitted the
 attribute — falls back to the column. Two

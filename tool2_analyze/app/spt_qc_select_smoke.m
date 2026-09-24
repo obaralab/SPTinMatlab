@@ -162,6 +162,34 @@ wtxt = strsplit(strtrim(fileread(fullfile(W(1).folder, W(1).name))), newline);
 assert(numel(wtxt) == 2 && strcmp(strtrim(wtxt{1}),'D_um2_per_s'), ...
     'the wide CSV is not a single Prism-pasteable column: header "%s", %d lines', wtxt{1}, numel(wtxt));
 
+%% (7) the same two tables as xlsx and as mat -----------------------------------------------------------
+fmt = pick(findobj(f,'Tag','expFmt'), @(x) true, 'export format dropdown');
+setv(fmt, 'xlsx'); press(f, 'Export shown');
+X = dir(fullfile(proj,'analysis','exports','qc_trackD_*shown.xlsx'));
+assert(~isempty(X), 'no workbook was written for the xlsx format');
+xp = fullfile(X(1).folder, X(1).name);
+sh = sheetnames(xp);
+assert(all(ismember({'wide','long'}, cellstr(sh))), ...
+    'the workbook should hold the same two tables as sheets, holds: %s', strjoin(cellstr(sh),', '));
+TL = readtable(xp, 'Sheet', 'long');
+assert(height(TL) == 1, 'the long sheet should hold the 1 selected track, holds %d', height(TL));
+assert(any(strcmp(TL.Properties.VariableNames,'track_id')), ...
+    'the export should name the track by its build ID: %s', strjoin(TL.Properties.VariableNames,', '));
+assert(any(strcmp(TL.Properties.VariableNames,'fit_window_pct')), 'and still carry the fit window');
+
+setv(fmt, 'mat'); press(f, 'Export shown');
+M = dir(fullfile(proj,'analysis','exports','qc_trackD_*shown.mat'));
+assert(~isempty(M), 'no .mat was written for the mat format');
+L2 = load(fullfile(M(1).folder, M(1).name));
+assert(isfield(L2,'trackD') && isfield(L2.trackD,'wide') && isfield(L2.trackD,'long'), ...
+    'the .mat should hold both tables under trackD');
+assert(height(L2.trackD.long) == 1 && numel(L2.trackD.wide) == 1, ...
+    'and the same one selected track in each');
+assert(isfield(L2.trackD,'fitMode') && isfield(L2.trackD,'fitWindowPct'), ...
+    'the .mat should record what the numbers were measured at, not just the numbers');
+setv(fmt, 'csv');
+fprintf('export: csv, xlsx (sheets %s) and mat all carry the same selection\n', strjoin(cellstr(sh),'+'));
+
 %% (9) the export announces itself ------------------------------------------------------------------
 ta = pick(findobj(f,'Type','uitextarea'), @(x) any(contains(string(x.Value),'Build log')), 'Build log');
 assert(any(contains(string(ta.Value),'Exported')), ...

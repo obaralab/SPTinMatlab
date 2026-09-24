@@ -89,7 +89,7 @@ ddHi=[];                  % where the CLICKED track sits in the pooled D histogr
 % of its modes live on in spt_confine_flags / spt_track_diffusion, measured against a matched
 % Brownian null (see that header), for when the contact-site work needs them.
 ddFitMode=[]; axSweep=[];   % MSD fit-window mode (fixed % / adaptive R²) + the per-track D-vs-fit-window sweep
-qcRightCol=[]; qcLeftCol=[]; chkQcDiag=[];   % those grids, and the toggle that folds the diagnostics away
+qcRightCol=[]; qcLeftCol=[]; chkQcDiag=[]; ddExpFmt=[];   % those grids, the diagnostics toggle, the export format
 qcTracks={}; qcSelIdx=0; qcHi=[]; playerCtl=[];   % click-to-inspect: flat track list, selection, highlight, embedded player
 densCache=struct('base',{},'occ',{});   % per-cell whole-movie occupancy cache (used by ensureMips + saveDensityFiles)
 pnCS=[]; btnPickCS=[]; eCScontact=[]; lblCS=[];   % Tab 3 Contact-sites handles
@@ -448,7 +448,7 @@ end
         % both a 50 px spinner and an 86 px button, so each row gets its own grid.
         qs  = uigridlayout(lp,[2 1],'RowHeight',{22,22},'Padding',[0 0 0 0],'RowSpacing',3);
         qsA = uigridlayout(qs,[1 4],'ColumnWidth',{36,50,'1x',58},'Padding',[0 0 0 0],'ColumnSpacing',4);
-        qsB = uigridlayout(qs,[1 4],'ColumnWidth',{'1x',86,72,74},'Padding',[0 0 0 0],'ColumnSpacing',4);
+        qsB = uigridlayout(qs,[1 5],'ColumnWidth',{'1x',84,68,72,58},'Padding',[0 0 0 0],'ColumnSpacing',4);
         qsA.Layout.Row = 1; qsB.Layout.Row = 2;
         lblLen = uilabel(qsA,'Text','len ≥','HorizontalAlignment','right');
         spnLenMin = uispinner(qsA,'Limits',[0 1e5],'Value',0,'Step',5,'FontSize',9, ...
@@ -487,6 +487,12 @@ end
                        'the export — and the long file names the cell on every row, so 93 cells come ' ...
                        'out as one file you can pivot rather than 93 you have to concatenate.'], ...
             'ButtonPushedFcn',@(~,~) onExportQcD(true));
+        ddExpFmt = uidropdown(qsB,'Tag','expFmt','Items',{'csv','xlsx','mat'},'Value','csv', ...
+            'Tooltip',['What the two exports are written as. csv: two files, _wide (one D per line, ' ...
+                       'straight into a Prism column) and _long (every value with the cell, track and ' ...
+                       'fit window behind it). xlsx: one workbook with those as two sheets. mat: one ' ...
+                       'file holding the same two as a vector and a table, plus the settings they ' ...
+                       'were measured at.']);
 
         % Explicit columns within each row — auto-placement in a nested grid has surprised this
         % file before, and a control silently placed in the wrong cell reads as a layout bug.
@@ -494,6 +500,7 @@ end
         ddDistCh.Layout.Column = 3; spnDistMax.Layout.Column = 4;
         lblQcSel.Layout.Column = 1; bExpShown.Layout.Column = 2;
         bQcRej.Layout.Column = 3;   bExpAll.Layout.Column = 4;
+        ddExpFmt.Layout.Column = 5;
 
         axDist  = uiaxes(lp); title(axDist,'ER / mito distance');
         axDdist = uiaxes(lp); title(axDdist,'D distribution');
@@ -501,7 +508,9 @@ end
         tblBuild.Layout.Row = 1; qs.Layout.Row = 2;
         axDist.Layout.Row   = 3; axDdist.Layout.Row = 4; axCSD.Layout.Row = 5;
         axCov  = uiaxes(mn); axCov.Toolbar.Visible='off'; title(axCov,'tracks (click one)'); axCov.ButtonDownFcn=@(s,e) onCovClick(e);
-        rp = uigridlayout(mn,[4 1],'RowHeight',{'1.35x','1x','1x','1x'},'Padding',[0 0 0 0],'RowSpacing',6);
+        % The player is the panel worth the height — it is the raw data with the track on it — so the
+        % two per-track plots share ONE row beside each other instead of taking one each.
+        rp = uigridlayout(mn,[3 1],'RowHeight',{'2.3x','1x','1x'},'Padding',[0 0 0 0],'RowSpacing',6);
         qcRightCol = rp;
         pc = uigridlayout(rp,[1 1],'Padding',[0 0 0 0]);   % embedded selected-track player
         if exist('spt_track_movie','file')==2, playerCtl = spt_track_movie(pc); end
@@ -509,12 +518,12 @@ end
         % is where you see whether the 25% window sits on a plateau or on a slope — so they belong
         % adjacent. The stepwise D(t) is a different measurement entirely (a rolling estimate along
         % the track, not a fit), so it goes above rather than between them.
-        axDtrace = uiaxes(rp); title(axDtrace,'stepwise D(t) (click a track)');   % the per-loc D over time
-        axDtrace.Layout.Row = 2;
-        axMSD = uiaxes(rp); title(axMSD,'MSD + D fit');
-        axMSD.Layout.Row = 3;
+        mid = uigridlayout(rp,[1 2],'ColumnWidth',{'1x','1x'},'Padding',[0 0 0 0],'ColumnSpacing',6);
+        mid.Layout.Row = 2;
+        axDtrace = uiaxes(mid,'Tag','qcDtrace'); title(axDtrace,'stepwise D(t) (click a track)');   % per-loc D over time
+        axMSD = uiaxes(mid,'Tag','qcMSD'); title(axMSD,'MSD + D fit');   % its title becomes the fit, so: a Tag
         axSweep = uiaxes(rp); title(axSweep,'D & R² vs fit window (click a track)');   % the fit-fraction sweep
-        axSweep.Layout.Row = 4;
+        axSweep.Layout.Row = 3;
         % One policy for every plot in this tab: zoom and pan stay, the hover data tip goes. It is
         % the tip that arms a linger timer against a specific object, and every one of these axes is
         % cleared and rebuilt under the pointer.
@@ -751,7 +760,7 @@ end
         % No cell selector here: the QC cell above IS the selection, and two dropdowns for one thing
         % could disagree. Picking a cell up there fills this list; so does clicking a track in the
         % panel, which can come from any cell when that view is pooled.
-        r = uigridlayout(g,[1 6],'ColumnWidth',{74,110,64,86,96,'1x'},'Padding',[0 0 0 0],'ColumnSpacing',8);
+        r = uigridlayout(g,[1 6],'ColumnWidth',{68,104,58,78,104,'1x'},'Padding',[0 0 0 0],'ColumnSpacing',10);
         uilabel(r,'Text','colour by','HorizontalAlignment','right');
         ddVecColor = uidropdown(r,'Items',{'track','speed'},'Value','track','ValueChangedFcn',@(s,e) drawVectors(), ...
             'Tooltip',['track: one colour per trajectory, as the VAPB figures drew them. speed: the arrows ' ...
@@ -900,6 +909,15 @@ end
     end
 
     function v = vecCellNow(), v = vecCellIdx; end    % which cell the lower half is on (nested: reads it live)
+
+    function id = trackIdFor(x)
+        % The build's own number for a QC record's track — the same one the list and the panels show.
+        id = x.col;
+        if x.cellIdx >= 1 && x.cellIdx <= numel(buildTracks)
+            v = trackIdsOf(buildTracks(x.cellIdx));
+            if x.col <= numel(v), id = v(x.col); end
+        end
+    end
 
     function ids = trackIdsOf(t)
         % What the build calls each track: TrackMate's TRACK_ID, carried per column by the importer
@@ -4422,7 +4440,9 @@ end
             hold(axMSD,'off');
         end
         xlabel(axMSD,'lag (s)'); ylabel(axMSD,'MSD (µm²)');
-        title(axMSD, sprintf('D = %.4g µm²/s · R² = %.3f · fit %d lags (%.0f%%)', r.D, r.R2, r.nPts, r.fracUsed));
+        % Two lines: this axes is half a column wide now, and the one-line form clipped mid-number.
+        title(axMSD, {sprintf('D = %.4g µm²/s', r.D), ...
+                      sprintf('R² = %.3f · fit %d lags (%.0f%%)', r.R2, r.nPts, r.fracUsed)}, 'FontSize', 9);
 
         % highlight this track's cumulative displacement against the population
         if qcDiagOn() && ~isempty(axCSD) && isgraphics(axCSD)
@@ -4538,7 +4558,7 @@ end
         if ~isempty(axDist)  && isgraphics(axDist),  axDist.Visible  = tern(on,'on','off'); end
         if ~isempty(axCSD)   && isgraphics(axCSD),   axCSD.Visible   = tern(on,'on','off'); end
         if ~isempty(qcRightCol) && isgraphics(qcRightCol)
-            rh = qcRightCol.RowHeight; rh{4} = tern(on, '1x', 0); qcRightCol.RowHeight = rh;
+            rh = qcRightCol.RowHeight; rh{3} = tern(on, '1x', 0); qcRightCol.RowHeight = rh;
         end
         if ~isempty(qcLeftCol) && isgraphics(qcLeftCol)
             rh = qcLeftCol.RowHeight;
@@ -4580,8 +4600,14 @@ end
         if isempty(sp) || ~isfile(sp), return; end
         dt = trackDt(s.cellIdx); pxc = trackPx(s.cellIdx);
         if secsMode(), fr = round(s.F/dt); else, fr = round(s.F); end
+        tid = s.col;                                   % name it as the build does, not by column
+        if s.cellIdx >= 1 && s.cellIdx <= numel(buildTracks)
+            idsT = trackIdsOf(buildTracks(s.cellIdx));
+            if s.col <= numel(idsT), tid = idsT(s.col); end
+        end
         R = struct('base',s.base,'sptPath',sp,'erPath',er,'mitoPath',mi, ...
-            'x', s.X/pxc + 1, 'y', s.Y/pxc + 1, 'frame', fr(:), 'trackId', zeros(numel(s.X),1));
+            'x', s.X/pxc + 1, 'y', s.Y/pxc + 1, 'frame', fr(:), 'trackId', zeros(numel(s.X),1), ...
+            'trackLabel', sprintf('track %d', tid));
     end
 
     function dt = trackDt(cellIdx)
@@ -4835,27 +4861,67 @@ end
 
         D = cellfun(@(x) x.D, sel); ok = isfinite(D) & D > 0;
         nCells = numel(unique(cellfun(@(x) x.cellIdx, sel)));
+        fmt = 'csv'; if ~isempty(ddExpFmt) && isgraphics(ddExpFmt), fmt = char(ddExpFmt.Value); end
+        % The SAME two tables whichever format is asked for — wide (one D per row) and long (every
+        % value with what it was measured on and at) — so a figure made from one can be traced in
+        % another. Only the container changes.
+        keep = find(ok(:)');
+        % Built column by column into preallocated arrays rather than with cellfun: cellfun keeps the
+        % orientation of the cell it walks, and table() rejects a mix of rows and columns with a
+        % message that names none of them.
+        nK = numel(keep);
+        cellNm = strings(nK,1); condNm = strings(nK,1);
+        tid = zeros(nK,1); tcol = zeros(nK,1); nloc = zeros(nK,1);
+        Dv = zeros(nK,1); frac = zeros(nK,1); sig = zeros(nK,1);
+        dMI = nan(nK,1); dER = nan(nK,1);
+        for i = 1:nK
+            x = sel{keep(i)};
+            cellNm(i) = string(x.base); condNm(i) = string(condFor(x.base));
+            tid(i) = trackIdFor(x); tcol(i) = x.col; nloc(i) = x.len;
+            Dv(i) = x.D; frac(i) = x.fracUsed; sig(i) = x.sigLoc;
+            dMI(i) = medOr(x,'MI'); dER(i) = medOr(x,'ER');
+        end
+        Long = table(cellNm, condNm, tid, tcol, nloc, Dv, frac, sig, dMI, dER, ...
+            repmat(string(mode), nK, 1), ...
+            'VariableNames', {'cell','condition','track_id','track_col','n_loc','D_um2_per_s', ...
+                              'fit_window_pct','sigma_loc_um','median_mito_um','median_er_um','fit_mode'});
+        Wide = table(reshape(D(ok), [], 1), 'VariableNames', {'D_um2_per_s'});
         try
-            fid = fopen([stem '_wide.csv'],'w');
-            fprintf(fid,'D_um2_per_s\n'); fprintf(fid,'%.6g\n', D(ok)); fclose(fid);
-
-            fid = fopen([stem '_long.csv'],'w');
-            fprintf(fid,'cell,condition,track_col,n_loc,D_um2_per_s,fit_window_pct,sigma_loc_um,median_mito_um,median_er_um,fit_mode\n');
-            for i = 1:numel(sel)
-                x = sel{i}; if ~(isfinite(x.D) && x.D > 0), continue; end
-                fprintf(fid,'%s,%s,%d,%d,%.6g,%.4g,%.4g,%s,%s,%s\n', x.base, csvSafe(condFor(x.base)), ...
-                    x.col, x.len, x.D, x.fracUsed, x.sigLoc, ...
-                    numOrDash(medOr(x,'MI')), numOrDash(medOr(x,'ER')), mode);
+            switch fmt
+                case 'xlsx'
+                    out = [stem '.xlsx'];
+                    if isfile(out), delete(out); end          % writetable appends to an existing sheet
+                    writetable(Wide, out, 'Sheet', 'wide');
+                    if ~isempty(Long), writetable(Long, out, 'Sheet', 'long'); end
+                    wrote = out;
+                case 'mat'
+                    out = [stem '.mat'];
+                    trackD = struct('wide', reshape(D(ok), [], 1), 'long', Long, 'fitMode', mode, ...
+                        'fitWindowPct', eMsdFrac.Value, 'filters', tag, 'scope', scopeTag, ...
+                        'exported', datetime('now')); %#ok<NASGU>
+                    save(out, 'trackD', '-v7.3');
+                    wrote = out;
+                otherwise
+                    fid = fopen([stem '_wide.csv'],'w');
+                    fprintf(fid,'D_um2_per_s\n'); fprintf(fid,'%.6g\n', D(ok)); fclose(fid);
+                    fid = fopen([stem '_long.csv'],'w');
+                    fprintf(fid,'cell,condition,track_id,track_col,n_loc,D_um2_per_s,fit_window_pct,sigma_loc_um,median_mito_um,median_er_um,fit_mode\n');
+                    for i = 1:numel(sel)
+                        x = sel{i}; if ~(isfinite(x.D) && x.D > 0), continue; end
+                        fprintf(fid,'%s,%s,%d,%d,%d,%.6g,%.4g,%.4g,%s,%s,%s\n', x.base, csvSafe(condFor(x.base)), ...
+                            trackIdFor(x), x.col, x.len, x.D, x.fracUsed, x.sigLoc, ...
+                            numOrDash(medOr(x,'MI')), numOrDash(medOr(x,'ER')), mode);
+                    end
+                    fclose(fid);
+                    wrote = [stem '_wide.csv + _long.csv'];
             end
-            fclose(fid);
         catch ME
             setBuild(['Export failed: ' ME.message],[0.75 0.1 0.1]); return;
         end
         % SAY SO IN THREE PLACES. The status line alone was not enough feedback: it lives at the top
         % of the tab, the Export buttons are at the bottom left, and a message that appears 600 px
         % from the thing you clicked reads as nothing happening at all.
-        msg = sprintf('Exported %d track D values from %d cell(s) -> %s_wide.csv + _long.csv', ...
-            nnz(ok), nCells, stem);
+        msg = sprintf('Exported %d track D values from %d cell(s) -> %s', nnz(ok), nCells, wrote);
         setBuild(msg, [0.1 0.5 0.2]);       % 1. the status line
         logBuild(msg);                       % 2. the Build log, which keeps a record you can scroll
         flashQcSel(sprintf('✓ exported %d tracks · %d cell(s)', nnz(ok), nCells));   % 3. next to the button

@@ -96,7 +96,14 @@ ctl = struct('load', @load_, 'stop', @stopAll, 'axes', ax, 'saveVideo', @saveVid
         if myGen ~= loadGen, return; end        % a newer load already owns the player
         chkCS.Enable = onoff_(haveCS); if ~haveCS, chkCS.Value = false; end
         hold(ax, 'off');
-        title(ax, sprintf('%s — %d tracks · track span %d–%d of %d frames', R.base, K, f0, f1, nfr));
+        % WHICH track, when the caller knows. A player showing one track under a cell's name does
+        % not say which of the cell's hundreds it is, and that is the thing being looked at.
+        lbl = char(R.base);
+        if isfield(R,'trackLabel') && ~isempty(R.trackLabel)
+            title(ax, sprintf('%s · %s — span %d–%d of %d frames', char(R.trackLabel), lbl, f0, f1, nfr));
+        else
+            title(ax, sprintf('%s — %d tracks · track span %d–%d of %d frames', lbl, K, f0, f1, nfr));
+        end
         computeZoomBox();
         % ORDER MATTERS. tick() bails out and STOPS the timer when ~playing (that is what keeps it
         % from drawing into graphics a teardown has deleted). A timer with StartDelay 0 fires its
