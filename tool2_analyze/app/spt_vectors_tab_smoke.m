@@ -6,21 +6,21 @@ function spt_vectors_tab_smoke()
 %   1. IT SHARES THE BUILD'S TAB: the vectors and the bleaching read-out sit under the build they
 %      describe, in the Analysis tool's one tab — not in the curation tool or the contact-site tool,
 %      each of which has its own window.
-%   2. LOADING A BUILD FILLS IT: the cells appear, picking one lists its tracks, and the tracks you
-%      pick are drawn IN THE BIG PANEL - one quiver per picked track, at true length so two tracks
-%      can be compared - rather than in a second small copy of the same map.
-%  2b. THE ORGANELLE MASKS go under them when the project has segmentations for that cell, and the
-%      checkbox takes them away again.
-%  2c. THE SELECTION IS ONE SELECTION: clicking a track in the panel points the list at it.
-%   3. THE BLEACHING BUTTON gives the same numbers as the driver, and says them: step height,
-%      background, how much of it was measured, and whether there is a movie-wide decay at all.
+%   2. LOADING A BUILD FILLS IT: picking a cell lists its tracks, and the tracks you pick get their
+%      own vector panel - one quiver each, at true length so two tracks can be compared - framed on
+%      them rather than lost on the whole-cell map, where a true-length arrow is two pixels.
+%  2b. THE ORGANELLE MASKS go under the tracks in the big panel when the project has segmentations
+%      for that cell, and the checkbox takes them away again.
+%  2c. THE SELECTION IS ONE SELECTION: clicking a track in the panel points the list at it, across
+%      cells when the QC view is pooled, and there is no second cell dropdown to disagree with.
 %  2d. THREE PANELS ARE DIAGNOSTICS: the fit-window sweep, the ER/mito distance histogram and the
 %      CSD. Off by default, each row folded to NO HEIGHT so the panels beside them take the space,
 %      and not computed while off. Ticking the box brings them back, filled for the track and the
 %      selection already in force rather than blank until the next click.
-%  3b. AND IT IS READ PER TRACK: the picked track's own trace is fitted and reported on its own -
-%      how many fluorophores were in THAT spot - which a histogram over the cell cannot answer.
-%   4. NO INTENSITIES IN THE BUILD is reported, not fitted.
+%   3. BLEACHING IS READ PER TRACK, and only per track: the picked track's own trace is fitted and
+%      reported on its own - how many fluorophores were in THAT spot. There is no per-cell run.
+%   4. TRACKS CAN BE REMOVED FROM THE BUILD: the picked ones go, every per-track field goes with
+%      them, the file on disk is rewritten, and removing a whole cell is refused.
 %
 % Synthetic; reads no dataset.
 
@@ -72,18 +72,17 @@ save(fullfile(ana,'TrackStruct.mat'),'Tracks','-v7.3');
 f = spt_analyze_app('analysis'); f.Visible = 'off'; f.Position = [1 1 1600 950];
 closer = onCleanup(@() closeQuietly(f));
 titles = tabTitles(f);
-assert(any(contains(lower(titles), 'vectors')), 'the Analysis tool has no vectors panel (%s)', strjoin(titles, ' | '));
-assert(any(contains(titles, 'Build, QC & vectors')), ...
-    'the vectors and the build should share ONE tab, got: %s', strjoin(titles, ' | '));
+assert(any(contains(titles, 'Build / Analyse')), ...
+    'the build and what is read off it should share ONE tab, got: %s', strjoin(titles, ' | '));
 g = spt_analyze_app('contactsites'); g.Visible = 'off';
-assert(~any(contains(lower(tabTitles(g)), 'vectors')), 'the contact-site tool should not carry it');
+assert(~any(contains(tabTitles(g), 'Build / Analyse')), 'the contact-site tool should not carry it');
 closeQuietly(g);
 h = spt_analyze_app('curate'); h.Visible = 'off';
-assert(~any(contains(lower(tabTitles(h)), 'vectors')), 'nor should the curation tool');
+assert(~any(contains(tabTitles(h), 'Build / Analyse')), 'nor should the curation tool');
 closeQuietly(h);
 
 %% (2) a build fills it, in the same tab as the build controls ------------------------------------------------------------------------------
-selectTab(f, 'Build, QC');
+selectTab(f, 'Build / Analyse');
 pe = findobj(f,'Type','uieditfield');                  % the project, so the segmentations resolve
 for q = 1:numel(pe)
     if contains(lower(string(pe(q).Placeholder)),'project')
@@ -93,8 +92,11 @@ for q = 1:numel(pe)
 end
 drawnow;
 f.UserData.loadTracksFile(fullfile(ana,'TrackStruct.mat')); drawnow;
-dd = one(findobj(f,'Tag','vecCell'), 'cell dropdown');
-assert(isequal(dd.Items, {'cellA','cellB'}), 'the build''s cells should be listed, got %s', strjoin(dd.Items,', '));
+assert(isempty(findobj(f,'Tag','vecCell')), ...
+    'there should be no second cell dropdown down here — the QC cell above is the selection');
+qcDd = one(findobj(f,'Tag','qcCell'), 'QC cell dropdown');
+assert(isequal(qcDd.Items, {'All (pooled)','cellA','cellB'}), ...
+    'the build''s cells should be listed once, got %s', strjoin(qcDd.Items,', '));
 f.UserData.vecSelect(1); drawnow;
 lst = one(findobj(f,'Tag','vecTracks'), 'track list');
 assert(numel(lst.Items) == nTr, 'the cell''s %d tracks should be listed, got %d', nTr, numel(lst.Items));
@@ -129,16 +131,22 @@ assert(isequal(lst.Value, want), 'clicking track %d in the panel should select i
 % same cell — but the QC panel can also be put back on ALL (pooled), and then a click can land on a
 % track of a cell the list is not showing. The list has to follow it there, cell dropdown included.
 f.UserData.vecSelect(1); drawnow;
-assert(isequal(dd.Value, 1), 'the list should be showing cellA to start');
-qcDd = one(findobj(f,'Tag','qcCell'), 'QC cell dropdown');
+assert(isequal(f.UserData.vecCell(), 1), 'the list should be showing cellA to start');
 assert(strcmp(char(qcDd.Value), 'cellA'), ...
-    'picking cellA below should have pointed the big panel at cellA (it shows %s)', char(qcDd.Value));
+    'and the big panel should have followed it to cellA (it shows %s)', char(qcDd.Value));
+% naming a cell UP THERE is the selection for the whole tab, list included
+qcDd.Value = 'cellB'; qcDd.ValueChangedFcn(qcDd, struct()); drawnow;
+assert(isequal(f.UserData.vecCell(), 2), 'picking cellB above should fill the list from cellB');
+% and from the pooled view a click can land on any cell's track; the list follows it there.
+% Order matters: vecSelect points the QC cell back at that cell, which would undo the pooling.
+qcDd.Value = 'cellA'; qcDd.ValueChangedFcn(qcDd, struct()); drawnow;
+assert(isequal(f.UserData.vecCell(), 1), 'back on cellA before the pooled click');
 qcDd.Value = 'All (pooled)'; qcDd.ValueChangedFcn(qcDd, struct()); drawnow;
+assert(isequal(f.UserData.vecCell(), 1), 'pooling the panel should leave the list where it was');
 f.UserData.qcSelectIn(2, 4); drawnow;
-assert(isequal(dd.Value, 2), 'a click on a cellB track should move the list to cellB (dropdown says %s)', ...
-    mat2str(dd.Value));
+assert(isequal(f.UserData.vecCell(), 2), 'a click on a cellB track should move the list to cellB');
 assert(isequal(lst.Value, 4), 'and select that track in it (list says %s)', mat2str(lst.Value));
-f.UserData.vecSelect(1); drawnow;
+qcDd.Value = 'cellA'; qcDd.ValueChangedFcn(qcDd, struct()); drawnow;
 
 %% (2d) the sweep is folded away until asked for --------------------------------------------------------
 dg = one(findobj(f,'Tag','qcDiag'), 'diagnostics checkbox');
@@ -180,20 +188,7 @@ for hh = [axSw axEr axCs]
     assert(strcmp(hh.Visible,'off'), 'unticking should fold them away again');
 end
 
-%% (3) the bleaching button --------------------------------------------------------------------------
-B = f.UserData.runBleaching(); drawnow;
-assert(~isempty(B) && abs(B(1).medianStepHeight - stepTrue) < 0.2*stepTrue, ...
-    'the tab''s bleaching should recover the %d step (got %.0f)', stepTrue, B(1).medianStepHeight);
-assert(abs(B(1).movieBg - bgTrue) < 0.1*bgTrue, 'background %.0f, truth %d', B(1).movieBg, bgTrue);
-[~, Bdirect] = spt_bleaching(T, struct('verbose', false));
-assert(abs(Bdirect.movieBg - B(1).movieBg) < 1e-9, 'the tab and the driver disagree');
-lbl = one(findobj(f,'Tag','bleachInfo'), 'bleaching summary');
-txt = char(strjoin(string(lbl.Text), ' '));
-assert(contains(txt, 'one step') && (contains(txt, 'no movie-wide decay') || contains(txt, 'decay tau')), ...
-    'the summary should say what was found: "%s"', txt);
-assert(~isempty(findobj(f, 'Type', 'uiaxes', '-or', 'Type', 'axes')), 'the bleaching plots are missing');
-
-%% (3b) the per-track read-out -------------------------------------------------------------------------
+%% (3) the per-track read-out — the only bleaching there is now -------------------------------------------------------------------------
 axT = one(findobj(f,'Tag','trkIntAxes'), 'per-track intensity axes');
 lst.Value = twoStepTrack; lst.ValueChangedFcn(lst, struct()); drawnow;
 tt = char(strjoin(string(axT.Title.String), ' '));
@@ -205,16 +200,44 @@ lst.Value = oneStepTrack; lst.ValueChangedFcn(lst, struct()); drawnow;
 tt1 = char(strjoin(string(axT.Title.String), ' '));
 assert(contains(tt1, '1 step'), 'a one-emitter track should read one step: "%s"', tt1);
 
-%% (4) a build with no intensities --------------------------------------------------------------------
-Tracks = rmfield(T, 'intens'); %#ok<NASGU>
-save(fullfile(ana,'NoIntens.mat'),'Tracks','-v7.3');
-f.UserData.loadTracksFile(fullfile(ana,'NoIntens.mat')); drawnow;
-f.UserData.runBleaching(); drawnow;
-txt2 = char(strjoin(string(lbl.Text), ' '));
-assert(contains(txt2, 'no intensities'), 'a build without intensities should say so, not fail: "%s"', txt2);
+%% (4) removing tracks from the build ------------------------------------------------------------------
+f.UserData.vecSelect(1); drawnow;
+before = f.UserData.tracks();
+nBefore = size(before(1).matrix, 2);
+drop = [2 5];
+lst.Value = drop; lst.ValueChangedFcn(lst, struct()); drawnow;
+n = f.UserData.vecRemove(true);                       % true = no confirmation dialog
+lblV = findobj(f,'Type','uilabel');
+msg = '';
+for q = 1:numel(lblV)
+    tq = char(strjoin(string(lblV(q).Text),' '));
+    if contains(tq,'Remov') || contains(tq,'remove') || contains(tq,'build'), msg = tq; break; end
+end
+assert(n == numel(drop), 'it should report removing %d tracks, said %d. The tab says: "%s"', ...
+    numel(drop), n, msg);
+after = f.UserData.tracks();
+assert(size(after(1).matrix,2) == nBefore - numel(drop), ...
+    'the cell should be %d tracks wide, is %d', nBefore - numel(drop), size(after(1).matrix,2));
+for fn = {'lengths','trackIDs'}                        % the per-track COLUMNS, not just the matrix
+    v = after(1).(fn{1});
+    assert(numel(v) == nBefore - numel(drop), '%s was left at %d entries beside %d tracks', ...
+        fn{1}, numel(v), size(after(1).matrix,2));
+end
+assert(size(after(1).intens,2) == nBefore - numel(drop), 'intens should be sliced with the rest');
+assert(isequal(after(1).srcCols(:)', setdiff(1:nBefore, drop)), ...
+    'srcCols should record which original columns are left: %s', mat2str(after(1).srcCols));
+% and it is on DISK, not just in memory
+L = load(fullfile(ana,'TrackStruct.mat'));
+assert(size(L.Tracks(1).matrix,2) == nBefore - numel(drop), ...
+    'the build file was not rewritten: it still holds %d tracks', size(L.Tracks(1).matrix,2));
+assert(size(L.Tracks(2).matrix,2) == size(before(2).matrix,2), 'the other cell should be untouched');
+assert(numel(lst.Items) == nBefore - numel(drop), 'the list should show what is left');
+% removing EVERY track of a cell is refused rather than leaving it empty
+lst.Value = lst.ItemsData; lst.ValueChangedFcn(lst, struct()); drawnow;
+assert(f.UserData.vecRemove(true) == 0, 'removing every track of a cell should be refused');
 
-fprintf('vectors tab: %d tracks listed, %d quivers at true length; bleaching step %.0f, background %.0f, no-intensity build reported\n', ...
-    nTr, numel(q), B(1).medianStepHeight, B(1).movieBg);
+fprintf(['Build / Analyse: %d listed, %d quivers at true length; per-track fit read "%s"; ' ...
+         '%d tracks removed and the build rewritten\n'], nTr, numel(q), tt1, n);
 fprintf('\nVECTORS-TAB SMOKE PASSED.\n');
 end
 

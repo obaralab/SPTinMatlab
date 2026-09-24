@@ -5,7 +5,7 @@ function fig = spt_analyze_app(mode)
 % same codebase backs two focused launchers (Tool 1 "Track" = spt_app.m is a separate app):
 %
 %   spt_analyze_app('curate')       -> Tool 2 "Curate": Experiment -> Import & Curate.
-%   spt_analyze_app('analysis')     -> Tool 3 "Analysis": Build, QC & vectors (one tab).
+%   spt_analyze_app('analysis')     -> Tool 3 "Analysis": Build / Analyse (one tab).
 %   spt_analyze_app('contactsites') -> Tool 4 "Contact Sites" (DEFAULT, and what 'analyze' now means).
 %                                 Curate the tracked cells and build the TrackStruct.mat the next tool reads.
 %   spt_analyze_app('analyze') -> Tool 3 "Analyze" (DEFAULT): Contact sites -> Refine -> Sites -> Dwell
@@ -31,7 +31,7 @@ mode = lower(char(mode));
 if strcmp(mode,'analyze'), mode = 'contactsites'; end   % what this mode was called when there were 3 tools
 mode = validatestring(mode, {'curate','analysis','contactsites','full'});
 showCurate   = any(strcmp(mode,{'curate','full'}));        % Import & Curate
-showAnalysis = any(strcmp(mode,{'analysis','full'}));      % Build, QC & vectors (one tab)
+showAnalysis = any(strcmp(mode,{'analysis','full'}));      % Build / Analyse (one tab)
 showAnalyze  = any(strcmp(mode,{'contactsites','full'}));  % Contact sites + Refine + Sites + Dwell + Engagement + Compare
 switch mode
     case 'curate',       toolName = 'SPT Curate — Tool 2 of 4';
@@ -71,10 +71,12 @@ buildChanKeys = {};   % the channel columns tblBuild was BUILT with — onCalEdi
 chanTok=''; chanWhy='';   % SPT channel token derived per project (see spt_channel_token)
 calibKnown=false;   % is the panel calibration supported by THIS project (adopted or typed)?
 buildTracks=[]; ddQCcell=[]; axMSD=[]; axCov=[]; axDist=[]; axDdist=[]; lblQCm=[]; eMsdFrac=[];   % QC handles
-ddVecCell=[]; lstVecTracks=[]; axVec=[]; ddVecColor=[]; eVecScale=[]; chkVecLines=[]; lblVec=[];   % Vectors & bleaching
+lstVecTracks=[]; axVec=[]; ddVecColor=[]; eVecScale=[]; chkVecLines=[]; lblVec=[];   % the lower half of Build / Analyse
 axTrkInt=[]; chkVecOrg=[]; orgCacheQC=[]; qcHiVec=[];   % per-track intensity, the organelle overlay and its cache
 vecSyncing=false;   % true while the LIST is driving the QC selection, so the sync does not come back
-axBleachK=[]; axBleachDecay=[]; lblBleach=[]; bleachRes=[]; chkVecAll=[];
+vecCellIdx=[];      % which cell the lower half is showing — the dropdown it replaced was a second
+                    % selector for what the QC cell already says
+axBleachK=[]; axBleachDecay=[]; lblBleach=[]; chkVecAll=[];   % (the per-cell bleaching panel is gone; see drawTrackIntensity)
 tsName=''; eTsName=[]; ddBuild=[];   % the ACTIVE TrackStruct basename in analysis/ (named builds)
 axDtrace=[];   % stepwise D(t) for the clicked track (the POOLED per-localization panel was retired:
               % it measured the same thing, and the left column is for per-TRACK quantities now)
@@ -140,7 +142,7 @@ fig.UserData = struct('activeTs',@activeTsNow, 'tracks',@tracksNow, 'loadTracks'
     'refMoveCentre',@moveRefCentre, 'refState',@refStateNow, ...   % Refine: the move without the click
     'refSetSigma',@setRefSigma, 'refRegen',@onRefRegen, ...          % Refine: outline smoothing, regenerate (no dialog)
     'refSetBox',@setRefBox, 'runTessellation',@onTessellate, ...     % neighbourhood box; the diffusion map
-    'vecSelect',@vecSelectCell, 'runBleaching',@onBleaching, 'bleachRes',@bleachResNow, ...   % Vectors & bleaching
+    'vecSelect',@vecSelectCell, 'vecRemove',@onRemoveTracks, 'vecCell',@vecCellNow, ...   % Build / Analyse
     'qcSelect',@qcSelectCol, 'qcSelectIn',@qcSelectCellCol, ...        % the click in the tracks panel
     'runDwell',@onComputeDwell, 'dwellRes',@dwellResNow, ...          % Dwell: compute, and read the result
     'dwSetEngage',@dwSetEngage, 'dwSetRule',@dwSetRule, ...           % engaged-if threshold; visit rule
@@ -206,7 +208,7 @@ if showAnalysis
     % its input from the tracks folder on disk, not from the curation tab's state, so the two are
     % genuinely separable and each tool is one job. Within this tool it is ONE tab — the vectors and
     % the bleaching describe the build sitting above them.
-    nTab=nTab+1; tBuild  = uitab(tg,'Title',sprintf('%d · Build, QC & vectors',nTab));
+    nTab=nTab+1; tBuild  = uitab(tg,'Title',sprintf('%d · Build / Analyse',nTab));
 end
 if showAnalyze
     nTab=nTab+1; tCS     = uitab(tg,'Title',sprintf('%d · Contact sites',nTab));
@@ -746,9 +748,10 @@ end
     % fluorophores a spot held and what the background under it was.
     function buildVectorsTab(parent)
         g = uigridlayout(parent,[2 1],'RowHeight',{34,'1x'},'Padding',[10 10 10 10],'RowSpacing',6);
-        r = uigridlayout(g,[1 8],'ColumnWidth',{40,210,74,110,64,86,96,'1x'},'Padding',[0 0 0 0],'ColumnSpacing',8);
-        uilabel(r,'Text','cell','HorizontalAlignment','right');
-        ddVecCell = uidropdown(r,'Tag','vecCell','Items',{'(load a build)'},'ValueChangedFcn',@(s,e) vecSelectCell());
+        % No cell selector here: the QC cell above IS the selection, and two dropdowns for one thing
+        % could disagree. Picking a cell up there fills this list; so does clicking a track in the
+        % panel, which can come from any cell when that view is pooled.
+        r = uigridlayout(g,[1 6],'ColumnWidth',{74,110,64,86,96,'1x'},'Padding',[0 0 0 0],'ColumnSpacing',8);
         uilabel(r,'Text','colour by','HorizontalAlignment','right');
         ddVecColor = uidropdown(r,'Items',{'track','speed'},'Value','track','ValueChangedFcn',@(s,e) drawVectors(), ...
             'Tooltip',['track: one colour per trajectory, as the VAPB figures drew them. speed: the arrows ' ...
@@ -765,55 +768,49 @@ end
                        'project has segmentations for it (green = ER, magenta = mito, first page). The ' ...
                        'distances in the table come from Tool 1''s own measurement, not from this drawing.']);
         lblVec = uilabel(r,'Text','Build or load above, then pick a cell — the tracks you pick are drawn in the panel above.','FontColor',[0.2 0.4 0.5]);
-        % FOUR columns: the list, the step vectors framed on what it picked, that track's intensity
-        % trace, and the cell's bleaching. The vectors need a panel of their own because their scale
+        % THREE columns: the list, the step vectors framed on what it picked, and that track's
+        % intensity trace with its steps. The vectors need a panel of their own because their scale
         % is the track's, not the cell's — on the whole-cell map above, a true-length arrow is two
         % pixels — and the intensity trace needs the width to show a step.
-        mn = uigridlayout(g,[1 4],'ColumnWidth',{168,'1x','1.25x','1x'},'Padding',[0 0 0 0],'ColumnSpacing',7);
-        lc = uigridlayout(mn,[3 1],'RowHeight',{18,'1x',26},'Padding',[0 0 0 0],'RowSpacing',4);
+        mn = uigridlayout(g,[1 3],'ColumnWidth',{178,'1x','1.35x'},'Padding',[0 0 0 0],'ColumnSpacing',7);
+        lc = uigridlayout(mn,[4 1],'RowHeight',{18,'1x',26,26},'Padding',[0 0 0 0],'RowSpacing',4);
         uilabel(lc,'Text','tracks','FontWeight','bold');
         lstVecTracks = uilistbox(lc,'Tag','vecTracks','Items',{'—'},'Multiselect','on','ValueChangedFcn',@(s,e) drawVectors());
         chkVecAll = uicheckbox(lc,'Text','all tracks of the cell','Value',false,'ValueChangedFcn',@(s,e) drawVectors(), ...
             'Tooltip','Draw every track at once: a flow map for the cell. Pick a few tracks to read one.');
+        uibutton(lc,'Text','🗑 Remove from build','Tag','vecRemove','ButtonPushedFcn',@(s,e) onRemoveTracks(), ...
+            'Tooltip',['Delete the picked tracks from the build and SAVE it — every per-track field ' ...
+                       'goes with them, and the file on disk is rewritten. This is what to use when ' ...
+                       'a track is a linkage error or two molecules crossing rather than one ' ...
+                       'molecule. It cannot be undone from here; it asks first, and says what it ' ...
+                       'wrote. Everything downstream reads the saved build, so re-run the stages ' ...
+                       'that already ran on it.']);
         axVec = uiaxes(mn,'Tag','vecAxes'); title(axVec,'step vectors');
         axVec.Toolbar.Visible='off'; spt_axes_policy(axVec);
         axTrkInt = uiaxes(mn,'Tag','trkIntAxes'); title(axTrkInt,'intensity of the selected track');
         axTrkInt.Toolbar.Visible='off'; spt_axes_policy(axTrkInt);
         % The summary is four lines of wrapped text and this column is now a quarter of the row, so
         % it needs the height or it clips mid-sentence.
-        rc = uigridlayout(mn,[3 1],'RowHeight',{28,'1x',86},'Padding',[0 0 0 0],'RowSpacing',4);
-        uibutton(rc,'Text','▶ Analyse bleaching','FontWeight','bold','BackgroundColor',[0.18 0.45 0.70],'FontColor','w', ...
-            'Tag','runBleach','ButtonPushedFcn',@(s,e) onBleaching(), ...
-            'Tooltip',['Fit every track''s intensity trace for photobleaching steps (spt_bleaching): how many ' ...
-                       'fluorophores the spot held, the height of one step, and the level after the last drop ' ...
-                       '— the background under that molecule, subtracted to give intensCorr. Also fits how ' ...
-                       'the movie decays, giving a per-frame factor that puts late counts on the early scale.']);
-        % One plot, not two: the per-track trace beside it is where a step is read, and this is the
-        % cell it sits in. The movie-wide decay was the second plot; its number is in the line below,
-        % which is all it was ever read for.
-        axBleachK = uiaxes(rc); title(axBleachK,'bleaching steps per track (this cell)');
-        axBleachK.Toolbar.Visible='off'; spt_axes_policy(axBleachK);
-        axBleachDecay = [];
-        lblBleach = uilabel(rc,'Tag','bleachInfo','Text','Not run yet.','WordWrap','on','VerticalAlignment','top','FontColor',[0.35 0.35 0.42]);
+        % No per-cell bleaching run here any more. Stoichiometry is a per-molecule question and the
+        % answer is in the trace beside this list; a histogram of every track in the cell was a
+        % different question nobody was asking at this point. The driver (spt_bleaching) is
+        % untouched for anything that wants the pooled form.
+        axBleachK = []; axBleachDecay = []; lblBleach = [];
     end
 
-    function v = bleachResNow(), v = bleachRes; end
-
     function vecFillCells()
-        if isempty(ddVecCell) || ~isgraphics(ddVecCell), return; end
-        T = buildTracks;
-        if isempty(T), ddVecCell.Items = {'(load a build)'}; ddVecCell.ItemsData = []; return; end
-        ddVecCell.Items = arrayfun(@(t) char(t.file), T, 'uni', 0); ddVecCell.ItemsData = 1:numel(T);
-        ddVecCell.Value = 1;
-        vecSelectCell();
+        % A build was loaded: start the lower half on its first cell. There is no dropdown of its own
+        % any more — the QC cell above names the cell, and this is just the starting point.
+        if isempty(buildTracks), vecCellIdx = []; return; end
+        vecSelectCell(1);
     end
 
     function vecSelectCell(ci)
-        if nargin >= 1 && ~isempty(ci) && ~isempty(ddVecCell) && isgraphics(ddVecCell), ddVecCell.Value = ci; end
-        if isempty(ddVecCell) || ~isgraphics(ddVecCell) || isempty(ddVecCell.Value), return; end
-        if ~fillVecList(ddVecCell.Value), return; end
-        syncQcCell(ddVecCell.Value);     % the big panel shows the cell the list is picking from
-        drawVectors(); drawBleach();
+        if nargin >= 1 && ~isempty(ci), vecCellIdx = ci; end
+        if isempty(vecCellIdx), vecCellIdx = 1; end
+        if ~fillVecList(vecCellIdx), return; end
+        syncQcCell(vecCellIdx);          % the big panel shows the cell the list is picking from
+        drawVectors();
     end
 
     function syncQcCell(ci)
@@ -849,8 +846,8 @@ end
         % whatever drew it last (all tracks faint, or the QC selection), puts the organelle masks
         % under it, and fills the per-track intensity plot beside the list.
         T = buildTracks;
-        if isempty(T) || isempty(ddVecCell) || ~isgraphics(ddVecCell) || isempty(ddVecCell.Value), return; end
-        ci = ddVecCell.Value;
+        ci = vecCellIdx;
+        if isempty(T) || isempty(ci) || ci < 1 || ci > numel(T), return; end
         t = T(ci);
         cols = vecCols();
         decorateMainPanel();
@@ -875,8 +872,8 @@ end
         if isempty(lstVecTracks) || ~isgraphics(lstVecTracks), return; end
         cols = lstVecTracks.Value; if ~isnumeric(cols), cols = []; end
         if ~isempty(chkVecAll) && isgraphics(chkVecAll) && chkVecAll.Value && ~isempty(buildTracks) ...
-                && ~isempty(ddVecCell) && isgraphics(ddVecCell) && ~isempty(ddVecCell.Value)
-            cols = 1:size(buildTracks(ddVecCell.Value).matrix, 2);
+                && ~isempty(vecCellIdx) && vecCellIdx >= 1 && vecCellIdx <= numel(buildTracks)
+            cols = 1:size(buildTracks(vecCellIdx).matrix, 2);
         end
     end
 
@@ -885,8 +882,8 @@ end
         % underneath, and the picked tracks' own step vectors on top. Called after anything redraws
         % the panel, so a click, a filter move and a list pick all end up showing the same thing.
         if isempty(axCov) || ~isgraphics(axCov), return; end
-        if isempty(buildTracks) || isempty(ddVecCell) || ~isgraphics(ddVecCell) || isempty(ddVecCell.Value), return; end
-        ci = ddVecCell.Value;
+        ci = vecCellIdx;
+        if isempty(buildTracks) || isempty(ci) || ci < 1 || ci > numel(buildTracks), return; end
         if ~isempty(qcHiVec), for h = qcHiVec(:)', if isgraphics(h), delete(h); end, end, end
         qcHiVec = gobjects(0);
         hold(axCov,'on');
@@ -903,6 +900,74 @@ end
         % The ARROWS are not drawn here. At true length a 60 nm step on a 24 µm field is two screen
         % pixels: on the whole-cell map they are invisible, which is why they have a panel of their
         % own below, framed on the tracks you picked. What marks the pick here is the highlight.
+    end
+
+    function v = vecCellNow(), v = vecCellIdx; end    % which cell the lower half is on (nested: reads it live)
+
+    function n = onRemoveTracks(noAsk)
+        % DELETE the picked tracks from the build and write it back. Destructive and not undoable
+        % from here, so: it names what it is about to do, it slices every per-track field through
+        % the one shared slicer (cs_track_slice — shape-based, so a field added later cannot be left
+        % at full width beside a narrower matrix), and it says what it wrote and where.
+        n = 0;
+        if nargin < 1, noAsk = false; end
+        ci = vecCellIdx;
+        if isempty(buildTracks) || isempty(ci) || ci < 1 || ci > numel(buildTracks)
+            lblVec.Text = 'Load a build and pick a cell first.'; return;
+        end
+        cols = vecCols();
+        if isempty(cols), lblVec.Text = 'Pick the tracks to remove in the list first.'; return; end
+        t = buildTracks(ci);
+        nAll = size(t.matrix, 2);
+        if numel(cols) >= nAll
+            lblVec.Text = sprintf('That is every track of %s — removing them all would leave an empty cell.', char(t.file));
+            return;
+        end
+        dest = activeTsPath();
+        if isempty(dest)
+            lblVec.Text = 'No project folder set, so there is no build file to write back to.'; return;
+        end
+        if ~noAsk
+            c = uiconfirm(fig, sprintf(['Remove %d of the %d tracks of %s, and save the build?\n\n' ...
+                'Every per-track field goes with them and %s is rewritten. This cannot be undone ' ...
+                'from here. Anything already computed from this build — contact sites, dwell, the ' ...
+                'engagement tables — was computed with these tracks in it and should be re-run.'], ...
+                numel(cols), nAll, char(t.file), dest), 'Remove tracks', ...
+                'Options', {'Remove and save', 'Cancel'}, 'DefaultOption', 2, 'CancelOption', 2, 'Icon', 'warning');
+            if ~strcmp(c, 'Remove and save'), lblVec.Text = 'Nothing removed.'; return; end
+        end
+        keep = setdiff(1:nAll, cols);
+        try
+            sliced = cs_track_slice(t, keep);
+            % cs_track_slice records which ORIGINAL columns survived, in .srcCols. The other cells
+            % have no such field, and MATLAB will not put a struct with an extra field into a struct
+            % array ("subscripted assignment between dissimilar structures"), so give every cell the
+            % field — the identity for the ones nothing was taken from, which is what it means.
+            Tn = buildTracks;
+            if ~isfield(Tn, 'srcCols')
+                for q = 1:numel(Tn), Tn(q).srcCols = 1:size(Tn(q).matrix, 2); end
+            end
+            Tn(ci) = sliced;
+            buildTracks = Tn;
+        catch ME
+            lblVec.Text = ['Could not remove: ' ME.message]; return;
+        end
+        Tracks = buildTracks; %#ok<NASGU>
+        try
+            save(dest, 'Tracks', '-v7.3');
+        catch ME
+            lblVec.Text = ['Removed in memory, but the build could NOT be saved: ' ME.message]; return;
+        end
+        n = numel(cols);
+        logBuild(sprintf('Removed %d track(s) from %s — %d left. Saved %s', n, char(t.file), numel(keep), dest));
+        fillVecList(ci);
+        if ~isempty(lstVecTracks) && isgraphics(lstVecTracks) && ~isempty(lstVecTracks.ItemsData)
+            lstVecTracks.Value = lstVecTracks.ItemsData(1);
+        end
+        drawQC(ddQCcell.Value);          % the panel above counts tracks, so it has to be redrawn
+        drawVectors();
+        lblVec.Text = sprintf('Removed %d track(s) from %s; %d left. Saved to %s — re-run anything built on it.', ...
+            n, char(t.file), numel(keep), dest);
     end
 
     function drawQuiver(ci, cols)
@@ -929,7 +994,7 @@ end
         % Select the track in COLUMN col of the cell the lower half is showing — the same thing a
         % click in the tracks panel does, without a click.
         if isempty(qcTracks), return; end
-        ci = []; if ~isempty(ddVecCell) && isgraphics(ddVecCell), ci = ddVecCell.Value; end
+        ci = vecCellIdx;
         for q = 1:numel(qcTracks)
             t = qcTracks{q};
             if isfield(t,'col') && t.col == col && (isempty(ci) || ~isfield(t,'cellIdx') || t.cellIdx == ci)
@@ -968,17 +1033,11 @@ end
         % its cell) without recursing back into the click handler.
         if vecSyncing, return; end          % the list started this; it does not need telling
         if isempty(lstVecTracks) || ~isgraphics(lstVecTracks) || ~isstruct(s), return; end
-        if isempty(ddVecCell) || ~isgraphics(ddVecCell), return; end
         if ~isfield(s,'cellIdx') || ~isfield(s,'col'), return; end
-        if ~isequal(ddVecCell.Value, s.cellIdx)
-            % ItemsData here is a plain 1:numel(Tracks), not a cell array — cell2mat on it throws,
-            % and the branch only runs when the clicked track belongs to a DIFFERENT cell from the
-            % one the list is showing, which is every click made from the pooled QC view.
-            if ddHasValue(ddVecCell, s.cellIdx)
-                ddVecCell.Value = s.cellIdx; fillVecList(s.cellIdx);
-            else
-                return;
-            end
+        if ~isequal(vecCellIdx, s.cellIdx)
+            % A click from the pooled view can land on any cell's track; the list follows it there.
+            vecCellIdx = s.cellIdx;
+            if ~fillVecList(vecCellIdx), return; end
         end
         if ~isempty(lstVecTracks.ItemsData) && any(lstVecTracks.ItemsData == s.col)
             lstVecTracks.Value = s.col;
@@ -1061,44 +1120,6 @@ end
             end
         end
         orgCacheQC(ci) = M;
-    end
-
-    function B = onBleaching()
-        B = [];
-        T = buildTracks;
-        if isempty(T), lblBleach.Text = 'Load a build first (Build & QC tab).'; return; end
-        if ~isfield(T, 'intens') || all(arrayfun(@(t) isempty(t.intens), T))
-            lblBleach.Text = ['This build carries no intensities. Rebuild with the spots CSV beside the ' ...
-                              'tracks — without them there is nothing to fit.']; return;
-        end
-        lblBleach.Text = 'Fitting bleaching steps…'; drawnow;
-        try, [~, B] = spt_bleaching(T, struct('verbose', false));
-        catch ME, lblBleach.Text = ['Bleaching failed: ' ME.message]; return; end
-        bleachRes = B;
-        if isempty(B), lblBleach.Text = 'No cell had intensities to fit.'; return; end
-        drawBleach();
-    end
-
-    function drawBleach()
-        if isempty(bleachRes) || isempty(axBleachK) || ~isgraphics(axBleachK), return; end
-        ci = 1; if ~isempty(ddVecCell) && isgraphics(ddVecCell) && isnumeric(ddVecCell.Value), ci = ddVecCell.Value; end
-        k = find([bleachRes.cellIndex] == ci, 1); if isempty(k), k = 1; end
-        e = bleachRes(k); fit = isfinite(e.nSteps);
-        cla(axBleachK);
-        histogram(axBleachK, e.nSteps(fit & ~e.mixed), -0.5:1:6.5, 'FaceColor', [0.2 0.45 0.7]);
-        xlabel(axBleachK,'steps (clean traces)'); ylabel(axBleachK,'tracks'); title(axBleachK,'bleaching steps per track');
-        spt_axes_policy(axBleachK);
-        drawTrackIntensity(ci, vecCols());          % and the track in front of you, fitted its own way
-        decay = 'no movie-wide decay: the counts are flat, as photoactivation keeps them';
-        if isfinite(e.tauFrames)
-            decay = sprintf('decay tau %.0f frames (%.1f s); late counts need x%.2f to sit on the early scale', ...
-                e.tauFrames, e.tauSeconds, e.corr(end));
-        end
-        lblBleach.Text = sprintf(['%s\n%d of %d tracks fitted - %.0f%% one step, %.0f%% flagged mixed ' ...
-            '(blinking or a crossing, not a bleach)\nstep height %.0f, background %.0f (measured on %.0f%% of ' ...
-            'tracks; the rest take the cell median)\n%s'], char(e.file), e.nFitted, e.nTracks, ...
-            100*e.singleFrac, 100*mean(e.mixed(fit)), e.medianStepHeight, e.movieBg, ...
-            100*mean(isfinite(e.bg)), decay);
     end
 
     % ---------------- Tab 3: Contact sites (embeds the ContactSites picker cs_identify) ----------------
@@ -4330,7 +4351,20 @@ end
     end
 
     function onQCcell()
-        if ~isempty(ddQCcell) && isgraphics(ddQCcell), drawQC(ddQCcell.Value); end
+        if isempty(ddQCcell) || ~isgraphics(ddQCcell), return; end
+        % Naming a cell up here IS the selection for the whole tab: the panel draws it and the list
+        % below fills with its tracks. 'All (pooled)' leaves the list where it was — a pooled panel
+        % has no one cell to show, and a click in it will move the list to whichever cell it lands on.
+        nm = char(ddQCcell.Value);
+        if ~isempty(buildTracks)
+            k = find(strcmp({buildTracks.file}, nm), 1);
+            if ~isempty(k) && ~isequal(vecCellIdx, k)
+                vecCellIdx = k;
+                fillVecList(k);
+            end
+        end
+        drawQC(ddQCcell.Value);
+        drawVectors();
     end
 
     function drawQC(sel)

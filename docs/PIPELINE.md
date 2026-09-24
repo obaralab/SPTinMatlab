@@ -33,8 +33,12 @@ highlighted there, the organelle masks are drawn under it (`orgMasksFor`, cached
 that panel points the list at the same track — including across cells when the QC view is pooled. The step
 vectors keep their own panel, framed on the picked tracks: at true length a 60 nm step on a 24 um field is
 two screen pixels, so on the whole-cell map the arrows are invisible.
-Bleaching is read PER TRACK: the picked track's trace is fitted with `spt_pbsa_steps` and drawn with its
-step fit, since stoichiometry is a per-molecule question that a per-cell histogram cannot answer. Two
+Bleaching is read PER TRACK and only per track: the picked track's trace is fitted with `spt_pbsa_steps`
+and drawn with its step fit, since stoichiometry is a per-molecule question; the per-cell run and its
+histogram are gone (the `spt_bleaching` driver is untouched for headless use). The tab is **Build /
+Analyse**, with ONE cell selector — the QC cell above names the cell for the whole tab — and a
+**🗑 Remove from build** button that deletes the picked tracks through `cs_track_slice` and rewrites the
+build file, refusing to empty a cell and saying what it wrote. Two
 panels went in the process: the second copy of the vector map, and the movie-decay curve whose tau is in
 the summary line anyway. Three more are behind a `diagnostics` checkbox: the **D & R² vs fit
 window** sweep (how the fit % is chosen, and little use once it is set), the **ER/mito distance**
