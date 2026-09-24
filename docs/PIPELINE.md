@@ -608,13 +608,54 @@ never auto-collapses once any option is set.
 
 **Interleaved-stack guard** (`spt_interleave_check.m`). A two-colour acquisition saved as ONE stack with
 the channels alternating page by page detects as a chain of spurious spots along every organelle, silently.
-Structural test: in an interleaved stack `corr(f_t, f_t+2) > corr(f_t, f_t+1)` (same channel two pages
-apart), in an ordinary movie the reverse. Measured on three real cells: interleaved `delta = +0.279/+0.259/
-+0.268`, their own de-interleaved exports `-0.108/-0.099/-0.088` — separated by ~0.35, cut at +0.02. Warns
-on the Detect tab when a cell is picked and at run time (`spt_process_cell:interleavedStack`). **The remedy
-is the de-interleaved stack, not a filter.** Related: `_spt1` and `_spt12` both strip to the same cell key
-under the `_spt\d*` suffix, so `spt_match` now warns (`spt_match:duplicateKey`) when two stacks claim one
-cell. Regression: `spt_bleedthrough_smoke` parts (D).
+
+**It asks the file first** (`spt_tiff_labels.m`). ImageJ keeps a label per page in TIFF tag 50839, and a
+hyperstack acquisition writes its own indexing into it — `c:2/4 t:1/2000 - cellname #1`. Labels naming more
+than one channel are *proof* that the pages hold different **channel numbers**, needing no inference from the
+pixels, and `.source` says where the verdict came from. Read on the real data: the CysLig `_ch24_spt.tif`
+stacks are `c:2` and `c:4` over 2 500 timepoints in 5 000 pages, and the de-interleaved
+`250408_VAPB_WT_011_spt1.tif` is `c:1/4` over 5 981 — the same number of pages as its segmentation.
+
+**They do not settle (a) versus (b).** A channel number is not a fluorophore. On this dual-camera setup two
+channel numbers in one camera's stack are two exposures of the *same* molecules ~10 ms apart (§1 of
+`HANDOFF.md`: ch1 and ch3 are both particle channels), and de-interleaving would discard half the real data.
+So the labelled message states what was read and both readings and picks neither, exactly as the
+correlation-based one does. Recommending de-interleaving on the strength of the channel numbers is the
+mistake this project has already corrected once.
+
+Labels naming **one** channel do *not* clear a stack on their own. A label survives a crop, a concatenation
+or an export that rearranged the pages under it, and the two mistakes do not cost the same: a needless
+warning is read and dismissed, a missed interleaved stack fills the results with organelle edges. So where
+the labels say one channel and the pixels still alternate, both are reported (`.source = 'conflict'`) and the
+warning stands.
+
+Structural test, for the unlabelled case: in an interleaved stack `corr(f_t, f_t+2) > corr(f_t, f_t+1)` (same
+channel two pages apart), in an ordinary movie the reverse. Measured on three real cells: interleaved
+`delta = +0.279/+0.259/+0.268`, their own de-interleaved exports `-0.108/-0.099/-0.088` — separated by ~0.35,
+cut at +0.02. Warns on the Detect tab when a cell is picked and at run time
+(`spt_process_cell:interleavedStack`). **The remedy is the de-interleaved stack, not a filter.** Related:
+`_spt1` and `_spt12` both strip to the same cell key under the `_spt\d*` suffix, so `spt_match` now warns
+(`spt_match:duplicateKey`) when two stacks claim one cell. Regression: `spt_bleedthrough_smoke` parts (D),
+`spt_page_map_smoke` part (7).
+
+**Which organelle page belongs to a tracked frame** (`spt_page_map.m`). Two rules for this coexist, and on
+some cells they disagree:
+
+* the run (`spt_process_cell`) derives `segEvery` from the whole page-count ratio and reads organelle page
+  `ceil(t/segEvery)`;
+* `cs_channel_mask`, used by the picker and the viewers, reads `page = frame + 1` clamped to the last page.
+
+Wherever `segEvery > 1` those are different pages, and past the end of a shorter organelle stack the second
+is pinned to the final page for the rest of the movie. `spt_page_map(sptPath, segPath)` reports the relation
+— `perFrame`, `perTimepoint`, `window`, `single` — using the slice labels to tell apart the two cases equal
+page counts cannot (a one-channel movie page-for-page with its segmentation, versus a two-channel movie whose
+segmentation was made from the same interleaved pages), and says whether it disagrees with `frame + 1`.
+`cs_channel_mask(..., 'PageOf', M.pageOf)` applies it.
+
+The default is deliberately **unchanged**: correcting a mask silently would move numbers that are already in
+published figures, the same reason `cs_channel_mask` keeps its per-page foreground-label rule. On the real
+data, `250408_WT_011_spt12.tif` (11 962 pages) against its 5 981-page mito stack reads as a window of 2 and
+reports the disagreement; the de-interleaved `_spt1.tif` reads `perFrame` and agrees.
 
 **De-interleaving** (`frameStride`/`frameOffset`, Detect-tab **de-interleave**, default **off**). When the
 acquisition keeps ONE stack with both channels alternating page by page, this selects one channel's pages

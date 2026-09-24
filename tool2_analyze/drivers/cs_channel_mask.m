@@ -16,6 +16,12 @@ function [m, fg] = cs_channel_mask(segPath, nFrames, frame0, gridSize, varargin)
 %
 % OPTIONS
 %   'FgLabel' : foreground label to use instead of the per-page rule below.
+%   'PageOf'  : function handle mapping the 0-based frame to a 1-based page, from spt_page_map. The
+%               default frame0+1 is right only when the tracked stack and the segmentation are on the
+%               same footing; where the movie is channel-interleaved, or the organelle is averaged
+%               several frames to a page, it is wrong by that factor and clamps to the last page for
+%               the rest of the movie. It stays the default because changing it would move masks that
+%               are already in published figures — the caller that knows passes the mapping in.
 %
 % OUTPUT
 %   m  : [H x W] logical, true on the organelle. [] when unavailable OR unreadable — callers must
@@ -29,14 +35,19 @@ function [m, fg] = cs_channel_mask(segPath, nFrames, frame0, gridSize, varargin)
 % from spt_seg_fg_label) to get the stack-wide behaviour. Kept as the default only because changing
 % it would move published masks — a silent fix would change numbers already reported, so the
 % inversion is surfaced to the user rather than corrected behind their back.
-p = inputParser; p.addParameter('FgLabel', []);
+p = inputParser; p.addParameter('FgLabel', []); p.addParameter('PageOf', []);
 p.parse(varargin{:});
-fgOpt = p.Results.FgLabel;
+fgOpt = p.Results.FgLabel; pageOf = p.Results.PageOf;
 
 m = []; fg = NaN;
 if ~(ischar(segPath) || isstring(segPath)) || isempty(char(segPath)), return; end
 if isempty(nFrames) || ~isscalar(nFrames) || nFrames < 1, return; end
-page = min(max(round(frame0)+1, 1), nFrames);
+if isempty(pageOf)
+    page = round(frame0) + 1;
+else
+    page = round(pageOf(round(frame0)));
+end
+page = min(max(page, 1), nFrames);
 try
     a = imread(char(segPath), page);
     if isempty(fgOpt)

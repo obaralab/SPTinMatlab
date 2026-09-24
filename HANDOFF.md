@@ -35,6 +35,27 @@ inference that picks.
 frames), and `dt = 0.0100321` is correct for tracking `spt12` at 10 ms — I wrongly called it "half
 what it should be" at one point.
 
+### Added 2026-09-24: the files say their own channel structure
+
+`spt_tiff_labels.m` reads ImageJ's per-page slice labels (TIFF tag 50839), so the channel and
+timepoint of every page can be **read instead of inferred**. What it says about this data:
+
+| file | labels |
+|---|---|
+| `250408_VAPB_WT_011_spt1.tif` | `c:1/4 t:1/5981` — one channel, 5981 timepoints, one per page |
+| `250408_VAPB_WT_011.tiff` (mito) | none; segmentations carry no labels |
+| `HVK-...-002_ch24_spt.tif` | `c:2/4` and `c:4/4` alternating, 2500 timepoints in 5000 pages |
+| `250408_VAPB_WT_011.tiff` (raw `.tiff`) | none |
+
+This **confirms the structure in the table above** and nothing more. A channel NUMBER is not a
+fluorophore, so it does not reopen the question settled in this section: `c:2`/`c:4` being two channel
+numbers is exactly as consistent with two particle exposures 10 ms apart as with two fluorophores.
+`spt_interleave_check` now reads the labels first and, where they name two channels, states both
+readings without picking one — the rule this section established.
+
+The one thing still worth asking the user: whether camera B's `c:2` and `c:4` are the same molecules
+as ch1/ch3 are on camera A.
+
 ---
 
 ## 2. Current recommended settings for this user

@@ -16,8 +16,26 @@ function S = spt_interleave_check(sptPath, nSample, segPath)
 % that nobody reaches for it: if alternate frames are a DIFFERENT CHANNEL, the answer is to use the
 % de-interleaved single-channel stack (or drop that parity), not to clean up after detecting on it.
 %
-% HOW. In an interleaved stack a frame resembles the frame TWO later (same channel) more than the
-% one immediately after it (other channel). In an ordinary movie the opposite holds, because
+% HOW, FIRST: ASK THE FILE. ImageJ keeps a label per page and a hyperstack acquisition writes its own
+% indexing into it — `c:2/4 t:1/2000`. Labels naming more than one channel are PROOF that the pages hold
+% different CHANNEL NUMBERS, needing no inference from the pixels.
+%
+% THEY DO NOT SETTLE (a) VERSUS (b) BELOW. A channel number is not a fluorophore: on a dual-camera
+% setup two channel numbers in one camera's stack can be two exposures of the SAME molecules a few
+% milliseconds apart, and de-interleaving then discards half the real particle data. So the labelled
+% message states what was read and both readings, exactly as the correlation-based one does, and picks
+% neither. Recommending de-interleaving on the strength of the channel numbers is the mistake this
+% project has already corrected once — see HANDOFF.md §1.
+%
+% Labels naming ONE channel are weaker evidence, and are not allowed to clear the stack on their own.
+% A label can be stale — copied through a crop, a concatenation or an export that rearranged the pages
+% — and the cost of the two mistakes is not symmetric: a needless warning is read and dismissed, while
+% a missed interleaved stack silently fills the results with mitochondrial edges. So where the labels
+% say one channel and the pixels still alternate, BOTH are reported and the warning stands. .source
+% says which answer the verdict came from: 'labels', 'correlation', or 'conflict'.
+%
+% HOW, OTHERWISE. In an interleaved stack a frame resembles the frame TWO later (same channel) more
+% than the one immediately after it (other channel). In an ordinary movie the opposite holds, because
 % adjacent frames are closer in time and decorrelate with separation. So the discriminator is
 %
 %       delta = mean corr(f_t, f_t+2) - mean corr(f_t, f_t+1)
@@ -37,6 +55,9 @@ function S = spt_interleave_check(sptPath, nSample, segPath)
 %   .adj, .skip      mean correlation at separation 1 and 2
 %   .delta           skip - adj  (positive => alternating content)
 %   .isInterleaved   logical verdict
+%   .source          'labels' when the acquisition said so, 'correlation' when it was inferred
+%   .channels        the channel numbers the labels name (empty without labels)
+%   .nTp             timepoints the labels count (NaN without labels)
 %   .nFrames         pages in the stack
 %   .why             one-line human-readable explanation
 %   .enrichOdd/.enrichEven   mean intensity inside the organelle mask / outside, per parity (NaN
@@ -85,13 +106,29 @@ if nargin < 3, segPath = ''; end
 DELTA_MIN = 0.02;
 ENRICH_SEP = 1.15;      % the organelle parity must beat the other by this factor to be named
 
-S = struct('adj',NaN, 'skip',NaN, 'delta',NaN, 'isInterleaved',false, 'nFrames',0, 'why','', ...
+S = struct('adj',NaN, 'skip',NaN, 'delta',NaN, 'isInterleaved',false, 'source','correlation', ...
+           'channels',[], 'nTp',NaN, 'nFrames',0, 'why','', ...
            'enrichOdd',NaN, 'enrichEven',NaN, 'organelleParity','', 'particleParity','', 'crosstalk',NaN);
 
 try, info = imfinfo(sptPath); catch, S.why = 'could not read the stack'; return; end
 n = numel(info);
 S.nFrames = n;
-if n < 6, S.why = sprintf('only %d pages — too short to judge', n); return; end
+
+% Ask the file before measuring anything. A labelled stack needs no inference at all, and a stack too
+% short for the correlation can still be answered this way.
+L = struct('ok',false);
+try, L = spt_tiff_labels(sptPath); catch, end
+if L.ok
+    S.source = 'labels';
+    S.channels = L.channels;
+    S.nTp = numel(unique(L.tp(isfinite(L.tp))));
+    S.isInterleaved = numel(L.channels) > 1;
+end
+
+if n < 6
+    if L.ok, S.why = labelWhy(S, n); else, S.why = sprintf('only %d pages — too short to judge', n); end
+    return
+end
 
 ts = unique(round(linspace(3, n-3, min(nSample, max(n-5,1)))));
 a = nan(numel(ts),1); b = nan(numel(ts),1);
@@ -106,10 +143,23 @@ for i = 1:numel(ts)
     b(i) = corr2_(f0, f2);
 end
 a = a(isfinite(a)); b = b(isfinite(b));
-if isempty(a) || isempty(b), S.why = 'no readable frame triples'; return; end
+if isempty(a) || isempty(b)
+    % No measurable correlation — a flat or unreadable stack. The labels were read before this and
+    % still answer, so the verdict stands on them rather than being thrown away with the measurement.
+    if L.ok, S.why = labelWhy(S, n); else, S.why = 'no readable frame triples'; end
+    return
+end
 
 S.adj = mean(a); S.skip = mean(b); S.delta = S.skip - S.adj;
-S.isInterleaved = S.delta > DELTA_MIN;
+if ~L.ok
+    S.isInterleaved = S.delta > DELTA_MIN;
+elseif numel(L.channels) == 1 && S.delta > DELTA_MIN
+    % The labels name one channel and the pixels alternate anyway. Keep the warning and say both: a
+    % label survives a crop or a concatenation that rearranged the pages under it, and a needless
+    % warning costs far less than half a run of organelle edges.
+    S.isInterleaved = true;
+    S.source = 'conflict';
+end
 % ---- which parity is the organelle channel? (needs the mask; never used to reject anything) ----
 if ~isempty(segPath) && isfile(segPath)
     [S.enrichOdd, S.enrichEven] = parity_enrichment(sptPath, segPath, ts);
@@ -121,7 +171,25 @@ if ~isempty(segPath) && isfile(segPath)
     end
 end
 
-if S.isInterleaved
+if strcmp(S.source,'conflict')
+    S.why = sprintf(['the stack''s own slice labels name ONE channel (%s) over %g timepoints, but ' ...
+        'the pages still alternate between two different contents (frame t matches t+2 better than ' ...
+        't+1; delta=%+.3f). Both are reported because a label survives a crop or a concatenation ' ...
+        'that rearranged the pages under it, and a needless warning costs less than half a run of ' ...
+        'mitochondrial edges. Look at the stack before trusting either.'], chanList(S), S.nTp, S.delta);
+elseif strcmp(S.source,'labels')
+    S.why = labelWhy(S, n);
+    if ~isempty(S.particleParity)
+        % The measurement, and what it cannot say. An in-mask mean is lifted the same amount by an
+        % organelle image and by additive bleedthrough onto a real particle frame, so this narrows
+        % which parity to look at and settles nothing on its own.
+        S.why = [S.why sprintf([' The %s pages also measure %.2fx inside the organelle mask against ' ...
+            '%.2fx for the %s pages — either that parity IS an organelle channel, or it is a ' ...
+            'particle channel carrying bleedthrough from one. The intensity cannot tell those apart.'], ...
+            S.organelleParity, max(S.enrichOdd,S.enrichEven), min(S.enrichOdd,S.enrichEven), ...
+            S.particleParity)];
+    end
+elseif S.isInterleaved
     S.why = sprintf(['pages alternate between two different contents (frame t matches t+2 better ' ...
         'than t+1; delta=%+.3f). This looks like a RAW INTERLEAVED two-channel stack — every ' ...
         'second page is the other channel. '], S.delta);
@@ -140,6 +208,44 @@ if S.isInterleaved
     end
 else
     S.why = sprintf('no alternating structure (delta=%+.3f)', S.delta);
+end
+end
+
+% -------------------------------------------------------------------------
+function cl = chanList(S)
+cl = strjoin(arrayfun(@(c) sprintf('c:%d', c), S.channels, 'uni', 0), ', ');
+end
+
+% -------------------------------------------------------------------------
+function w = labelWhy(S, n)
+% The labels are the acquisition's own account, so this says what was READ rather than what was
+% inferred. What they settle is that the pages hold different channel NUMBERS. What they do NOT settle
+% is the (a)-versus-(b) question in the header, because a channel number is not a fluorophore.
+cl = chanList(S);
+if S.isInterleaved
+    % What was READ, and then both readings — never a recommendation. The labels prove the pages hold
+    % different channel NUMBERS; they say nothing about whether those channels are different
+    % FLUOROPHORES. On this user's dual-camera setup two channel numbers on one camera's stack are two
+    % particle exposures of the same molecules 10 ms apart, and de-interleaving would throw away half
+    % the real data. Telling them to de-interleave on the strength of the channel numbers is the
+    % mistake they have already corrected once; see HANDOFF.md §1.
+    w = sprintf(['the stack''s own slice labels name %d channels (%s) over %g timepoints in %d ' ...
+        'pages — read from the file, not inferred, so every %gth page is a different CHANNEL NUMBER. ' ...
+        'Whether those are different FLUOROPHORES the labels do not say, and the two cases call for ' ...
+        'opposite actions: if they are, detecting on all %d pages tracks two species at once and ' ...
+        'links across them at %g times the true interval, so de-interleave to the particle channel; ' ...
+        'if they are two exposures of the SAME molecules a few ms apart (as a dual-camera setup ' ...
+        'gives), keep every page and track them as one series. You know which acquisition you ran.'], ...
+        numel(S.channels), cl, S.nTp, n, numel(S.channels), n, 1/numel(S.channels));
+    if isfinite(S.delta)
+        w = sprintf('%s The pixel correlation also sees the alternation: delta=%+.3f.', w, S.delta);
+    end
+else
+    w = sprintf(['the stack''s own slice labels name one channel (%s) over %g timepoints in %d ' ...
+        'pages, so it is NOT interleaved — read from the file, not inferred.'], cl, S.nTp, n);
+    if isfinite(S.delta)
+        w = sprintf('%s (pixel correlation delta=%+.3f)', w, S.delta);
+    end
 end
 end
 
