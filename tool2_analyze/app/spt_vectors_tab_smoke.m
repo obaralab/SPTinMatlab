@@ -19,8 +19,9 @@ function spt_vectors_tab_smoke()
 %      selection already in force rather than blank until the next click.
 %   3. BLEACHING IS READ PER TRACK, and only per track: the picked track's own trace is fitted and
 %      reported on its own - how many fluorophores were in THAT spot. There is no per-cell run.
-%   4. TRACKS CAN BE REMOVED FROM THE BUILD: the picked ones go, every per-track field goes with
-%      them, the file on disk is rewritten, and removing a whole cell is refused.
+%   4. A TRACK IS NAMED AS THE BUILD NAMES IT: the list, the per-track panel and the QC readout all
+%      say the track's own trackID, not the column it happens to sit in - on a sliced build those
+%      are different numbers, and the ID is the one the exports and the contact-site tables use.
 %
 % Synthetic; reads no dataset.
 
@@ -35,6 +36,7 @@ cleanup = onCleanup(@() rmdir(proj,'s'));
 
 rng(4); nF = 60; nTr = 12; bgTrue = 400; stepTrue = 150;
 oneStepTrack = 2; twoStepTrack = 5;          % built to hold one and two emitters
+trackId0 = 101;                              % the build numbers its tracks from here, not from 1
 X = nan(nF,nTr); Y = X; I = nan(nF,nTr); Fr = repmat((0:nF-1)',1,nTr);
 for j = 1:nTr
     X(:,j) = 5 + 0.05*cumsum(randn(nF,1)); Y(:,j) = 5 + 0.05*cumsum(randn(nF,1));
@@ -58,7 +60,7 @@ imwrite(uint8(erM)*255, fullfile(proj,'er_seg','cellA.tif'));
 imwrite(uint8(miM)*255, fullfile(proj,'mito_seg','cellA.tif'));
 T = struct('file','cellA','matrix',cat(3,Fr,X,Y),'frameInterval',0.02,'lengths',repmat(nF,nTr,1), ...
     'steps',hypot(diff(X,1,1),diff(Y,1,1)),'vector',cat(3,diff(X,1,1),diff(Y,1,1)), ...
-    'intens',cat(3,I,I,I),'trackIDs',(1:nTr)', ...
+    'intens',cat(3,I,I,I),'trackIDs',(trackId0:trackId0+nTr-1)', ...
     'calib',struct('pixSizeUm',0.16,'fovUm',16,'dt_s',0.02,'binNm',30,'precNm',30));
 % A SECOND cell, so a click can land on a track that belongs to a different cell from the one the
 % list is showing — which is every click made from the pooled QC view, and the only path on which
@@ -100,6 +102,22 @@ assert(isequal(qcDd.Items, {'All (pooled)','cellA','cellB'}), ...
 f.UserData.vecSelect(1); drawnow;
 lst = one(findobj(f,'Tag','vecTracks'), 'track list');
 assert(numel(lst.Items) == nTr, 'the cell''s %d tracks should be listed, got %d', nTr, numel(lst.Items));
+% the fixture numbers its tracks from 101, so a column index would be visibly the wrong number
+assert(contains(lst.Items{1}, sprintf('track %d', trackId0)), ...
+    'the list should name a track by its build ID, says "%s"', lst.Items{1});
+assert(contains(lst.Items{3}, sprintf('track %d', trackId0+2)), ...
+    'and each row its own ID, says "%s"', lst.Items{3});
+% TrackMate leaves TRACK_ID out of some XML, and the importer writes NaN for it — those rows fall
+% back to the column rather than reading "track NaN"
+Tnan = T; Tnan.trackIDs(4) = NaN; Tracks = [Tnan T2]; %#ok<NASGU>
+save(fullfile(ana,'NanIds.mat'),'Tracks','-v7.3');
+f.UserData.loadTracksFile(fullfile(ana,'NanIds.mat')); drawnow;
+f.UserData.vecSelect(1); drawnow;
+assert(contains(lst.Items{4}, 'track 4') && ~contains(lower(lst.Items{4}),'nan'), ...
+    'a track with no TRACK_ID should fall back to its column, says "%s"', lst.Items{4});
+assert(contains(lst.Items{5}, sprintf('track %d', trackId0+4)), 'and its neighbours keep their IDs');
+f.UserData.loadTracksFile(fullfile(ana,'TrackStruct.mat')); drawnow;
+f.UserData.vecSelect(1); drawnow;
 axMain = one(findobj(f,'Type','axes'), 'main tracks panel', ...
     @(a) contains(lower(char(strjoin(string(a.Title.String),' '))), 'tracks (click one)'));
 axQ = one(findobj(f,'Tag','vecAxes'), 'step-vector panel');
@@ -192,7 +210,8 @@ end
 axT = one(findobj(f,'Tag','trkIntAxes'), 'per-track intensity axes');
 lst.Value = twoStepTrack; lst.ValueChangedFcn(lst, struct()); drawnow;
 tt = char(strjoin(string(axT.Title.String), ' '));
-assert(contains(tt, sprintf('track %d', twoStepTrack)), 'the per-track plot should name the track: "%s"', tt);
+assert(contains(tt, sprintf('track %d', trackId0 + twoStepTrack - 1)), ...
+    'the per-track plot should name the track by its build ID: "%s"', tt);
 assert(contains(tt, '2 step'), ...
     'track %d was built with two bleaching steps and the per-track fit should say so: "%s"', twoStepTrack, tt);
 assert(~isempty(findobj(axT,'Type','line')), 'the track''s trace and its fitted steps should be drawn');
@@ -200,44 +219,8 @@ lst.Value = oneStepTrack; lst.ValueChangedFcn(lst, struct()); drawnow;
 tt1 = char(strjoin(string(axT.Title.String), ' '));
 assert(contains(tt1, '1 step'), 'a one-emitter track should read one step: "%s"', tt1);
 
-%% (4) removing tracks from the build ------------------------------------------------------------------
-f.UserData.vecSelect(1); drawnow;
-before = f.UserData.tracks();
-nBefore = size(before(1).matrix, 2);
-drop = [2 5];
-lst.Value = drop; lst.ValueChangedFcn(lst, struct()); drawnow;
-n = f.UserData.vecRemove(true);                       % true = no confirmation dialog
-lblV = findobj(f,'Type','uilabel');
-msg = '';
-for q = 1:numel(lblV)
-    tq = char(strjoin(string(lblV(q).Text),' '));
-    if contains(tq,'Remov') || contains(tq,'remove') || contains(tq,'build'), msg = tq; break; end
-end
-assert(n == numel(drop), 'it should report removing %d tracks, said %d. The tab says: "%s"', ...
-    numel(drop), n, msg);
-after = f.UserData.tracks();
-assert(size(after(1).matrix,2) == nBefore - numel(drop), ...
-    'the cell should be %d tracks wide, is %d', nBefore - numel(drop), size(after(1).matrix,2));
-for fn = {'lengths','trackIDs'}                        % the per-track COLUMNS, not just the matrix
-    v = after(1).(fn{1});
-    assert(numel(v) == nBefore - numel(drop), '%s was left at %d entries beside %d tracks', ...
-        fn{1}, numel(v), size(after(1).matrix,2));
-end
-assert(size(after(1).intens,2) == nBefore - numel(drop), 'intens should be sliced with the rest');
-assert(isequal(after(1).srcCols(:)', setdiff(1:nBefore, drop)), ...
-    'srcCols should record which original columns are left: %s', mat2str(after(1).srcCols));
-% and it is on DISK, not just in memory
-L = load(fullfile(ana,'TrackStruct.mat'));
-assert(size(L.Tracks(1).matrix,2) == nBefore - numel(drop), ...
-    'the build file was not rewritten: it still holds %d tracks', size(L.Tracks(1).matrix,2));
-assert(size(L.Tracks(2).matrix,2) == size(before(2).matrix,2), 'the other cell should be untouched');
-assert(numel(lst.Items) == nBefore - numel(drop), 'the list should show what is left');
-% removing EVERY track of a cell is refused rather than leaving it empty
-lst.Value = lst.ItemsData; lst.ValueChangedFcn(lst, struct()); drawnow;
-assert(f.UserData.vecRemove(true) == 0, 'removing every track of a cell should be refused');
-
-fprintf(['Build / Analyse: %d listed, %d quivers at true length; per-track fit read "%s"; ' ...
-         '%d tracks removed and the build rewritten\n'], nTr, numel(q), tt1, n);
+fprintf('Build / Analyse: %d listed as "%s"…, %d quivers at true length; per-track fit read "%s"\n', ...
+    nTr, lst.Items{1}, numel(q), tt1);
 fprintf('\nVECTORS-TAB SMOKE PASSED.\n');
 end
 

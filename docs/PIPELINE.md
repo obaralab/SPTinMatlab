@@ -36,9 +36,11 @@ two screen pixels, so on the whole-cell map the arrows are invisible.
 Bleaching is read PER TRACK and only per track: the picked track's trace is fitted with `spt_pbsa_steps`
 and drawn with its step fit, since stoichiometry is a per-molecule question; the per-cell run and its
 histogram are gone (the `spt_bleaching` driver is untouched for headless use). The tab is **Build /
-Analyse**, with ONE cell selector — the QC cell above names the cell for the whole tab — and a
-**🗑 Remove from build** button that deletes the picked tracks through `cs_track_slice` and rewrites the
-build file, refusing to empty a cell and saying what it wrote. Two
+Analyse**, with ONE cell selector — the QC cell above names the cell for the whole tab. Tracks are named
+by their own `trackIDs` (TrackMate's TRACK_ID, carried per column by the importer and sliced with
+everything else) rather than by the column they sit in, since the column means nothing outside the tab
+and the two differ on a sliced build; a NaN ID — the importer's value where the XML omitted the
+attribute — falls back to the column. Two
 panels went in the process: the second copy of the vector map, and the movie-decay curve whose tau is in
 the summary line anyway. Three more are behind a `diagnostics` checkbox: the **D & R² vs fit
 window** sweep (how the fit % is chosen, and little use once it is set), the **ER/mito distance**

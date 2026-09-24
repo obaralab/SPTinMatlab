@@ -142,7 +142,7 @@ fig.UserData = struct('activeTs',@activeTsNow, 'tracks',@tracksNow, 'loadTracks'
     'refMoveCentre',@moveRefCentre, 'refState',@refStateNow, ...   % Refine: the move without the click
     'refSetSigma',@setRefSigma, 'refRegen',@onRefRegen, ...          % Refine: outline smoothing, regenerate (no dialog)
     'refSetBox',@setRefBox, 'runTessellation',@onTessellate, ...     % neighbourhood box; the diffusion map
-    'vecSelect',@vecSelectCell, 'vecRemove',@onRemoveTracks, 'vecCell',@vecCellNow, ...   % Build / Analyse
+    'vecSelect',@vecSelectCell, 'vecCell',@vecCellNow, ...             % Build / Analyse: the lower half
     'qcSelect',@qcSelectCol, 'qcSelectIn',@qcSelectCellCol, ...        % the click in the tracks panel
     'runDwell',@onComputeDwell, 'dwellRes',@dwellResNow, ...          % Dwell: compute, and read the result
     'dwSetEngage',@dwSetEngage, 'dwSetRule',@dwSetRule, ...           % engaged-if threshold; visit rule
@@ -773,18 +773,11 @@ end
         % is the track's, not the cell's — on the whole-cell map above, a true-length arrow is two
         % pixels — and the intensity trace needs the width to show a step.
         mn = uigridlayout(g,[1 3],'ColumnWidth',{178,'1x','1.35x'},'Padding',[0 0 0 0],'ColumnSpacing',7);
-        lc = uigridlayout(mn,[4 1],'RowHeight',{18,'1x',26,26},'Padding',[0 0 0 0],'RowSpacing',4);
+        lc = uigridlayout(mn,[3 1],'RowHeight',{18,'1x',26},'Padding',[0 0 0 0],'RowSpacing',4);
         uilabel(lc,'Text','tracks','FontWeight','bold');
         lstVecTracks = uilistbox(lc,'Tag','vecTracks','Items',{'—'},'Multiselect','on','ValueChangedFcn',@(s,e) drawVectors());
         chkVecAll = uicheckbox(lc,'Text','all tracks of the cell','Value',false,'ValueChangedFcn',@(s,e) drawVectors(), ...
             'Tooltip','Draw every track at once: a flow map for the cell. Pick a few tracks to read one.');
-        uibutton(lc,'Text','🗑 Remove from build','Tag','vecRemove','ButtonPushedFcn',@(s,e) onRemoveTracks(), ...
-            'Tooltip',['Delete the picked tracks from the build and SAVE it — every per-track field ' ...
-                       'goes with them, and the file on disk is rewritten. This is what to use when ' ...
-                       'a track is a linkage error or two molecules crossing rather than one ' ...
-                       'molecule. It cannot be undone from here; it asks first, and says what it ' ...
-                       'wrote. Everything downstream reads the saved build, so re-run the stages ' ...
-                       'that already ran on it.']);
         axVec = uiaxes(mn,'Tag','vecAxes'); title(axVec,'step vectors');
         axVec.Toolbar.Visible='off'; spt_axes_policy(axVec);
         axTrkInt = uiaxes(mn,'Tag','trkIntAxes'); title(axTrkInt,'intensity of the selected track');
@@ -835,7 +828,11 @@ end
         if isempty(T) || ci < 1 || ci > numel(T) || isempty(lstVecTracks) || ~isgraphics(lstVecTracks), return; end
         t = T(ci);
         n = size(t.matrix, 2);
-        lstVecTracks.Items = arrayfun(@(j) sprintf('%d · %d locs', j, t.lengths(j)), (1:n)', 'uni', 0);
+        ids = trackIdsOf(t);
+        % The label is the track's OWN number, from trackIDs — what the exports, the CSVs and the
+        % contact-site tables call it. The column it happens to sit in is an implementation detail,
+        % and on a build that has been sliced the two are not the same number.
+        lstVecTracks.Items = arrayfun(@(j) sprintf('track %d · %d locs', ids(j), t.lengths(j)), (1:n)', 'uni', 0);
         lstVecTracks.ItemsData = 1:n;
         if n > 0, lstVecTracks.Value = 1:min(5, n); end
         ok = true;
@@ -904,70 +901,20 @@ end
 
     function v = vecCellNow(), v = vecCellIdx; end    % which cell the lower half is on (nested: reads it live)
 
-    function n = onRemoveTracks(noAsk)
-        % DELETE the picked tracks from the build and write it back. Destructive and not undoable
-        % from here, so: it names what it is about to do, it slices every per-track field through
-        % the one shared slicer (cs_track_slice — shape-based, so a field added later cannot be left
-        % at full width beside a narrower matrix), and it says what it wrote and where.
-        n = 0;
-        if nargin < 1, noAsk = false; end
-        ci = vecCellIdx;
-        if isempty(buildTracks) || isempty(ci) || ci < 1 || ci > numel(buildTracks)
-            lblVec.Text = 'Load a build and pick a cell first.'; return;
+    function ids = trackIdsOf(t)
+        % What the build calls each track: TrackMate's TRACK_ID, carried per column by the importer
+        % and sliced with everything else, so it still means something outside this tab — the column
+        % does not. The importer writes NaN where the XML omits the attribute, and a build made
+        % before the field has none at all, so both fall back to the column rather than print
+        % "track NaN".
+        n = 0; if isfield(t,'matrix') && ~isempty(t.matrix), n = size(t.matrix,2); end
+        ids = 1:n;
+        if isfield(t,'trackIDs') && numel(t.trackIDs) == n
+            v = double(t.trackIDs(:))';
+            bad = ~isfinite(v);
+            v(bad) = ids(bad);
+            ids = v;
         end
-        cols = vecCols();
-        if isempty(cols), lblVec.Text = 'Pick the tracks to remove in the list first.'; return; end
-        t = buildTracks(ci);
-        nAll = size(t.matrix, 2);
-        if numel(cols) >= nAll
-            lblVec.Text = sprintf('That is every track of %s — removing them all would leave an empty cell.', char(t.file));
-            return;
-        end
-        dest = activeTsPath();
-        if isempty(dest)
-            lblVec.Text = 'No project folder set, so there is no build file to write back to.'; return;
-        end
-        if ~noAsk
-            c = uiconfirm(fig, sprintf(['Remove %d of the %d tracks of %s, and save the build?\n\n' ...
-                'Every per-track field goes with them and %s is rewritten. This cannot be undone ' ...
-                'from here. Anything already computed from this build — contact sites, dwell, the ' ...
-                'engagement tables — was computed with these tracks in it and should be re-run.'], ...
-                numel(cols), nAll, char(t.file), dest), 'Remove tracks', ...
-                'Options', {'Remove and save', 'Cancel'}, 'DefaultOption', 2, 'CancelOption', 2, 'Icon', 'warning');
-            if ~strcmp(c, 'Remove and save'), lblVec.Text = 'Nothing removed.'; return; end
-        end
-        keep = setdiff(1:nAll, cols);
-        try
-            sliced = cs_track_slice(t, keep);
-            % cs_track_slice records which ORIGINAL columns survived, in .srcCols. The other cells
-            % have no such field, and MATLAB will not put a struct with an extra field into a struct
-            % array ("subscripted assignment between dissimilar structures"), so give every cell the
-            % field — the identity for the ones nothing was taken from, which is what it means.
-            Tn = buildTracks;
-            if ~isfield(Tn, 'srcCols')
-                for q = 1:numel(Tn), Tn(q).srcCols = 1:size(Tn(q).matrix, 2); end
-            end
-            Tn(ci) = sliced;
-            buildTracks = Tn;
-        catch ME
-            lblVec.Text = ['Could not remove: ' ME.message]; return;
-        end
-        Tracks = buildTracks; %#ok<NASGU>
-        try
-            save(dest, 'Tracks', '-v7.3');
-        catch ME
-            lblVec.Text = ['Removed in memory, but the build could NOT be saved: ' ME.message]; return;
-        end
-        n = numel(cols);
-        logBuild(sprintf('Removed %d track(s) from %s — %d left. Saved %s', n, char(t.file), numel(keep), dest));
-        fillVecList(ci);
-        if ~isempty(lstVecTracks) && isgraphics(lstVecTracks) && ~isempty(lstVecTracks.ItemsData)
-            lstVecTracks.Value = lstVecTracks.ItemsData(1);
-        end
-        drawQC(ddQCcell.Value);          % the panel above counts tracks, so it has to be redrawn
-        drawVectors();
-        lblVec.Text = sprintf('Removed %d track(s) from %s; %d left. Saved to %s — re-run anything built on it.', ...
-            n, char(t.file), numel(keep), dest);
     end
 
     function drawQuiver(ci, cols)
@@ -1060,13 +1007,14 @@ end
         end
         if isempty(cols), title(axTrkInt,'intensity of the selected track — pick one'); return; end
         j = cols(1);                                     % the first pick: one trace is the point
+        ids = trackIdsOf(t); tid = ids(min(j, numel(ids)));   % name it as the build does
         y = t.intens(:, j, 2); fr = t.matrix(:, j, 1);
         ok = isfinite(y) & isfinite(fr); y = y(ok); fr = fr(ok);
-        if numel(y) < 4, title(axTrkInt, sprintf('track %d: too short to fit (%d points)', j, numel(y))); return; end
+        if numel(y) < 4, title(axTrkInt, sprintf('track %d: too short to fit (%d points)', tid, numel(y))); return; end
         hold(axTrkInt,'on');
         plot(axTrkInt, fr, y, '-', 'Color',[0.55 0.60 0.70], 'LineWidth',0.8);
         plot(axTrkInt, fr, y, '.', 'Color',[0.35 0.42 0.62], 'MarkerSize',6);
-        txt = sprintf('track %d', j);
+        txt = sprintf('track %d', tid);
         try
             R = spt_pbsa_steps(y);
             if isfield(R,'fit') && ~isempty(R.fit)
@@ -1077,9 +1025,9 @@ end
             bgLvl = NaN; if isfield(R,'fit') && ~isempty(R.fit), bgLvl = R.fit(end); end
             up = false; if isfield(R,'heights') && ~isempty(R.heights), up = any(R.heights > 0); end
             txt = sprintf('track %d · %d step(s)%s · step %.0f · background %.0f', ...
-                j, nS, tern(up, ' · MIXED (a rise, so blinking or a crossing)', ''), hStep, bgLvl);
+                tid, nS, tern(up, ' · MIXED (a rise, so blinking or a crossing)', ''), hStep, bgLvl);
         catch ME
-            txt = sprintf('track %d · could not fit: %s', j, ME.message);
+            txt = sprintf('track %d · could not fit: %s', tid, ME.message);
         end
         hold(axTrkInt,'off');
         xlabel(axTrkInt,'frame'); ylabel(axTrkInt,'intensity');
@@ -4546,8 +4494,19 @@ end
         % readout (σ_loc kept as a small trailing note — it is fit-window dependent, treat as a caveat)
         onER = NaN; if ~isempty(s.ER), onER = 100*mean(s.ER<=0); end
         if isfinite(r.sigLocUm) && r.sigLocUm>0, sTr = sprintf(' · σ_loc≈%.0f nm', 1000*r.sigLocUm); else, sTr = ''; end
-        lblQCm.Text = sprintf('track col %d (%s): %d spots · D = %.4g µm²/s (R²=%.3f, %d lags) · on-ER %.0f%%%s', ...
-            s.col, s.base, s.len, r.D, r.R2, r.nPts, onER, sTr);
+        % The track's OWN number, as the list and every export name it. The column is kept beside it
+        % only when the two differ — on a sliced build they do, and then neither alone is enough to
+        % say which track this is.
+        tidS = s.col; colTxt = '';
+        if s.cellIdx >= 1 && s.cellIdx <= numel(buildTracks)
+            idsS = trackIdsOf(buildTracks(s.cellIdx));
+            if s.col <= numel(idsS)
+                tidS = idsS(s.col);
+                if tidS ~= s.col, colTxt = sprintf(' [col %d]', s.col); end
+            end
+        end
+        lblQCm.Text = sprintf('track %d%s (%s): %d spots · D = %.4g µm²/s (R²=%.3f, %d lags) · on-ER %.0f%%%s', ...
+            tidS, colTxt, s.base, s.len, r.D, r.R2, r.nPts, onER, sTr);
     end
 
     function m = fitModeNow()
