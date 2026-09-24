@@ -27,9 +27,12 @@ runs `build_trackstruct` (the slow MSD step) → a **named build** `analysis/<na
 unless you name it), recorded as the one in force in `analysis/active_trackstruct.txt`, and reads that build
 back on the same tab: **Build, QC & vectors** is one tab, with the step vectors and the bleaching read-out
 under the build controls that produced them (`buildVectorsTab` drops its grid into the row `buildBuildTab`
-reserves for it, so neither panel was rewritten). The picked tracks are drawn in the BIG panel — arrows
-over the track map, organelle masks under it (`orgMasksFor`, cached per cell) — and a click in that panel
-points the list at the same track, so there is one selection and the MSD/stepwise-D/player follow it.
+reserves for it, so neither panel was rewritten). Picking a cell below points the QC panel at
+the same cell, so the two halves cannot drift apart and show different plates; the picked track is
+highlighted there, the organelle masks are drawn under it (`orgMasksFor`, cached per cell), and a click in
+that panel points the list at the same track — including across cells when the QC view is pooled. The step
+vectors keep their own panel, framed on the picked tracks: at true length a 60 nm step on a 24 um field is
+two screen pixels, so on the whole-cell map the arrows are invisible.
 Bleaching is read PER TRACK: the picked track's trace is fitted with `spt_pbsa_steps` and drawn with its
 step fit, since stoichiometry is a per-molecule question that a per-cell histogram cannot answer. Two
 panels went in the process: the second copy of the vector map, and the movie-decay curve whose tau is in

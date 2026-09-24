@@ -100,9 +100,13 @@ lst = one(findobj(f,'Tag','vecTracks'), 'track list');
 assert(numel(lst.Items) == nTr, 'the cell''s %d tracks should be listed, got %d', nTr, numel(lst.Items));
 axMain = one(findobj(f,'Type','axes'), 'main tracks panel', ...
     @(a) contains(lower(char(strjoin(string(a.Title.String),' '))), 'tracks (click one)'));
-q = findobj(axMain, 'Type', 'quiver');
+axQ = one(findobj(f,'Tag','vecAxes'), 'step-vector panel');
+q = findobj(axQ, 'Type', 'quiver');
 assert(numel(q) == numel(lst.Value), ...
-    'the picked tracks should be drawn in the big panel: %d picked, %d quivers there', numel(lst.Value), numel(q));
+    'one quiver per picked track in the vector panel: %d picked, %d drawn', numel(lst.Value), numel(q));
+assert(isempty(findobj(axMain,'Type','quiver')), ...
+    ['the whole-cell map should NOT carry the arrows: at true length they are a couple of pixels ' ...
+     'there, which is why they have a panel framed on the picked tracks']);
 assert(numel(q(1).UData) == nF-1, 'a %d-localization track has %d steps, got %d arrows', nF, nF-1, numel(q(1).UData));
 j = lst.Value(end);                                   % findobj returns newest first
 assert(max(abs(q(1).UData(:) - T.vector(:,j,1))) < 1e-12, 'the arrows are not the track''s own vectors');
@@ -121,10 +125,15 @@ want = 7;
 f.UserData.qcSelect(want); drawnow;
 assert(isequal(lst.Value, want), 'clicking track %d in the panel should select it in the list (list says %s)', ...
     want, mat2str(lst.Value));
-% ACROSS CELLS: the QC panel pools every cell, so a click can land on a track of a cell the list is
-% not showing. The list has to follow it there — cell dropdown included.
+% ACROSS CELLS. Picking a cell below points the big panel at it, so the two halves always show the
+% same cell — but the QC panel can also be put back on ALL (pooled), and then a click can land on a
+% track of a cell the list is not showing. The list has to follow it there, cell dropdown included.
 f.UserData.vecSelect(1); drawnow;
 assert(isequal(dd.Value, 1), 'the list should be showing cellA to start');
+qcDd = one(findobj(f,'Tag','qcCell'), 'QC cell dropdown');
+assert(strcmp(char(qcDd.Value), 'cellA'), ...
+    'picking cellA below should have pointed the big panel at cellA (it shows %s)', char(qcDd.Value));
+qcDd.Value = 'All (pooled)'; qcDd.ValueChangedFcn(qcDd, struct()); drawnow;
 f.UserData.qcSelectIn(2, 4); drawnow;
 assert(isequal(dd.Value, 2), 'a click on a cellB track should move the list to cellB (dropdown says %s)', ...
     mat2str(dd.Value));
@@ -185,7 +194,7 @@ assert(contains(txt, 'one step') && (contains(txt, 'no movie-wide decay') || con
 assert(~isempty(findobj(f, 'Type', 'uiaxes', '-or', 'Type', 'axes')), 'the bleaching plots are missing');
 
 %% (3b) the per-track read-out -------------------------------------------------------------------------
-axT = one(findobj(f,'Tag','vecAxes'), 'per-track intensity axes');
+axT = one(findobj(f,'Tag','trkIntAxes'), 'per-track intensity axes');
 lst.Value = twoStepTrack; lst.ValueChangedFcn(lst, struct()); drawnow;
 tt = char(strjoin(string(axT.Title.String), ' '));
 assert(contains(tt, sprintf('track %d', twoStepTrack)), 'the per-track plot should name the track: "%s"', tt);

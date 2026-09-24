@@ -73,6 +73,7 @@ calibKnown=false;   % is the panel calibration supported by THIS project (adopte
 buildTracks=[]; ddQCcell=[]; axMSD=[]; axCov=[]; axDist=[]; axDdist=[]; lblQCm=[]; eMsdFrac=[];   % QC handles
 ddVecCell=[]; lstVecTracks=[]; axVec=[]; ddVecColor=[]; eVecScale=[]; chkVecLines=[]; lblVec=[];   % Vectors & bleaching
 axTrkInt=[]; chkVecOrg=[]; orgCacheQC=[]; qcHiVec=[];   % per-track intensity, the organelle overlay and its cache
+vecSyncing=false;   % true while the LIST is driving the QC selection, so the sync does not come back
 axBleachK=[]; axBleachDecay=[]; lblBleach=[]; bleachRes=[]; chkVecAll=[];
 tsName=''; eTsName=[]; ddBuild=[];   % the ACTIVE TrackStruct basename in analysis/ (named builds)
 axDtrace=[];   % stepwise D(t) for the clicked track (the POOLED per-localization panel was retired:
@@ -376,7 +377,7 @@ end
         % To change the criterion, pass confMode/confFrac/minSeg/penalty to spt_track_diffusion.
         r2 = uigridlayout(g,[1 8],'ColumnWidth',{56,180,58,130,60,52,92,'1x'},'Padding',[0 0 0 0],'ColumnSpacing',6);
         uilabel(r2,'Text','QC cell','HorizontalAlignment','right');
-        ddQCcell = uidropdown(r2,'Items',{'(build first)'},'ValueChangedFcn',@(s,e) onQCcell());
+        ddQCcell = uidropdown(r2,'Tag','qcCell','Items',{'(build first)'},'ValueChangedFcn',@(s,e) onQCcell());
         uilabel(r2,'Text','D fit','HorizontalAlignment','right');
         ddFitMode = uidropdown(r2,'Items',{'Fixed %','Adaptive R²'},'ItemsData',{'fixed','adaptive'},'Value','fixed', ...
             'Tooltip',['How each track''s D = slope/4 fit window is chosen. Fixed %: the same % of lags for every track. ' ...
@@ -764,20 +765,23 @@ end
                        'project has segmentations for it (green = ER, magenta = mito, first page). The ' ...
                        'distances in the table come from Tool 1''s own measurement, not from this drawing.']);
         lblVec = uilabel(r,'Text','Build or load above, then pick a cell — the tracks you pick are drawn in the panel above.','FontColor',[0.2 0.4 0.5]);
-        mn = uigridlayout(g,[1 3],'ColumnWidth',{190,'1.35x','1x'},'Padding',[0 0 0 0],'ColumnSpacing',8);
+        % FOUR columns: the list, the step vectors framed on what it picked, that track's intensity
+        % trace, and the cell's bleaching. The vectors need a panel of their own because their scale
+        % is the track's, not the cell's — on the whole-cell map above, a true-length arrow is two
+        % pixels — and the intensity trace needs the width to show a step.
+        mn = uigridlayout(g,[1 4],'ColumnWidth',{168,'1x','1.25x','1x'},'Padding',[0 0 0 0],'ColumnSpacing',7);
         lc = uigridlayout(mn,[3 1],'RowHeight',{18,'1x',26},'Padding',[0 0 0 0],'RowSpacing',4);
         uilabel(lc,'Text','tracks','FontWeight','bold');
         lstVecTracks = uilistbox(lc,'Tag','vecTracks','Items',{'—'},'Multiselect','on','ValueChangedFcn',@(s,e) drawVectors());
         chkVecAll = uicheckbox(lc,'Text','all tracks of the cell','Value',false,'ValueChangedFcn',@(s,e) drawVectors(), ...
             'Tooltip','Draw every track at once: a flow map for the cell. Pick a few tracks to read one.');
-        % The step vectors are drawn in the BIG panel above, on the cell they belong to, rather than
-        % in a second small copy of the same map down here. What sits here instead is the thing that
-        % can only be read one track at a time: that track's intensity trace and the steps fitted to
-        % it. Tag kept: this is still where the per-track view lives.
-        axTrkInt = uiaxes(mn,'Tag','vecAxes'); title(axTrkInt,'intensity of the selected track');
+        axVec = uiaxes(mn,'Tag','vecAxes'); title(axVec,'step vectors');
+        axVec.Toolbar.Visible='off'; spt_axes_policy(axVec);
+        axTrkInt = uiaxes(mn,'Tag','trkIntAxes'); title(axTrkInt,'intensity of the selected track');
         axTrkInt.Toolbar.Visible='off'; spt_axes_policy(axTrkInt);
-        axVec = axTrkInt;     % the old handle name, so nothing that reaches for it breaks
-        rc = uigridlayout(mn,[3 1],'RowHeight',{28,'1x',62},'Padding',[0 0 0 0],'RowSpacing',4);
+        % The summary is four lines of wrapped text and this column is now a quarter of the row, so
+        % it needs the height or it clips mid-sentence.
+        rc = uigridlayout(mn,[3 1],'RowHeight',{28,'1x',86},'Padding',[0 0 0 0],'RowSpacing',4);
         uibutton(rc,'Text','▶ Analyse bleaching','FontWeight','bold','BackgroundColor',[0.18 0.45 0.70],'FontColor','w', ...
             'Tag','runBleach','ButtonPushedFcn',@(s,e) onBleaching(), ...
             'Tooltip',['Fit every track''s intensity trace for photobleaching steps (spt_bleaching): how many ' ...
@@ -808,7 +812,21 @@ end
         if nargin >= 1 && ~isempty(ci) && ~isempty(ddVecCell) && isgraphics(ddVecCell), ddVecCell.Value = ci; end
         if isempty(ddVecCell) || ~isgraphics(ddVecCell) || isempty(ddVecCell.Value), return; end
         if ~fillVecList(ddVecCell.Value), return; end
+        syncQcCell(ddVecCell.Value);     % the big panel shows the cell the list is picking from
         drawVectors(); drawBleach();
+    end
+
+    function syncQcCell(ci)
+        % Point the QC panel at this cell. Without it the two halves could be showing different
+        % cells — the panel one plate's 17 tracks, the list another's — and a track picked below
+        % would be drawn into a map it does not belong to, which looks like nothing happening.
+        if isempty(ddQCcell) || ~isgraphics(ddQCcell) || isempty(buildTracks), return; end
+        if ci < 1 || ci > numel(buildTracks), return; end
+        nm = char(buildTracks(ci).file);
+        if any(strcmp(ddQCcell.Items, nm)) && ~strcmp(char(ddQCcell.Value), nm)
+            ddQCcell.Value = nm;
+            drawQC(nm);
+        end
     end
 
     function ok = fillVecList(ci)
@@ -836,8 +854,13 @@ end
         t = T(ci);
         cols = vecCols();
         decorateMainPanel();
+        drawQuiver(ci, cols);
         drawTrackIntensity(ci, cols);
-        selectQcTrack(ci, cols);     % and the MSD / stepwise D / player follow the same pick
+        % The MSD / stepwise D / player follow the same pick. The flag stops the return leg: without
+        % it the QC selection syncs back into the list and narrows a multi-track pick to its first.
+        vecSyncing = true;
+        try, selectQcTrack(ci, cols); catch, end
+        vecSyncing = false;
         if isempty(cols)
             lblVec.Text = 'Pick one or more tracks — they are drawn in the panel above.'; return;
         end
@@ -876,18 +899,30 @@ end
                 qcHiVec(end+1) = h; %#ok<AGROW>
             end
         end
-        cols = vecCols();
-        if ~isempty(cols)
-            o = struct('colorBy', ddVecColor.Value, 'scale', eVecScale.Value, ...
-                       'tracks', chkVecLines.Value, 'nBins', 5);
-            try
-                hq = spt_quiver_tracks(axCov, buildTracks(ci), cols, o);
-                for q = 1:numel(hq), qcHiVec(end+1) = hq(q); end %#ok<AGROW>
-            catch ME
-                lblVec.Text = ['Could not draw: ' ME.message];
-            end
-        end
         hold(axCov,'off');
+        % The ARROWS are not drawn here. At true length a 60 nm step on a 24 µm field is two screen
+        % pixels: on the whole-cell map they are invisible, which is why they have a panel of their
+        % own below, framed on the tracks you picked. What marks the pick here is the highlight.
+    end
+
+    function drawQuiver(ci, cols)
+        % The step vectors for the picked tracks, framed on THEM — the view the VAPB figures used
+        % per contact site. Its own panel because the scale that makes an arrow readable is the
+        % track's, not the cell's.
+        if isempty(axVec) || ~isgraphics(axVec), return; end
+        cla(axVec);
+        if isempty(buildTracks) || ci < 1 || ci > numel(buildTracks), return; end
+        if isempty(cols), title(axVec,'step vectors — pick a track'); return; end
+        t = buildTracks(ci);
+        o = struct('colorBy', ddVecColor.Value, 'scale', eVecScale.Value, ...
+                   'tracks', chkVecLines.Value, 'nBins', 5);
+        try, spt_quiver_tracks(axVec, t, cols, o);
+        catch ME, title(axVec, ['could not draw: ' ME.message]); return; end
+        xlabel(axVec,'x (µm)'); ylabel(axVec,'y (µm)');
+        st = t.steps(:, cols); st = st(isfinite(st));
+        title(axVec, sprintf('step vectors · %d track(s) · median step %.0f nm/frame', ...
+            numel(cols), 1000*median(st)), 'FontSize', 9);
+        spt_axes_policy(axVec);
     end
 
     function qcSelectCol(col)
@@ -931,6 +966,7 @@ end
     function syncVecList(s)
         % A track clicked in the panel is the same track the list names. Point the list at it (and at
         % its cell) without recursing back into the click handler.
+        if vecSyncing, return; end          % the list started this; it does not need telling
         if isempty(lstVecTracks) || ~isgraphics(lstVecTracks) || ~isstruct(s), return; end
         if isempty(ddVecCell) || ~isgraphics(ddVecCell), return; end
         if ~isfield(s,'cellIdx') || ~isfield(s,'col'), return; end
