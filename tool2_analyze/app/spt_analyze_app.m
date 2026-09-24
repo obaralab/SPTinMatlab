@@ -72,6 +72,7 @@ chanTok=''; chanWhy='';   % SPT channel token derived per project (see spt_chann
 calibKnown=false;   % is the panel calibration supported by THIS project (adopted or typed)?
 buildTracks=[]; ddQCcell=[]; axMSD=[]; axCov=[]; axDist=[]; axDdist=[]; lblQCm=[]; eMsdFrac=[];   % QC handles
 ddVecCell=[]; lstVecTracks=[]; axVec=[]; ddVecColor=[]; eVecScale=[]; chkVecLines=[]; lblVec=[];   % Vectors & bleaching
+axTrkInt=[]; chkVecOrg=[]; orgCacheQC=[]; qcHiVec=[];   % per-track intensity, the organelle overlay and its cache
 axBleachK=[]; axBleachDecay=[]; lblBleach=[]; bleachRes=[]; chkVecAll=[];
 tsName=''; eTsName=[]; ddBuild=[];   % the ACTIVE TrackStruct basename in analysis/ (named builds)
 axDtrace=[];   % stepwise D(t) for the clicked track (the POOLED per-localization panel was retired:
@@ -138,6 +139,7 @@ fig.UserData = struct('activeTs',@activeTsNow, 'tracks',@tracksNow, 'loadTracks'
     'refSetSigma',@setRefSigma, 'refRegen',@onRefRegen, ...          % Refine: outline smoothing, regenerate (no dialog)
     'refSetBox',@setRefBox, 'runTessellation',@onTessellate, ...     % neighbourhood box; the diffusion map
     'vecSelect',@vecSelectCell, 'runBleaching',@onBleaching, 'bleachRes',@bleachResNow, ...   % Vectors & bleaching
+    'qcSelect',@qcSelectCol, ...                                      % the click in the tracks panel
     'runDwell',@onComputeDwell, 'dwellRes',@dwellResNow, ...          % Dwell: compute, and read the result
     'dwSetEngage',@dwSetEngage, 'dwSetRule',@dwSetRule, ...           % engaged-if threshold; visit rule
     'dwSetGroup',@dwSetGroup, 'dwSetView',@dwSetView, 'dwSetDen',@dwSetDen, ...
@@ -747,17 +749,24 @@ end
                        'comparable; MATLAB''s own quiver autoscaling (each track scaled by its own ' ...
                        'longest arrow) is deliberately off.']);
         chkVecLines = uicheckbox(r,'Text','track lines','Value',true,'ValueChangedFcn',@(s,e) drawVectors());
-        lblVec = uilabel(r,'Text','Build or load above, then pick a cell to draw its step vectors.','FontColor',[0.2 0.4 0.5]);
-        mn = uigridlayout(g,[1 3],'ColumnWidth',{190,'1.6x','1x'},'Padding',[0 0 0 0],'ColumnSpacing',8);
+        chkVecOrg = uicheckbox(r,'Text','ER / mito','Value',true,'Tag','vecOrg','ValueChangedFcn',@(s,e) drawVectors(), ...
+            'Tooltip',['Draw this cell''s ER and mitochondria under the tracks in the panel above, when the ' ...
+                       'project has segmentations for it (green = ER, magenta = mito, first page). The ' ...
+                       'distances in the table come from Tool 1''s own measurement, not from this drawing.']);
+        lblVec = uilabel(r,'Text','Build or load above, then pick a cell — the tracks you pick are drawn in the panel above.','FontColor',[0.2 0.4 0.5]);
+        mn = uigridlayout(g,[1 3],'ColumnWidth',{190,'1.35x','1x'},'Padding',[0 0 0 0],'ColumnSpacing',8);
         lc = uigridlayout(mn,[3 1],'RowHeight',{18,'1x',26},'Padding',[0 0 0 0],'RowSpacing',4);
         uilabel(lc,'Text','tracks','FontWeight','bold');
         lstVecTracks = uilistbox(lc,'Tag','vecTracks','Items',{'—'},'Multiselect','on','ValueChangedFcn',@(s,e) drawVectors());
         chkVecAll = uicheckbox(lc,'Text','all tracks of the cell','Value',false,'ValueChangedFcn',@(s,e) drawVectors(), ...
             'Tooltip','Draw every track at once: a flow map for the cell. Pick a few tracks to read one.');
-        axVec = uiaxes(mn,'Tag','vecAxes'); title(axVec,'step vectors'); axVec.Toolbar.Visible='off'; spt_axes_policy(axVec);
-        % The two bleaching plots SIDE BY SIDE, not stacked: sharing a tab with the build leaves this
-        % half about a third of the window, and two axes stacked in it are too short to read a step
-        % count off. Width is what there is spare.
+        % The step vectors are drawn in the BIG panel above, on the cell they belong to, rather than
+        % in a second small copy of the same map down here. What sits here instead is the thing that
+        % can only be read one track at a time: that track's intensity trace and the steps fitted to
+        % it. Tag kept: this is still where the per-track view lives.
+        axTrkInt = uiaxes(mn,'Tag','vecAxes'); title(axTrkInt,'intensity of the selected track');
+        axTrkInt.Toolbar.Visible='off'; spt_axes_policy(axTrkInt);
+        axVec = axTrkInt;     % the old handle name, so nothing that reaches for it breaks
         rc = uigridlayout(mn,[3 1],'RowHeight',{28,'1x',62},'Padding',[0 0 0 0],'RowSpacing',4);
         uibutton(rc,'Text','▶ Analyse bleaching','FontWeight','bold','BackgroundColor',[0.18 0.45 0.70],'FontColor','w', ...
             'Tag','runBleach','ButtonPushedFcn',@(s,e) onBleaching(), ...
@@ -765,9 +774,12 @@ end
                        'fluorophores the spot held, the height of one step, and the level after the last drop ' ...
                        '— the background under that molecule, subtracted to give intensCorr. Also fits how ' ...
                        'the movie decays, giving a per-frame factor that puts late counts on the early scale.']);
-        bx = uigridlayout(rc,[1 2],'ColumnWidth',{'1x','1x'},'Padding',[0 0 0 0],'ColumnSpacing',6);
-        axBleachK = uiaxes(bx); title(axBleachK,'bleaching steps per track'); axBleachK.Toolbar.Visible='off'; spt_axes_policy(axBleachK);
-        axBleachDecay = uiaxes(bx); title(axBleachDecay,'localizations per frame'); axBleachDecay.Toolbar.Visible='off'; spt_axes_policy(axBleachDecay);
+        % One plot, not two: the per-track trace beside it is where a step is read, and this is the
+        % cell it sits in. The movie-wide decay was the second plot; its number is in the line below,
+        % which is all it was ever read for.
+        axBleachK = uiaxes(rc); title(axBleachK,'bleaching steps per track (this cell)');
+        axBleachK.Toolbar.Visible='off'; spt_axes_policy(axBleachK);
+        axBleachDecay = [];
         lblBleach = uilabel(rc,'Tag','bleachInfo','Text','Not run yet.','WordWrap','on','VerticalAlignment','top','FontColor',[0.35 0.35 0.42]);
     end
 
@@ -784,33 +796,212 @@ end
 
     function vecSelectCell(ci)
         if nargin >= 1 && ~isempty(ci) && ~isempty(ddVecCell) && isgraphics(ddVecCell), ddVecCell.Value = ci; end
+        if isempty(ddVecCell) || ~isgraphics(ddVecCell) || isempty(ddVecCell.Value), return; end
+        if ~fillVecList(ddVecCell.Value), return; end
+        drawVectors(); drawBleach();
+    end
+
+    function ok = fillVecList(ci)
+        % Fill the track list for one cell. PURE: it touches the list and nothing else, because both
+        % the cell dropdown and a click in the panel above land here, and a redraw from inside would
+        % put the two of them in a loop.
+        ok = false;
         T = buildTracks;
-        if isempty(T) || isempty(ddVecCell) || ~isgraphics(ddVecCell) || isempty(ddVecCell.Value), return; end
-        t = T(ddVecCell.Value);
+        if isempty(T) || ci < 1 || ci > numel(T) || isempty(lstVecTracks) || ~isgraphics(lstVecTracks), return; end
+        t = T(ci);
         n = size(t.matrix, 2);
         lstVecTracks.Items = arrayfun(@(j) sprintf('%d · %d locs', j, t.lengths(j)), (1:n)', 'uni', 0);
         lstVecTracks.ItemsData = 1:n;
         if n > 0, lstVecTracks.Value = 1:min(5, n); end
-        drawVectors(); drawBleach();
+        ok = true;
     end
 
     function drawVectors()
-        if isempty(axVec) || ~isgraphics(axVec), return; end
-        T = buildTracks; cla(axVec);
-        if isempty(T) || isempty(ddVecCell.Value), return; end
-        t = T(ddVecCell.Value);
-        cols = lstVecTracks.Value; if ~isnumeric(cols), cols = []; end
-        if ~isempty(chkVecAll) && isgraphics(chkVecAll) && chkVecAll.Value, cols = 1:size(t.matrix,2); end
-        if isempty(cols), lblVec.Text = 'Pick one or more tracks.'; return; end
-        o = struct('colorBy', ddVecColor.Value, 'scale', eVecScale.Value, 'tracks', chkVecLines.Value, 'nBins', 5);
-        try, spt_quiver_tracks(axVec, t, cols, o);
-        catch ME, lblVec.Text = ['Could not draw: ' ME.message]; return; end
-        xlabel(axVec,'x (µm)'); ylabel(axVec,'y (µm)');
+        % The picked tracks are shown where the cell is: in the big panel above. This adds them to
+        % whatever drew it last (all tracks faint, or the QC selection), puts the organelle masks
+        % under it, and fills the per-track intensity plot beside the list.
+        T = buildTracks;
+        if isempty(T) || isempty(ddVecCell) || ~isgraphics(ddVecCell) || isempty(ddVecCell.Value), return; end
+        ci = ddVecCell.Value;
+        t = T(ci);
+        cols = vecCols();
+        decorateMainPanel();
+        drawTrackIntensity(ci, cols);
+        selectQcTrack(ci, cols);     % and the MSD / stepwise D / player follow the same pick
+        if isempty(cols)
+            lblVec.Text = 'Pick one or more tracks — they are drawn in the panel above.'; return;
+        end
         st = t.steps(:, cols); st = st(isfinite(st));
-        title(axVec, sprintf('%s · %d track(s) · median step %.0f nm/frame', char(t.file), numel(cols), 1000*median(st)));
-        spt_axes_policy(axVec);
-        lblVec.Text = sprintf('%d of %d tracks drawn; arrows are µm per frame at true length (×%.1f).', ...
-            numel(cols), size(t.matrix,2), eVecScale.Value);
+        lblVec.Text = sprintf(['%d of %d tracks drawn above (arrows are µm per frame at true length, ×%.1f) · ' ...
+            'median step %.0f nm/frame'], numel(cols), size(t.matrix,2), eVecScale.Value, 1000*median(st));
+    end
+
+    function cols = vecCols()
+        % Which tracks the lower half is showing: the list selection, or every track of the cell.
+        cols = [];
+        if isempty(lstVecTracks) || ~isgraphics(lstVecTracks), return; end
+        cols = lstVecTracks.Value; if ~isnumeric(cols), cols = []; end
+        if ~isempty(chkVecAll) && isgraphics(chkVecAll) && chkVecAll.Value && ~isempty(buildTracks) ...
+                && ~isempty(ddVecCell) && isgraphics(ddVecCell) && ~isempty(ddVecCell.Value)
+            cols = 1:size(buildTracks(ddVecCell.Value).matrix, 2);
+        end
+    end
+
+    function decorateMainPanel()
+        % Everything that belongs ON the tracks panel rather than instead of it: the organelle masks
+        % underneath, and the picked tracks' own step vectors on top. Called after anything redraws
+        % the panel, so a click, a filter move and a list pick all end up showing the same thing.
+        if isempty(axCov) || ~isgraphics(axCov), return; end
+        if isempty(buildTracks) || isempty(ddVecCell) || ~isgraphics(ddVecCell) || isempty(ddVecCell.Value), return; end
+        ci = ddVecCell.Value;
+        if ~isempty(qcHiVec), for h = qcHiVec(:)', if isgraphics(h), delete(h); end, end, end
+        qcHiVec = gobjects(0);
+        hold(axCov,'on');
+        if isempty(chkVecOrg) || ~isgraphics(chkVecOrg) || chkVecOrg.Value
+            M = orgMasksFor(ci);
+            for q = 1:numel(M)
+                h = image(axCov,'XData',M(q).xd,'YData',M(q).yd,'CData',M(q).rgb, ...
+                          'AlphaData',M(q).alpha,'HitTest','off');
+                uistack(h,'bottom');                     % under the tracks, not over them
+                qcHiVec(end+1) = h; %#ok<AGROW>
+            end
+        end
+        cols = vecCols();
+        if ~isempty(cols)
+            o = struct('colorBy', ddVecColor.Value, 'scale', eVecScale.Value, ...
+                       'tracks', chkVecLines.Value, 'nBins', 5);
+            try
+                hq = spt_quiver_tracks(axCov, buildTracks(ci), cols, o);
+                for q = 1:numel(hq), qcHiVec(end+1) = hq(q); end %#ok<AGROW>
+            catch ME
+                lblVec.Text = ['Could not draw: ' ME.message];
+            end
+        end
+        hold(axCov,'off');
+    end
+
+    function qcSelectCol(col)
+        % Select the track in COLUMN col of the cell the lower half is showing — the same thing a
+        % click in the tracks panel does, without a click.
+        if isempty(qcTracks), return; end
+        ci = []; if ~isempty(ddVecCell) && isgraphics(ddVecCell), ci = ddVecCell.Value; end
+        for q = 1:numel(qcTracks)
+            t = qcTracks{q};
+            if isfield(t,'col') && t.col == col && (isempty(ci) || ~isfield(t,'cellIdx') || t.cellIdx == ci)
+                drawSelected(q); return;
+            end
+        end
+    end
+
+    function selectQcTrack(ci, cols)
+        % Point the QC detail panels at the first picked track. They are built per QC cell, so this
+        % only fires when that cell is the one the list is showing — otherwise the panels would
+        % describe a different cell's track under this cell's name.
+        if isempty(cols) || isempty(qcTracks), return; end
+        want = cols(1);
+        for q = 1:numel(qcTracks)
+            t = qcTracks{q};
+            if isfield(t,'cellIdx') && isfield(t,'col') && t.cellIdx == ci && t.col == want
+                if q ~= qcSelIdx, drawSelected(q); end
+                return;
+            end
+        end
+    end
+
+    function syncVecList(s)
+        % A track clicked in the panel is the same track the list names. Point the list at it (and at
+        % its cell) without recursing back into the click handler.
+        if isempty(lstVecTracks) || ~isgraphics(lstVecTracks) || ~isstruct(s), return; end
+        if isempty(ddVecCell) || ~isgraphics(ddVecCell), return; end
+        if ~isfield(s,'cellIdx') || ~isfield(s,'col'), return; end
+        if ~isequal(ddVecCell.Value, s.cellIdx)
+            if any(cell2mat(ddVecCell.ItemsData) == s.cellIdx)
+                ddVecCell.Value = s.cellIdx; fillVecList(s.cellIdx);
+            else
+                return;
+            end
+        end
+        if ~isempty(lstVecTracks.ItemsData) && any(lstVecTracks.ItemsData == s.col)
+            lstVecTracks.Value = s.col;
+            if ~isempty(chkVecAll) && isgraphics(chkVecAll), chkVecAll.Value = false; end
+            drawTrackIntensity(s.cellIdx, s.col);
+            decorateMainPanel();
+        end
+    end
+
+    function drawTrackIntensity(ci, cols)
+        % ONE track's intensity trace with the steps fitted to it. Bleaching is a per-molecule
+        % measurement — how many fluorophores were in this spot, and what the level under it was —
+        % and a histogram over the cell cannot answer that for the track in front of you.
+        if isempty(axTrkInt) || ~isgraphics(axTrkInt), return; end
+        cla(axTrkInt); axTrkInt.Visible = 'on';
+        if isempty(buildTracks) || ci < 1 || ci > numel(buildTracks), return; end
+        t = buildTracks(ci);
+        if ~isfield(t,'intens') || isempty(t.intens)
+            title(axTrkInt,'this build carries no intensities'); return;
+        end
+        if isempty(cols), title(axTrkInt,'intensity of the selected track — pick one'); return; end
+        j = cols(1);                                     % the first pick: one trace is the point
+        y = t.intens(:, j, 2); fr = t.matrix(:, j, 1);
+        ok = isfinite(y) & isfinite(fr); y = y(ok); fr = fr(ok);
+        if numel(y) < 4, title(axTrkInt, sprintf('track %d: too short to fit (%d points)', j, numel(y))); return; end
+        hold(axTrkInt,'on');
+        plot(axTrkInt, fr, y, '-', 'Color',[0.55 0.60 0.70], 'LineWidth',0.8);
+        plot(axTrkInt, fr, y, '.', 'Color',[0.35 0.42 0.62], 'MarkerSize',6);
+        txt = sprintf('track %d', j);
+        try
+            R = spt_pbsa_steps(y);
+            if isfield(R,'fit') && ~isempty(R.fit)
+                plot(axTrkInt, fr, R.fit, '-', 'Color',[0.85 0.25 0.20], 'LineWidth',1.6);
+            end
+            nS = 0; if isfield(R,'k'), nS = R.k; end
+            hStep = NaN; if isfield(R,'heights') && ~isempty(R.heights), hStep = median(abs(R.heights)); end
+            bgLvl = NaN; if isfield(R,'fit') && ~isempty(R.fit), bgLvl = R.fit(end); end
+            up = false; if isfield(R,'heights') && ~isempty(R.heights), up = any(R.heights > 0); end
+            txt = sprintf('track %d · %d step(s)%s · step %.0f · background %.0f', ...
+                j, nS, tern(up, ' · MIXED (a rise, so blinking or a crossing)', ''), hStep, bgLvl);
+        catch ME
+            txt = sprintf('track %d · could not fit: %s', j, ME.message);
+        end
+        hold(axTrkInt,'off');
+        xlabel(axTrkInt,'frame'); ylabel(axTrkInt,'intensity');
+        title(axTrkInt, txt);
+        if numel(cols) > 1
+            title(axTrkInt, sprintf('%s   (first of %d picked)', txt, numel(cols)));
+        end
+    end
+
+    function M = orgMasksFor(ci)
+        % The cell's ER and mito masks (first page), in the same µm frame as the tracks. Cached per
+        % cell: this reads two TIFF pages and a distance-free mask, and the panel redraws on every
+        % click. [] when the project has no segmentation matched for the cell, which is not an error.
+        M = struct('xd',{},'yd',{},'rgb',{},'alpha',{});
+        if isempty(buildTracks) || ci < 1 || ci > numel(buildTracks), return; end
+        if isempty(orgCacheQC), orgCacheQC = containers.Map('KeyType','double','ValueType','any'); end
+        if isKey(orgCacheQC, ci), M = orgCacheQC(ci); return; end
+        base = ''; try, base = char(buildTracks(ci).file); catch, end
+        [~, erP, miP] = matchedPaths(base);
+        fovc = trackFov(ci);
+        cols = {[0.25 0.75 0.35], [0.85 0.30 0.75]};      % ER green, mito magenta — the app's colours
+        paths = {erP, miP};
+        for q = 1:2
+            p = paths{q};
+            if isempty(p) || ~isfile(p), continue; end
+            try
+                im = imread(p, 1); if size(im,3) == 3, im = rgb2gray(im); end
+                v = unique(im(:)); nz = v(v > 0); fg = 1; if ~isempty(nz), fg = double(min(nz)); end
+                mask = (im == fg);
+                if ~any(mask(:)), continue; end
+                [hh, ww] = size(mask);
+                ux = fovc/max(ww-1,1); uy = fovc/max(hh-1,1);
+                c = cols{q};
+                M(end+1) = struct('xd',[0 (ww-1)*ux], 'yd',[0 (hh-1)*uy], ...
+                    'rgb', cat(3, c(1)*ones(hh,ww), c(2)*ones(hh,ww), c(3)*ones(hh,ww)), ...
+                    'alpha', double(mask)*0.30); %#ok<AGROW>
+            catch
+            end
+        end
+        orgCacheQC(ci) = M;
     end
 
     function B = onBleaching()
@@ -837,15 +1028,8 @@ end
         cla(axBleachK);
         histogram(axBleachK, e.nSteps(fit & ~e.mixed), -0.5:1:6.5, 'FaceColor', [0.2 0.45 0.7]);
         xlabel(axBleachK,'steps (clean traces)'); ylabel(axBleachK,'tracks'); title(axBleachK,'bleaching steps per track');
-        cla(axBleachDecay); hold(axBleachDecay,'on');
-        plot(axBleachDecay, e.frames, e.counts, '-', 'Color', [0.5 0.5 0.55]);
-        if isfinite(e.tauFrames)
-            plot(axBleachDecay, e.frames, e.A*exp(-(e.frames-e.frames(1))/e.tauFrames) + e.c, 'r-', 'LineWidth', 1.5);
-        end
-        hold(axBleachDecay,'off'); xlabel(axBleachDecay,'frame'); ylabel(axBleachDecay,'localizations');
-        title(axBleachDecay, tern(isfinite(e.tauFrames), sprintf('decay tau = %.0f frames (%.1f s)', e.tauFrames, e.tauSeconds), ...
-                                  'no decay to correct for'));
-        spt_axes_policy(axBleachK); spt_axes_policy(axBleachDecay);
+        spt_axes_policy(axBleachK);
+        drawTrackIntensity(ci, vecCols());          % and the track in front of you, fitted its own way
         decay = 'no movie-wide decay: the counts are flat, as photoactivation keeps them';
         if isfinite(e.tauFrames)
             decay = sprintf('decay tau %.0f frames (%.1f s); late counts need x%.2f to sit on the early scale', ...
@@ -4107,6 +4291,7 @@ end
         if ~isempty(Xa), plot(axCov, Xa, Ya, '-','Color',[0.55 0.6 0.75],'LineWidth',0.4,'HitTest','off'); end
         axis(axCov,'equal'); set(axCov,'YDir','reverse');   % interactions are set once at construction
         xlabel(axCov,'x (µm)'); ylabel(axCov,'y (µm)'); title(axCov, sprintf('tracks (click one) — %d', numel(qcTracks)));
+        decorateMainPanel();     % the organelle masks, and whatever the track list has picked
 
         % ---- pooled ER/mito distance. Deliberately over ALL tracks, not the selected ones: this is
         % the histogram you read the "near mito ≤" threshold OFF, so filtering it by that threshold
@@ -4169,6 +4354,7 @@ end
         if i < 1 || i > numel(qcTracks), return; end
         qcSelIdx = i; s = qcTracks{i};
         refreshRejectBtn();
+        syncVecList(s);          % the list below follows the click, so there is one selection
         % highlight in the tracks panel
         if ~isempty(qcHi) && isgraphics(qcHi), delete(qcHi); end
         hold(axCov,'on'); qcHi = plot(axCov, s.X, s.Y, '-','Color',[1 0.55 0],'LineWidth',2,'HitTest','off'); hold(axCov,'off');
@@ -4456,6 +4642,7 @@ end
             xlabel(axCov,'x (µm)'); ylabel(axCov,'y (µm)');
             if numel(sel) == nAll, title(axCov, sprintf('tracks (click one) — %d', nAll));
             else, title(axCov, sprintf('tracks (click one) — %d of %d selected', numel(sel), nAll)); end
+            decorateMainPanel();
             qcHi = [];   % the old highlight was just cleared with the axes
         end
 

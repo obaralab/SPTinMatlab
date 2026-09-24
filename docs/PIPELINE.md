@@ -27,7 +27,13 @@ runs `build_trackstruct` (the slow MSD step) → a **named build** `analysis/<na
 unless you name it), recorded as the one in force in `analysis/active_trackstruct.txt`, and reads that build
 back on the same tab: **Build, QC & vectors** is one tab, with the step vectors and the bleaching read-out
 under the build controls that produced them (`buildVectorsTab` drops its grid into the row `buildBuildTab`
-reserves for it, so neither panel was rewritten). It takes its input from `tracks/` on disk, not from Tool 2's state, so the
+reserves for it, so neither panel was rewritten). The picked tracks are drawn in the BIG panel — arrows
+over the track map, organelle masks under it (`orgMasksFor`, cached per cell) — and a click in that panel
+points the list at the same track, so there is one selection and the MSD/stepwise-D/player follow it.
+Bleaching is read PER TRACK: the picked track's trace is fitted with `spt_pbsa_steps` and drawn with its
+step fit, since stoichiometry is a per-molecule question that a per-cell histogram cannot answer. Two
+panels went in the process: the second copy of the vector map, and the movie-decay curve whose tau is in
+the summary line anyway. It takes its input from `tracks/` on disk, not from Tool 2's state, so the
 two are separate jobs in separate windows. **Tool 4** (`spt_analyze_app`) starts from that build — which it resolves
 through `cs_active_trackstruct` (§7.2), never by a hardcoded filename: density → contact-site picker →
 mapper → dwell → compare. A shared **Experiment** tab (`spt_experiment_panel`) is **tab 1 in all three
