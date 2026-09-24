@@ -86,7 +86,7 @@ ddHi=[];                  % where the CLICKED track sits in the pooled D histogr
 % of its modes live on in spt_confine_flags / spt_track_diffusion, measured against a matched
 % Brownian null (see that header), for when the contact-site work needs them.
 ddFitMode=[]; axSweep=[];   % MSD fit-window mode (fixed % / adaptive R²) + the per-track D-vs-fit-window sweep
-qcRightCol=[]; chkQcDiag=[];   % that column's grid, and the toggle that folds the sweep away
+qcRightCol=[]; qcLeftCol=[]; chkQcDiag=[];   % those grids, and the toggle that folds the diagnostics away
 qcTracks={}; qcSelIdx=0; qcHi=[]; playerCtl=[];   % click-to-inspect: flat track list, selection, highlight, embedded player
 densCache=struct('base',{},'occ',{});   % per-cell whole-movie occupancy cache (used by ensureMips + saveDensityFiles)
 pnCS=[]; btnPickCS=[]; eCScontact=[]; lblCS=[];   % Tab 3 Contact-sites handles
@@ -401,6 +401,7 @@ end
         % stepwise D(t) already on the right, and one of the two had to go. What remains gets more
         % height each, which the column badly needed.
         lp = uigridlayout(mn,[5 1],'RowHeight',{92,50,'1x','1x','1x'},'Padding',[0 0 0 0],'RowSpacing',6);
+        qcLeftCol = lp;
         % Calibration is PER CELL, and it lives here because this is the per-cell inventory of the
         % build. Each cell is stamped at import from its own file metadata where the acquisition chain
         % kept it, and from the Calibration panel otherwise; a * marks a value inherited from the panel
@@ -4319,6 +4320,7 @@ end
         % the histogram you read the "near mito ≤" threshold OFF, so filtering it by that threshold
         % would be circular. The threshold is drawn on it instead.
         L = L(:);
+        if qcDiagOn()      % folded away by default; drawn (and its channels counted) only when shown
         cla(axDist); hold(axDist,'on'); leg = {};
         if ~isempty(ER), histogram(axDist, ER, 40, 'FaceColor',[0.15 0.6 0.25],'EdgeColor','none','FaceAlpha',0.6); leg{end+1}='ER'; end %#ok<AGROW>
         if ~isempty(MI), histogram(axDist, MI, 40, 'FaceColor',[0.85 0.2 0.6],'EdgeColor','none','FaceAlpha',0.6); leg{end+1}='mito'; end %#ok<AGROW>
@@ -4345,6 +4347,7 @@ end
                     'Color',cols.(leg{kL}), 'FontSize',8.5, 'FontWeight','bold', ...
                     'HorizontalAlignment','right', 'VerticalAlignment','top', 'HitTest','off');
             end
+        end
         end
 
         redrawQcPooled();
@@ -4404,7 +4407,7 @@ end
         title(axMSD, sprintf('D = %.4g µm²/s · R² = %.3f · fit %d lags (%.0f%%)', r.D, r.R2, r.nPts, r.fracUsed));
 
         % highlight this track's cumulative displacement against the population
-        if ~isempty(axCSD) && isgraphics(axCSD)
+        if qcDiagOn() && ~isempty(axCSD) && isgraphics(axCSD)
             if ~isempty(csdHi) && isgraphics(csdHi), delete(csdHi); end
             cv = fieldOr(s,'CSD'); cv = cv(isfinite(cv));
             if numel(cv) >= 2
@@ -4497,15 +4500,27 @@ end
     end
 
     function onQcDiag()
-        % Fold the sweep away by giving its row no height, so the player, the stepwise D(t) and the
-        % MSD fit take the space rather than leaving a gap where it was.
-        if isempty(qcRightCol) || ~isgraphics(qcRightCol), return; end
+        % THREE panels fold away together, each by giving its row no height rather than leaving a gap:
+        % the fit-window sweep on the right, and on the left the ER/mito distance histogram and the
+        % CSD. What stays is what is read on every build — the cell table, the track filter and the D
+        % distribution — and the three that remain in each column grow into the space.
         on = qcDiagOn();
         if ~isempty(axSweep) && isgraphics(axSweep), axSweep.Visible = tern(on,'on','off'); end
-        rh = qcRightCol.RowHeight;
-        rh{4} = tern(on, '1x', 0);
-        qcRightCol.RowHeight = rh;
-        if on && qcSelIdx >= 1 && qcSelIdx <= numel(qcTracks), drawSelected(qcSelIdx); end
+        if ~isempty(axDist)  && isgraphics(axDist),  axDist.Visible  = tern(on,'on','off'); end
+        if ~isempty(axCSD)   && isgraphics(axCSD),   axCSD.Visible   = tern(on,'on','off'); end
+        if ~isempty(qcRightCol) && isgraphics(qcRightCol)
+            rh = qcRightCol.RowHeight; rh{4} = tern(on, '1x', 0); qcRightCol.RowHeight = rh;
+        end
+        if ~isempty(qcLeftCol) && isgraphics(qcLeftCol)
+            rh = qcLeftCol.RowHeight;
+            rh{3} = tern(on, '1x', 0);      % ER / mito distance
+            rh{5} = tern(on, '1x', 0);      % CSD
+            qcLeftCol.RowHeight = rh;
+        end
+        if on
+            redrawQcPooled();               % they are empty while folded — fill them on the way back
+            if qcSelIdx >= 1 && qcSelIdx <= numel(qcTracks), drawSelected(qcSelIdx); end
+        end
     end
 
     function spec = fitSpec()   % the MSD-fit window spec passed to spt_fit_msd, from the mode dropdown + fit-% spinner
@@ -4715,7 +4730,8 @@ end
         title(axDdist, sprintf('D distribution — n=%d · median %.3g µm²/s  ·  %s', ...
             numel(Dv), median0_(Dv), fitTag), 'FontSize',8.5);
 
-        % ---- CSD over the same set ----
+        % ---- CSD over the same set (a diagnostic: folded away unless asked for) ----
+        if qcDiagOn()
         cla(axCSD); csdHi = [];
         Cx = []; Cy = []; nC = 0; Call = {};
         for i = 1:numel(sel)
@@ -4746,6 +4762,7 @@ end
             xlabel(axCSD,'step #'); ylabel(axCSD,'path length (µm)');
             title(axCSD, sprintf('CSD — %d tracks · median total %.2f µm · median to step %d', ...
                 nC, median(tot), kMax), 'FontSize',8.5);
+        end
         end
     end
 

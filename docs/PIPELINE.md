@@ -33,10 +33,13 @@ points the list at the same track, so there is one selection and the MSD/stepwis
 Bleaching is read PER TRACK: the picked track's trace is fitted with `spt_pbsa_steps` and drawn with its
 step fit, since stoichiometry is a per-molecule question that a per-cell histogram cannot answer. Two
 panels went in the process: the second copy of the vector map, and the movie-decay curve whose tau is in
-the summary line anyway. A third, the **D & R² vs fit window** sweep, is behind a `diagnostics` checkbox:
-it is how the fit % is chosen and says little once that is set, so its row folds to no height and it is
-not computed while hidden (a fit per window on every click). Ticking it fills it for the track already
-selected. It takes its input from `tracks/` on disk, not from Tool 2's state, so the
+the summary line anyway. Three more are behind a `diagnostics` checkbox: the **D & R² vs fit
+window** sweep (how the fit % is chosen, and little use once it is set), the **ER/mito distance**
+histogram (read once per dataset, to set the near-threshold) and the **CSD**. Each folds by giving its
+row NO HEIGHT rather than blanking it, so the left column becomes table + filter + D distribution and
+the right becomes player + stepwise D(t) + MSD fit. Hidden, they are not computed either — the sweep is
+a fit per window on every click, the CSD walks every selected track — and ticking the box fills them for
+the track and selection already in force. It takes its input from `tracks/` on disk, not from Tool 2's state, so the
 two are separate jobs in separate windows. **Tool 4** (`spt_analyze_app`) starts from that build — which it resolves
 through `cs_active_trackstruct` (§7.2), never by a hardcoded filename: density → contact-site picker →
 mapper → dwell → compare. A shared **Experiment** tab (`spt_experiment_panel`) is **tab 1 in all three

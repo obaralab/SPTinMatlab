@@ -14,9 +14,10 @@ function spt_vectors_tab_smoke()
 %  2c. THE SELECTION IS ONE SELECTION: clicking a track in the panel points the list at it.
 %   3. THE BLEACHING BUTTON gives the same numbers as the driver, and says them: step height,
 %      background, how much of it was measured, and whether there is a movie-wide decay at all.
-%  2d. THE FIT-WINDOW SWEEP IS A DIAGNOSTIC: off by default, its row folded to no height so the
-%      panels above take the space, and not computed while it is off. Ticking the box brings it
-%      back, filled for the track already selected.
+%  2d. THREE PANELS ARE DIAGNOSTICS: the fit-window sweep, the ER/mito distance histogram and the
+%      CSD. Off by default, each row folded to NO HEIGHT so the panels beside them take the space,
+%      and not computed while off. Ticking the box brings them back, filled for the track and the
+%      selection already in force rather than blank until the next click.
 %  3b. AND IT IS READ PER TRACK: the picked track's own trace is fitted and reported on its own -
 %      how many fluorophores were in THAT spot - which a histogram over the cell cannot answer.
 %   4. NO INTENSITIES IN THE BUILD is reported, not fitted.
@@ -132,12 +133,23 @@ f.UserData.vecSelect(1); drawnow;
 
 %% (2d) the sweep is folded away until asked for --------------------------------------------------------
 dg = one(findobj(f,'Tag','qcDiag'), 'diagnostics checkbox');
-assert(~dg.Value, 'the fit-window sweep should be off by default');
+assert(~dg.Value, 'the diagnostics should be off by default');
 axSw = one(findobj(f,'Type','axes'), 'sweep axes', ...
     @(a) contains(lower(char(strjoin(string(a.Title.String),' '))), 'fit window'));
-assert(strcmp(axSw.Visible,'off'), 'it should be hidden, not just empty');
-rp = axSw.Parent;
-assert(isequal(rp.RowHeight{4}, 0), 'its row should take no height, so the panels above get it');
+axEr = one(findobj(f,'Type','axes'), 'ER/mito distance axes', ...
+    @(a) contains(lower(char(strjoin(string(a.Title.String),' '))), 'er / mito distance'));
+axCs = one(findobj(f,'Type','axes'), 'CSD axes', ...
+    @(a) contains(lower(char(strjoin(string(a.Title.String),' '))), 'csd'));
+for hh = [axSw axEr axCs]
+    assert(strcmp(hh.Visible,'off'), '"%s" should be hidden, not just empty', ...
+        char(strjoin(string(hh.Title.String),' ')));
+end
+rp = axSw.Parent; lp = axEr.Parent;
+assert(isequal(axCs.Parent, lp), 'the ER/mito and CSD panels share the left column');
+assert(isequal(rp.RowHeight{4}, 0), 'the sweep row should take no height');
+assert(isequal(lp.RowHeight{3}, 0) && isequal(lp.RowHeight{5}, 0), ...
+    'the ER/mito and CSD rows should take no height, so the D distribution gets it');
+assert(isequal(lp.RowHeight{4}, '1x'), 'the D distribution stays — it is not a diagnostic');
 f.UserData.qcSelect(3); drawnow;
 % The title is the witness: it says "(click a track)" until the sweep is actually computed, and this
 % fixture's build carries no MSD, so whether lines appear says nothing either way.
@@ -145,10 +157,19 @@ swTitle = @() char(strjoin(string(axSw.Title.String),' '));
 assert(contains(swTitle(),'click a track'), ...
     'a hidden sweep should not be computed — its title moved to "%s"', swTitle());
 dg.Value = true; dg.ValueChangedFcn(dg, struct()); drawnow;
-assert(strcmp(axSw.Visible,'on') && isequal(rp.RowHeight{4}, '1x'), 'ticking it should bring the row back');
+for hh = [axSw axEr axCs]
+    assert(strcmp(hh.Visible,'on'), '"%s" should come back', char(strjoin(string(hh.Title.String),' ')));
+end
+assert(isequal(rp.RowHeight{4},'1x') && isequal(lp.RowHeight{3},'1x') && isequal(lp.RowHeight{5},'1x'), ...
+    'and their rows should take height again');
 assert(~contains(swTitle(),'click a track'), ...
-    'and it should be computed for the track already selected, not left blank until the next click');
+    'the sweep should be computed for the track already selected, not left blank until the next click');
+assert(~isempty(findobj(axCs,'Type','line')) || contains(lower(char(strjoin(string(axCs.Title.String),' '))),'not in this'), ...
+    'the CSD should be filled (or say the build has none), not left blank');
 dg.Value = false; dg.ValueChangedFcn(dg, struct()); drawnow;
+for hh = [axSw axEr axCs]
+    assert(strcmp(hh.Visible,'off'), 'unticking should fold them away again');
+end
 
 %% (3) the bleaching button --------------------------------------------------------------------------
 B = f.UserData.runBleaching(); drawnow;
