@@ -208,9 +208,28 @@ rather than hidden, while a real gap in B comes back **unmatched rather than cro
 not far, and the test pins that distinction. What remains in this stage: recording `dt_s` / `t0_s`
 per source on the cell record, which needs the acquisition answers in §5.
 
-**Stage 1 — two tracked sources per cell.** Channel token in the Tool 1 output names; the build keeps
-the key. After this, both colours can be tracked and built without colliding, and every existing
-single-colour analysis works on each colour separately.
+**Stage 1 — two tracked sources per cell.** *(DONE, on this branch.)* Tool 1's Detect tab has a
+**channel** dropdown and a per-channel **dt** beside the de-interleave control. A project declares
+its colours in `tracked_channels.json` (`spt_tracked_channels`) — key, label, stride, offset and
+its own `dt_s` — and picking one sets its pages and puts its key in the output names through the one
+naming rule (`spt_channel_stem`, double underscore, because cell names here are full of single ones).
+
+Each colour is tracked on its own and lands beside the other: `cellA__ch1_tracks.xml` next to
+`cellA__ch2_tracks.xml`, with their own spots CSVs and settings files. A project that declares no
+colours writes exactly the names it always did, so nothing has to be renamed.
+
+Two things came with it. A colour's **declared dt wins over the derived one** — deriving assumes the
+only reason a colour has fewer frames is that it shares pages, which is false for a strobed colour —
+and a declared dt that disagrees with the stack's own arithmetic **warns**, because a typo there
+scales every diffusion coefficient and dwell time by that factor silently. And the **time origin**
+is no longer assumed to be zero: `t0 = frameOffset x dtPage` is computed, written into the CSV and
+XML times, recorded in the settings file (`calibration.t0_s`) and on the XML root along with the
+channel key and the page mapping. The even-page colour now says it starts one page interval after
+the odd one, instead of both claiming t = 0.
+
+The back-link is taught the token: `matchedPaths` strips it before looking for the movie, since the
+two colours share one stack. The importer needed nothing — it pairs a CSV to an XML by the same
+tokened stem.
 
 **Stage 2 — registration.** Driver + a stored transform + residual reporting.
 

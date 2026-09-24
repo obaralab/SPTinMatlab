@@ -28,6 +28,7 @@ ovUnits='um';                                % kept/removed track-map units ('um
 % Detect-tab handles + state (the Match tab's Scan refreshes the cell list)
 ddCell=[]; spnDiam=[]; spnPct=[]; sldFrame=[]; eFrameNum=[]; lblDet=[]; axPrev=[]; axHist=[]; axRate=[];
 spnRidge=[]; spnSize=[]; spnAlign=[]; ddBleed=[]; ddThrFrom=[]; btnAdv=[]; lblAdvWhy=[]; advG=[]; advRow=[]; advOpen=false; detSkelPg=-1; detSkelIm=[]; ddDeint=[]; ddSegEvery=[]; lblSegEvery=[];   % interleaved-acquisition controls (Detect tab)
+ddChan=[]; spnChanDt=[]; trackChans=[];   % the tracked colours of this project, and which one this run is
 ddThrMode=[]; spnQual=[]; lblQual=[];   % threshold mode: Top % (percentile) vs Quality ≥ (absolute DoG-quality gate)
 dCell=0; dInfo=[]; dNfr=0; dPool=zeros(0,1); hRateMk=[]; dRateF=[]; dRateC=[]; imW=0; imH=0;
 sldCMin=[]; sldCMax=[]; btnPlay=[]; playTimer=[];               % contrast sliders + play button/timer
@@ -205,6 +206,7 @@ tg.SelectedTab = tMatch;   % ...but open on Match files: that is where a fresh s
                     logLine('No ER segmentations matched — link mode set to Euclidean (the ER modes need one).');
                 end
             end
+            fillChanList();      % the project's tracked colours, now that we know which project
             lbl.Text = sprintf('%d cell(s): SPT %d, ER-seg %s, mito-seg %s · token %s (%s).', ...
                 numel(c), numel(c), ...
                 tern(hasEr, sprintf('%d/%d', nEr, numel(c)), 'off'), ...
@@ -340,7 +342,7 @@ tg.SelectedTab = tMatch;   % ...but open on Match files: that is where a fresh s
 
         % Its own sub-grid: the outer columns are sized for the rows above, and these two labels do
         % not fit in them — 'Reject ridges' and 'SPT frames / organelle' both truncated to '...'.
-        r5 = uigridlayout(cp,[1 15],'ColumnWidth',{58,46,50,46,46,46,52,92,64,92,84,70,60,92,'1x'}, ...
+        r5 = uigridlayout(cp,[1 18],'ColumnWidth',{58,46,50,46,46,46,52,92,64,92,84,70,60,92,58,104,54,'1x'}, ...
             'Padding',[0 0 0 0],'ColumnSpacing',6); p(r5,6,[1 6]);
         advRow = r5; r5.Visible = 'off';        % collapsed until the disclosure opens it
         uilabel(r5,'Text','ridge R ≤','HorizontalAlignment','right', ...
@@ -412,6 +414,23 @@ tg.SelectedTab = tMatch;   % ...but open on Match files: that is where a fresh s
             'ItemsData',{'auto','1','2','3','4'},'Value','auto', ...
             'ValueChangedFcn',@(s,e) onDetParam('segevery'));
         lblSegEvery = uilabel(r5,'Text','','FontColor',[0.2 0.4 0.5]);
+        % WHICH COLOUR THIS RUN IS, and how long its own frames are. Tracking two colours means
+        % running this tool twice; without a channel the second run wrote over the first, with no
+        % warning and no way to tell the results apart afterwards.
+        uilabel(r5,'Text','channel','HorizontalAlignment','right', ...
+            'Tooltip',['Which tracked colour this run produces. "(single)" is the one-colour path and ' ...
+            'writes exactly the file names it always did. Picking a colour sets its pages (stride ' ...
+            'and offset) and puts its key in the output names, so the two colours sit beside each ' ...
+            'other in tracks/ instead of one overwriting the other. Each is tracked on its own.']);
+        ddChan = uidropdown(r5,'Tag','trackChan','Items',{'(single)'},'ItemsData',{0}, ...
+            'ValueChangedFcn',@(s,e) onChanPick());
+        spnChanDt = uispinner(r5,'Limits',[0 3600],'Value',0,'Step',0.001,'Tag','chanDt', ...
+            'ValueDisplayFormat','%.5g s','Enable','off','ValueChangedFcn',@(s,e) onChanDt(), ...
+            'Tooltip',['THIS COLOUR''S frame interval, in seconds. 0 = derive it as the page interval ' ...
+            'times the stride, which is right for a plain interleaved pair and wrong the moment a ' ...
+            'colour is strobed or the two come from separate stacks with their own timing. Getting ' ...
+            'it wrong scales every diffusion coefficient, dwell time and rate by that factor, ' ...
+            'silently, because seconds are what those are reported in. Saved with the project.']);
         uilabel(r5,'Text','');
 
         % row 3: frame slider + play
@@ -1362,10 +1381,99 @@ tg.SelectedTab = tMatch;   % ...but open on Match files: that is where a fresh s
         d = detOpts(); prm.ridgeMax = d.ridgeMax; prm.sizeMax = d.sizeMax; prm.alignDeg = d.alignDeg;
         prm.segEvery = segEveryValue();
         [prm.frameStride, prm.frameOffset] = deintValue();
+        ch = chanNow();
+        prm.chKey = ch.key; prm.chLabel = ch.label; prm.dtFrame = ch.dt_s;
         prm.bleedFrames = 'all';
         if ~isempty(ddBleed) && isgraphics(ddBleed), prm.bleedFrames = ddBleed.Value; end
         prm.thrFrames = 'all';
         if ~isempty(ddThrFrom) && isgraphics(ddThrFrom), prm.thrFrames = ddThrFrom.Value; end
+    end
+
+    function detSay(msg, col)
+        if isempty(lblDet) || ~isgraphics(lblDet), return; end
+        lblDet.Text = msg;
+        if nargin >= 2, lblDet.FontColor = col; end
+    end
+
+    function fillChanList()
+        % The project's tracked colours. A project with no tracked_channels.json gets the
+        % single-colour default plus one offer to declare an interleaved pair, which is the case
+        % this exists for; declaring it writes the file and nothing else changes until a colour is
+        % actually picked.
+        if isempty(ddChan) || ~isgraphics(ddChan), return; end
+        trackChans = spt_tracked_channels('load', projDir());
+        items = {}; data = {};
+        for i = 1:numel(trackChans)
+            c = trackChans(i);
+            if isempty(c.key), items{end+1} = '(single)'; else, items{end+1} = c.label; end %#ok<AGROW>
+            data{end+1} = i; %#ok<AGROW>
+        end
+        if numel(trackChans) == 1 && isempty(trackChans(1).key)
+            items{end+1} = 'declare two colours (odd/even)…'; data{end+1} = -1;
+        end
+        ddChan.Items = items; ddChan.ItemsData = data;
+        if ~any(cellfun(@(d) isequal(d, ddChan.Value), data)), ddChan.Value = data{1}; end
+        onChanPick(true);
+    end
+
+    function onChanPick(quiet)
+        if nargin < 1, quiet = false; end
+        if isempty(ddChan) || ~isgraphics(ddChan), return; end
+        if isequal(ddChan.Value, -1)
+            % Declare the pair, once. Odd pages and even pages of the same stack, each with its own
+            % dt left to be derived until someone knows better.
+            C = [struct('key','ch1','label','ch1 (odd pages)','stride',2,'offset',0,'dt_s',NaN,'file',''), ...
+                 struct('key','ch2','label','ch2 (even pages)','stride',2,'offset',1,'dt_s',NaN,'file','')];
+            if isempty(projDir())
+                detSay('Pick a project folder first — the colours are saved with it.', [0.6 0.4 0.1]);
+                ddChan.Value = ddChan.ItemsData{1}; return;
+            end
+            try, spt_tracked_channels('save', projDir(), C);
+            catch ME, detSay(['Could not save the colours: ' ME.message], [0.75 0.1 0.1]); return; end
+            fillChanList();
+            if numel(ddChan.ItemsData) >= 1, ddChan.Value = ddChan.ItemsData{1}; onChanPick(); end
+            detSay('Two colours declared: ch1 on the odd pages, ch2 on the even. Pick one and track it, then the other.', [0.1 0.5 0.2]);
+            return;
+        end
+        i = ddChan.Value;
+        if isempty(trackChans) || ~isnumeric(i) || i < 1 || i > numel(trackChans), return; end
+        c = trackChans(i);
+        % Picking a colour IS picking its pages: keep the de-interleave control in step rather than
+        % leaving two controls that can disagree about which pages are being read.
+        if ~isempty(ddDeint) && isgraphics(ddDeint)
+            if c.stride == 2 && c.offset == 0,     ddDeint.Value = 'odd pages';
+            elseif c.stride == 2 && c.offset == 1, ddDeint.Value = 'even pages';
+            elseif c.stride == 1,                  ddDeint.Value = 'off';
+            end
+        end
+        if ~isempty(spnChanDt) && isgraphics(spnChanDt)
+            if isempty(c.key), spnChanDt.Enable = 'off'; else, spnChanDt.Enable = 'on'; end
+            v = 0; if isfinite(c.dt_s) && c.dt_s > 0, v = c.dt_s; end
+            spnChanDt.Value = v;
+        end
+        if ~quiet, onDetParam('deint'); end
+    end
+
+    function onChanDt()
+        % 0 means derive (page interval x stride). Saved with the project immediately: a dt typed in
+        % and lost on the next open is worse than no control at all.
+        if isempty(ddChan) || ~isgraphics(ddChan) || isempty(trackChans), return; end
+        i = ddChan.Value;
+        if ~isnumeric(i) || i < 1 || i > numel(trackChans), return; end
+        v = spnChanDt.Value; if v <= 0, v = NaN; end
+        trackChans(i).dt_s = v;
+        if ~isempty(projDir())
+            try, spt_tracked_channels('save', projDir(), trackChans);
+            catch ME, detSay(['Could not save the frame interval: ' ME.message], [0.75 0.1 0.1]); end
+        end
+    end
+
+    function c = chanNow()
+        % The tracked colour this run is, as a struct. Empty key = the single-colour path.
+        c = struct('key','','label','(single)','stride',1,'offset',0,'dt_s',NaN,'file','');
+        if isempty(ddChan) || ~isgraphics(ddChan) || isempty(trackChans), return; end
+        i = ddChan.Value;
+        if isnumeric(i) && i >= 1 && i <= numel(trackChans), c = trackChans(i); end
     end
 
     function [stride, offset] = deintValue()

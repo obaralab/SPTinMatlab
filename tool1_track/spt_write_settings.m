@@ -4,6 +4,8 @@ function spt_write_settings(tracksDir, base, cel, prm, R)
 % Records the exact detection + tracking parameters used for one cell, next to its outputs, so any
 % result is traceable to how it was produced. `cel` is the matched-cell struct (diamUm, keepPct,
 % thrMode, qualThr, thrAbs); `prm` the tracking params; `R` the spt_process_cell result.
+% Beside the tracks it describes, not over another colour's: same token, same rule.
+base = spt_channel_stem(base, gf(R,'chKey',''));
 f = fullfile(tracksDir, [base '_settings.txt']);
 fid = fopen(f, 'w'); if fid < 0, return; end
 c = onCleanup(@() fclose(fid)); %#ok<NASGU>
@@ -102,6 +104,11 @@ fprintf(fid, 'calibration.pixel_um_src= %s\n', pxSrc);
 dtEff = gf(R,'dtS',prm.dtS);
 fprintf(fid, 'calibration.frame_s     = %.6g%s\n', dtEff, fallbackNote(dtSrc));
 fprintf(fid, 'calibration.frame_s_src = %s\n', dtSrc);
+% MACHINE-READABLE, unlike the prose above it: these three are what a second colour needs to be put
+% on the same clock as the first, and spt_project_calib reads this file already.
+fprintf(fid, 'calibration.t0_s        = %.6g\n', gf(R,'t0_s',0));
+fprintf(fid, 'channel.key             = %s\n', gf(R,'chKey',''));
+fprintf(fid, 'channel.frame_s_src     = %s\n', gf(R,'dtSrcCh','page x stride'));
 % HOW this cell's movie was paired with its segmentations. Tools 2 and 3 have to redo that pairing
 % to resolve overlays, and until this was recorded they could only RE-DERIVE the token by comparing
 % names — which works when a segmentation name is a prefix of the SPT name and not otherwise. A

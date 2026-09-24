@@ -70,6 +70,25 @@ if frameStride > 1
     end
 end
 dtFrame = dtPage * frameStride;
+dtSrcCh = 'page x stride';
+% A TRACKED CHANNEL MAY STATE ITS OWN FRAME INTERVAL, and then it wins. Deriving dt as page x stride
+% assumes the only reason a colour has fewer frames is that it shares pages with another; a strobed
+% colour in its own stack has stride 1 and a dt that is nothing to do with the page interval.
+% Getting it wrong scales every diffusion coefficient, dwell time and rate by that factor, silently.
+dtCh = getf_(cel,'dt_s', getf_(prm,'dtFrame', NaN));
+if ~isempty(dtCh) && isfinite(dtCh) && dtCh > 0
+    if isfinite(dtFrame) && dtFrame > 0 && abs(dtCh - dtFrame) > 0.02*dtFrame
+        warning('spt_process_cell:dtChannelOverride', ...
+            ['%s: this channel declares %.6g s per frame, but the stack and stride give %.6g s. ' ...
+             'Using the channel''s own value — check it is the one you meant.'], base, dtCh, dtFrame);
+    end
+    dtFrame = dtCh; dtSrcCh = 'channel';
+end
+% THE TIME ORIGIN. Interleaved colours do not start at the same instant: the colour on the even
+% pages begins one page interval after the odd one. Recording it is what lets the two be put on one
+% clock later; without it both claim t = 0 and the offset becomes a systematic half-frame lie.
+t0_s = frameOffset * dtPage;
+chKey = char(getf_(cel,'chKey', getf_(prm,'chKey','')));
 prog = []; if isfield(prm,'progressFcn'), prog = prm.progressFcn; end
 
 % Detector options. ridgeMax rejects filament-shaped candidates (mito bleedthrough); off unless
@@ -303,6 +322,7 @@ R = struct('key',cel.key,'base',base,'sptPath',cel.spt,'erPath',erPath,'mitoPath
     'elong',elong,'orient',orient, ...
     'spotId',spotId,'trackId',trackId,'xmlTracks',{xmlTracks},'dtS',dtFrame,'dtPage',dtPage, ...
     'frameStride',frameStride,'frameOffset',frameOffset,'nPages',nPages, ...
+    'chKey',chKey,'t0_s',t0_s,'dtSrcCh',dtSrcCh, ...   % which colour, when it starts, whose dt won
     'mitoIntensityEnrich',ILcross,'pxUm',px, ...
     'haveMito',haveMito,'haveEr',haveEr,'useEr',useEr, ...
     'linkMode',mode,'linkModeReq',modeReq, ...                     % effective vs requested (see downgrade above)

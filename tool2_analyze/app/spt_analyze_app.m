@@ -4976,11 +4976,18 @@ end
     end
 
     function [sp,er,mi] = matchedPaths(base)
+        % A cell's movie, from the build's own name for the cell. With a second tracked colour that
+        % name carries a channel token (cellA__ch2) while the MOVIE is still cellA — the two colours
+        % share one stack when they are interleaved — so the token comes off before the compare.
+        % Without this, every overlay, per-cell pixel size and player goes quietly missing for the
+        % second colour.
         sp=''; er=''; mi='';
         if isempty(matched), return; end
+        want = char(base);
+        if exist('spt_channel_stem','file') == 2, want = spt_channel_stem(want); end
         for i = 1:numel(matched)
             [~,sn] = fileparts(matched(i).spt);
-            if strcmpi(sn, char(base)), sp=matched(i).spt; er=matched(i).erSeg; mi=matched(i).mitoSeg; return; end
+            if strcmpi(sn, want), sp=matched(i).spt; er=matched(i).erSeg; mi=matched(i).mitoSeg; return; end
         end
     end
 

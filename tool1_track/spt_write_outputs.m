@@ -11,7 +11,14 @@ function [csvPath, xmlPath] = spt_write_outputs(R, tracksDir)
 %                <Spot FRAME T X Y Z SPOT_ID/> ...  — X/Y in µm, SPOT_ID shared with the CSV.
 % X_um/Y_um use a 0-based pixel origin ((x-1)*px) to match ERAware's coordinate convention.
 if ~isfolder(tracksDir), mkdir(tracksDir); end
-px = R.pxUm; dt = R.dtS; base = R.base;
+% The channel token, and the time ORIGIN. A second tracked colour writes beside the first instead of
+% over it (spt_channel_stem), and t0 is written into the times rather than assumed to be zero: an
+% interleaved colour on the even pages begins one page interval after the odd one, and T = FRAME*dt
+% said otherwise. A single-colour cell has key '' and t0 0, so its files are byte-for-byte what they
+% were before this existed.
+px = R.pxUm; dt = R.dtS;
+base = spt_channel_stem(R.base, getf_(R,'chKey',''));
+t0 = getf_(R,'t0_s', 0); if ~isfinite(t0), t0 = 0; end
 
 % ---- spots CSV (every detection) ----
 csvPath = fullfile(tracksDir, [base '_spots.csv']);
@@ -28,7 +35,7 @@ for i = 1:numel(R.spotId)
     if ~hasEr || isnan(R.er(i)), erStr = ''; else, erStr = sprintf('%.4f', R.er(i)); end
     if hasShape, elStr = sprintf('%.3f', R.elong(i)); orStr = sprintf('%.1f', R.orient(i)); else, elStr = ''; orStr = ''; end
     fprintf(fid, '%s,%d,%d,%.6f,%.4f,%.4f,%.4f,%.2f,%.2f,%.1f,%s,%s,%s,%s\n', ...
-        tidStr, R.spotId(i), R.frame(i), R.frame(i)*dt, ...
+        tidStr, R.spotId(i), R.frame(i), t0 + R.frame(i)*dt, ...
         (R.x(i)-1)*px, (R.y(i)-1)*px, R.q(i), R.mean(i), R.max(i), R.total(i), mdStr, erStr, elStr, orStr);
 end
 clear c   % close CSV
@@ -41,16 +48,20 @@ fid = fopen(xmlPath, 'w');
 if fid < 0, error('spt_write_outputs:xml','cannot write %s', xmlPath); end
 c2 = onCleanup(@() fclose(fid));
 fprintf(fid, '<?xml version="1.0" encoding="UTF-8"?>\n');
-fprintf(fid, '<Tracks nTracks="%d" frameInterval="%.6g" spaceUnit="um" timeUnit="s">\n', numel(R.xmlTracks), dt);
+fprintf(fid, ['<Tracks nTracks="%d" frameInterval="%.6g" spaceUnit="um" timeUnit="s"' ...
+    ' t0="%.6g" channel="%s" frameStride="%d" frameOffset="%d">\n'], ...
+    numel(R.xmlTracks), dt, t0, getf_(R,'chKey',''), getf_(R,'frameStride',1), getf_(R,'frameOffset',0));
 for k = 1:numel(R.xmlTracks)
     T = R.xmlTracks{k};
     fprintf(fid, '  <Track TRACK_ID="%d">\n', T.tid);
     for s = 1:numel(T.spotIds)
         i = rowOf(T.spotIds(s));
         fprintf(fid, '    <Spot FRAME="%d" T="%.6f" X="%.6f" Y="%.6f" Z="0.0" SPOT_ID="%d"/>\n', ...
-            R.frame(i), R.frame(i)*dt, (R.x(i)-1)*px, (R.y(i)-1)*px, R.spotId(i));
+            R.frame(i), t0 + R.frame(i)*dt, (R.x(i)-1)*px, (R.y(i)-1)*px, R.spotId(i));
     end
     fprintf(fid, '  </Track>\n');
 end
 fprintf(fid, '</Tracks>\n');
 end
+
+function v = getf_(s,f,d), if isstruct(s)&&isfield(s,f)&&~isempty(s.(f)), v=s.(f); else, v=d; end, end
