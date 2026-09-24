@@ -42,6 +42,22 @@ engagement-trace machinery in Tool 4 works off distances too.
 > colour's tracks, then `Dratio = D_bound/D_free`, per-track occupancy, on/off kinetics and dwell
 > times all work on it **with no change to those drivers at all**.
 
+**And the channel system is already open at exactly that point.** A project declares its channels in
+its own `channels.json` (`cs_channel_config.m`), each with a `role`:
+
+* `support` — restricts detection and supplies the background denominator. **At most one**, and
+  declaring a second is an error.
+* `proximity` — "contributes a signed per-spot distance and a per-site flag. **Zero or many**"
+  (`cs_channel_fields.m:16`).
+
+Storage is keyed by channel: `Tracks(k).dist.<key>`, one value per localization. The default config
+is `er` = support, `mito` = proximity — but nothing is limited to those two.
+
+So a second tracked colour is **a proximity channel whose distance comes from a moving partner
+instead of a static mask**. Same role, same storage, same consumers; only the PRODUCER is new. That
+keeps the change to: accept a new source kind in the channel config, write the producer, and have
+the build call it.
+
 **Time can already be seconds.** The build's `Time unit` dropdown writes the track matrix time column
 in frames or seconds, and the apps know which (`secsMode()`).
 
@@ -49,15 +65,46 @@ in frames or seconds, and the apps know which (`secsMode()`).
 
 ## 2. What is missing
 
-### 2.1 Two runs of one cell collide
-A cell is identified by its file stem everywhere — the matcher, the build, the experiment manifest,
-the contact-site mapper. Tracking the same stack twice (odd pages, then even) writes over the same
-`tracks/<base>_tracks.xml` and the same build entry. There is no channel token in the output names
-and no second tracked source on a cell.
+### 2.1 Two runs of one cell collide — silently, and worse than plain loss
+There are two identities in play. `spt_match` computes a stripped `key` for pairing a movie with its
+segmentations, but everything written and read downstream uses `base` — the SPT file's own name
+(`spt_process_cell.m:18`, `[~, base] = fileparts(cel.spt)`). Tracking one stack twice (odd pages,
+then even) gives a byte-identical `base`, so the second run overwrites:
 
-### 2.2 No common time axis across colours
-Each colour has its own frame numbering and its own dt. Nothing computes `t_s` for a localization,
-and nothing records an offset `t0` between the colours. Two builds cannot be put side by side.
+* `tracks/<base>_spots.csv` and `<base>_tracks.xml`
+* `tracks/<base>_settings.txt` — **including the `frames.de_interleave` line, which was the only
+  record of which parity produced the file**
+* that cell's row in `tracks/detection_summary.csv` (an upsert keyed on base)
+* the manifest's `(project, base)` calibration row
+
+No warning fires. `spt_match`'s duplicate-key check only triggers on two SPT *files* sharing a key,
+and here there is one file.
+
+**And the failure is numerically silent if the two ever mix.** `FRAME` is re-indexed 0-based over the
+*selected* pages, so odd-page frame 3 and even-page frame 3 are different physical pages carrying the
+same label, and `TrackImporter_direct` pairs a CSV with an XML purely by base name. A leftover file
+from one parity beside the other's produces a plausible, wrong answer rather than an error.
+
+A token can safely go in the `tracks/` names — `spt_match` never reads that folder — but the
+back-link has to learn it: `TrackImporter_direct.m` strips only `_tracks(_filtered|_curated)?$`
+(L66, L87), and `matchedPaths` (`spt_analyze_app.m:4978`) does an exact `strcmpi` against the SPT
+base, as does the manifest's `findCell`.
+
+### 2.2 There is no time origin anywhere — `t0` is hard-wired to zero
+Not merely absent: **built into the arithmetic**. `spt_write_outputs.m` writes `T = FRAME·dt` into
+both the CSV and the XML (L31, L51), so a channel whose first kept page is page 2 claims to start at
+t = 0, exactly like the channel that started at page 1. For interleaved colours that is a systematic
+half-frame lie about their relative timing.
+
+`frameOffset · dtPage` is the natural origin and is **already in hand** at that point; it is simply
+never turned into seconds. Two consequences to fix with it:
+
+* `dt` is recovered downstream as `median(Ts./FR)` (`spt_filter_write.m:23`, `spt_app.m:1773`),
+  which silently corrupts the moment a non-zero origin exists — it must become a two-parameter fit,
+  or read the recorded values.
+* Several consumers decide "frames or seconds?" **by integer-ness** (`cs_zone_kinetics.m:83`, and
+  the same trick in the apps). With two channels at different `dt` and a non-zero `t0`, integer-ness
+  stops being a valid discriminator and `round(t/dt)` stops recovering a page.
 
 ### 2.3 No partner distance (a MOVING target)
 Every existing distance is to a **static mask** held per organelle page. A second tracked colour is a
@@ -71,7 +118,16 @@ two-filter chromatic offset is **100–300 nm**. The engagement threshold in cur
 `dUm = 0.1` µm. An uncorrected offset is therefore the same size as the effect being measured, and it
 biases every colocalization number in one direction.
 
-### 2.5 No UI for a second tracked colour
+### 2.5 The half-rate machinery that exists is mask-only
+`segEveryFor` (`spt_process_cell.m:351`) is the existing "channel B has 1/N the frames" arithmetic,
+but it (a) serves masks only, (b) accepts **integer** ratios only, (c) is a single value shared by
+*all* reference channels — ER and mito cannot be at different rates — and (d) is derived from page
+counts rather than timestamps. A tracked second colour needs the time-domain version.
+
+`spt_interleave_check` detects alternation but never a ratio; nothing anywhere tests "B has half the
+frames of A".
+
+### 2.6 No UI for a second tracked colour
 The Match tab scans `spt/ er_seg/ mito_seg/`. There is no place to declare a second particle channel,
 and no way to draw both colours together.
 
@@ -100,7 +156,15 @@ Frames stay as they are (the matrix keeps frame numbers; nothing downstream chan
 `dt_s` and `t0_s` per tracked source, and a helper turns a frame into `t_s = t0_s + frame·dt_s`.
 Colours are only ever compared through `t_s`.
 
-### 3.3 The new primitive: `spt_partner_distance(Ta, Tb, opts)`
+### 3.3 One new field in `channels.json`
+```json
+{ "key": "ch2", "role": "proximity", "label": "Halo-Sec61B", "source": "tracks" }
+```
+`role` stays `proximity`, so every existing consumer works untouched. `source` (new, default `mask`)
+says where the distance comes from. Validation belongs in `cs_channel_config`, which already
+validates keys, roles and the one-support rule.
+
+### 3.4 The new primitive: `spt_partner_distance(Ta, Tb, opts)`
 For every localization of colour A, the distance to the nearest localization of colour B **at a
 matching time**, written into `Ta.dist.<key>` so the existing analyses pick it up unchanged.
 
@@ -117,14 +181,14 @@ and a flag where no partner existed within tolerance. **A missing partner is not
 must never silently become "far": it is unmeasured, and the fraction of unmeasured localizations has
 to be reported beside any colocalization number.
 
-### 3.4 Registration before any distance
+### 3.5 Registration before any distance
 `spt_channel_register`: estimate a transform (translation, or affine from beads) between colours,
 store it with the project, and apply it to B's coordinates before any partner distance is computed.
 Report the residual. Refuse to compute colocalization when no transform has been set, rather than
 quietly returning biased numbers — with an explicit "assume perfectly registered" override that is
 recorded in the output.
 
-### 3.5 Identity and naming
+### 3.6 Identity and naming
 One cell, two tracked sources. Tool 1 writes `tracks/<base>__<key>_tracks.xml` (and the matching
 spots CSV), the build carries the key per cell, and the experiment manifest still sees ONE cell. The
 alternative — two cells with different stems — was rejected: the manifest, the mapper and the QC
@@ -137,8 +201,12 @@ against the wrong denominator.
 
 Each stage is independently useful and independently testable.
 
-**Stage 0 — time.** Per-source `dt_s` / `t0_s` on the cell record, and a `spt_time_s` helper.
-No behaviour change. Test: a de-interleaved run reports the doubled interval and the right `t0`.
+**Stage 0 — time.** *(the matcher is DONE, on this branch)* `spt_time_match` puts two colours on one
+clock: for each localization of A, the nearest localization of B within a tolerance that defaults to
+half of B's own spacing — so a half-rate partner matches every frame and the time gap is reported
+rather than hidden, while a real gap in B comes back **unmatched rather than crossed**. Unmeasured is
+not far, and the test pins that distinction. What remains in this stage: recording `dt_s` / `t0_s`
+per source on the cell record, which needs the acquisition answers in §5.
 
 **Stage 1 — two tracked sources per cell.** Channel token in the Tool 1 output names; the build keeps
 the key. After this, both colours can be tracked and built without colliding, and every existing
@@ -159,7 +227,28 @@ grouping those by condition.
 
 ---
 
-## 5. Questions that change the design
+## 5. Pre-existing defects the survey turned up
+
+Independent of dual colour, but each becomes a correctness bug under it. Verified in the code, not
+taken on trust.
+
+1. **The de-interleave mapping is passed to the player and ignored.** `spt_app.m:1336` sets
+   `R.frameStride` / `R.frameOffset` with a comment saying it is so the overlay reads the right
+   page — and `spt_track_movie.m` never reads either field (zero occurrences). Every viewer still
+   does `page = frame + 1`, which is **wrong by the stride** on a de-interleaved run. This is the
+   natural insertion point for dual-colour overlays, and it is already half-written.
+2. **`detection_summary.csv` records the wrong interval.** It writes `prm.dtS`, the PAGE interval
+   (`spt_append_detection_summary.m:35`), into a column named `frame_s`, while `spt_write_settings.m`
+   deliberately writes the FRAME interval with a comment explaining why the page interval must not go
+   there. For a stride-2 cell the two files disagree by 2×. Nothing reads the summary today, so it is
+   informational — but it is the file a person would read.
+3. **`spt_count_per_frame` ignores the stride**, so the Detect tab's spots/frame trace alternates
+   between the two channels on an interleaved stack.
+4. **The dt reconciliation only runs when `stride > 1`** (`spt_process_cell.m:50`). Two colours in
+   **two separate stacks** have stride 1 each, so the "which interval did you hand me?" check never
+   fires — exactly where two files with different `finterval` values are most likely to be confused.
+
+## 6. Questions that change the design
 
 1. **Interleaved in one stack, or two stacks?** Both are supported by the design; which comes first
    depends on the answer.
