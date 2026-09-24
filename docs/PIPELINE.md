@@ -267,6 +267,36 @@ and labelled with its dwell time — and the Dwell tab's histogram is now relati
 Fig. 2d. The diffusion map runs behind a cancellable progress dialog (`opts.progress` /
 `opts.cancelled`; nothing is saved on cancel).
 
+**Tool 1 speed: where the time went.** Profiled on a 2,000-frame 256x256 cell with a mito
+segmentation, `spt_process_cell` took 8.2 s, split roughly: reading the movie 36%, detection 35%
+(the DoG 1.8 s of that), the organelle distance transform 14%. Three things were doing avoidable
+work, and none of them changed a number:
+
+1. **`imgaussfilt` chose the frequency domain for the background blur.** At 0.4 um spots on a
+   0.0968 um/px camera sigma is 5.3 px and the kernel 45 taps, where it switches to FFT: 4.1 ms a
+   frame against 1.3 ms spatial and 0.8 ms for the separable convolution `spt_dog` now does itself.
+   Detection runs three blurs per frame, so the choice of domain alone was minutes a cell.
+2. **`imread(path, k)` reopened the file and walked its directory chain for every page** — 1.06 ms a
+   frame against 0.28 ms through one handle held open (`spt_tiff_pages`, 3.7x). It verifies itself
+   against `imread` on page 1 and falls back to `imread` wholesale if a TIFF reads differently, so
+   detection can never change because of how the file was opened.
+3. **The signed distance to the organelle was recomputed every frame** — two `bwdist` calls on the
+   full frame — though the mask only changes with the organelle PAGE, which covers segEvery frames
+   (100 of them on a 5,000-frame movie with 50 pages). It is cached per page now, which is 50
+   computations instead of 5,000.
+
+Together: **8.2 s -> 4.3 s, 1.90x**, with every output field bit-identical (39,845 spots, 687
+tracks, worst difference 0.0). A 5,000-frame cell goes from about 21 s to 11 s, and a 93-cell plate
+from 33 to 17 minutes. `spt_detect_speed_smoke` pins all three, including a cell whose mask MOVES
+between organelle pages — a cache that never refreshed would report page 1's geometry for the whole
+movie and nothing else would notice.
+
+What is left is real work: the blur is 1.4 s and the 5x5 maximum filter 0.5 s of the remaining 4.3 s,
+both already at the floor for this image size (a separable `movmax` is no faster than `imdilate`).
+Beyond that the lever is parallelism across frames or cells, which the per-cell loop is shaped for
+but nothing currently uses. Gap closing, often suspected, is not the problem: 2,819 tracks over 600
+frames close in 0.13 s.
+
 **Engaged or not, per member track** — his `trackBinding`, which is a number per track and not a
 list of events. `cs_engage_classify` keeps EVERY member track, including the ones that never
 approach, because they are the denominator of "what fraction of this site's tracks engaged it"; the

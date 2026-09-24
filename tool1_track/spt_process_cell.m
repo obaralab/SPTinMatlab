@@ -206,12 +206,16 @@ catch
 end
 
 lastSkelPg = -1; lastSkel = [];        % one skeleton per organelle page, reused across its frames
+lastDistPgM = -1; lastDistM = [];      % and one signed-distance field per page, likewise
+lastDistPgE = -1; lastDistE = [];
 
 % ---- detect + measure + mito-distance per frame ----
 dets = cell(1, nfr);
 fr = {}; xs = {}; ys = {}; qs = {}; me = {}; mx = {}; tt = {}; md = {}; er = {}; el = {}; an = {};
+[readPage, closeMovie] = spt_tiff_pages(cel.spt);   % one open handle for the whole movie
+movieCleanup = onCleanup(closeMovie);
 for t = 1:nfr
-    raw = double(imread(cel.spt, pages(t)));
+    raw = double(readPage(pages(t)));
     fopts = dopts;
     if ~gateThisFrame(bleedOn, t)
         fopts.ridgeMax = []; fopts.sizeMax = []; fopts.alignDeg = [];
@@ -233,8 +237,17 @@ for t = 1:nfr
         dmi = nan(n,1); der = nan(n,1);
         pgM = 0; if haveMito && ~isempty(MI), pgM = segPage(t, size(MI,3)); end
         pgE = 0; if haveEr   && ~isempty(ER), pgE = segPage(t, size(ER,3)); end
-        if pgM > 0, dmi = signed_dist_at(MI(:,:,pgM), xy(:,1:2), px); end
-        if pgE > 0, der = signed_dist_at(ER(:,:,pgE), xy(:,1:2), px); end
+        % The distance FIELD depends only on the mask, and one organelle page covers segEvery frames
+        % (100 of them on a 5,000-frame movie with 50 pages). Computing it per frame ran bwdist twice
+        % on the full frame 5,000 times to get 50 distinct answers — 14% of the cell.
+        if pgM > 0
+            if pgM ~= lastDistPgM, lastDistM = signed_dist_field(MI(:,:,pgM)); lastDistPgM = pgM; end
+            dmi = sample_dist(lastDistM, xy(:,1:2), px);
+        end
+        if pgE > 0
+            if pgE ~= lastDistPgE, lastDistE = signed_dist_field(ER(:,:,pgE)); lastDistPgE = pgE; end
+            der = sample_dist(lastDistE, xy(:,1:2), px);
+        end
         fr{end+1}=repmat(t-1,n,1); xs{end+1}=xy(:,1); ys{end+1}=xy(:,2); qs{end+1}=xy(:,3); %#ok<AGROW>
         me{end+1}=m(:,1); mx{end+1}=m(:,2); tt{end+1}=m(:,3);                              %#ok<AGROW>
         md{end+1}=dmi; er{end+1}=der; el{end+1}=shp(:,3); an{end+1}=shp(:,4);              %#ok<AGROW>
@@ -299,11 +312,23 @@ end
 % -------------------------------------------------------------------------
 function d = signed_dist_at(mask, xy, px)
 % Signed distance (µm) from each 1-based (x,y) to the mask foreground: + outside, − inside, ~0 boundary.
+% Kept as the one-shot form; the per-frame loop uses the two halves below so the field is computed
+% once per organelle page rather than once per frame.
+d = sample_dist(signed_dist_field(mask), xy, px);
+end
+
+function sd = signed_dist_field(mask)
+% The signed distance field of one mask, in PIXELS. Depends on nothing else, which is what makes it
+% cacheable per page.
 [H, W] = size(mask); big = max(H, W);
 if any(mask(:)) && any(~mask(:)), sd = bwdist(mask) - bwdist(~mask);
 elseif any(mask(:)),               sd = -bwdist(mask);
 else,                               sd = ones(H, W) * big; end
 sd(isinf(sd) & sd > 0) =  big; sd(isinf(sd) & sd < 0) = -big;
+end
+
+function d = sample_dist(sd, xy, px)
+[H, W] = size(sd);
 xi = min(max(round(xy(:,1)),1), W); yi = min(max(round(xy(:,2)),1), H);
 d = sd(sub2ind([H W], yi, xi)) * px;
 end
