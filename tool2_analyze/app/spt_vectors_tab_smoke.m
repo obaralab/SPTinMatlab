@@ -59,7 +59,12 @@ T = struct('file','cellA','matrix',cat(3,Fr,X,Y),'frameInterval',0.02,'lengths',
     'steps',hypot(diff(X,1,1),diff(Y,1,1)),'vector',cat(3,diff(X,1,1),diff(Y,1,1)), ...
     'intens',cat(3,I,I,I),'trackIDs',(1:nTr)', ...
     'calib',struct('pixSizeUm',0.16,'fovUm',16,'dt_s',0.02,'binNm',30,'precNm',30));
-Tracks = T; %#ok<NASGU>
+% A SECOND cell, so a click can land on a track that belongs to a different cell from the one the
+% list is showing — which is every click made from the pooled QC view, and the only path on which
+% the list has to switch cells.
+T2 = T; T2.file = 'cellB';
+T2.matrix(:,:,2) = T.matrix(:,:,2) + 30;      % well away from cellA, so a click cannot be ambiguous
+Tracks = [T T2]; %#ok<NASGU>
 save(fullfile(ana,'TrackStruct.mat'),'Tracks','-v7.3');
 
 %% (1) the tab belongs to Tool 2 ---------------------------------------------------------------------
@@ -88,7 +93,7 @@ end
 drawnow;
 f.UserData.loadTracksFile(fullfile(ana,'TrackStruct.mat')); drawnow;
 dd = one(findobj(f,'Tag','vecCell'), 'cell dropdown');
-assert(isequal(dd.Items, {'cellA'}), 'the build''s cells should be listed');
+assert(isequal(dd.Items, {'cellA','cellB'}), 'the build''s cells should be listed, got %s', strjoin(dd.Items,', '));
 f.UserData.vecSelect(1); drawnow;
 lst = one(findobj(f,'Tag','vecTracks'), 'track list');
 assert(numel(lst.Items) == nTr, 'the cell''s %d tracks should be listed, got %d', nTr, numel(lst.Items));
@@ -115,6 +120,15 @@ want = 7;
 f.UserData.qcSelect(want); drawnow;
 assert(isequal(lst.Value, want), 'clicking track %d in the panel should select it in the list (list says %s)', ...
     want, mat2str(lst.Value));
+% ACROSS CELLS: the QC panel pools every cell, so a click can land on a track of a cell the list is
+% not showing. The list has to follow it there — cell dropdown included.
+f.UserData.vecSelect(1); drawnow;
+assert(isequal(dd.Value, 1), 'the list should be showing cellA to start');
+f.UserData.qcSelectIn(2, 4); drawnow;
+assert(isequal(dd.Value, 2), 'a click on a cellB track should move the list to cellB (dropdown says %s)', ...
+    mat2str(dd.Value));
+assert(isequal(lst.Value, 4), 'and select that track in it (list says %s)', mat2str(lst.Value));
+f.UserData.vecSelect(1); drawnow;
 
 %% (2d) the sweep is folded away until asked for --------------------------------------------------------
 dg = one(findobj(f,'Tag','qcDiag'), 'diagnostics checkbox');

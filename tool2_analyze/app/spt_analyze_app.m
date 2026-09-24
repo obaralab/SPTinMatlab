@@ -140,7 +140,7 @@ fig.UserData = struct('activeTs',@activeTsNow, 'tracks',@tracksNow, 'loadTracks'
     'refSetSigma',@setRefSigma, 'refRegen',@onRefRegen, ...          % Refine: outline smoothing, regenerate (no dialog)
     'refSetBox',@setRefBox, 'runTessellation',@onTessellate, ...     % neighbourhood box; the diffusion map
     'vecSelect',@vecSelectCell, 'runBleaching',@onBleaching, 'bleachRes',@bleachResNow, ...   % Vectors & bleaching
-    'qcSelect',@qcSelectCol, ...                                      % the click in the tracks panel
+    'qcSelect',@qcSelectCol, 'qcSelectIn',@qcSelectCellCol, ...        % the click in the tracks panel
     'runDwell',@onComputeDwell, 'dwellRes',@dwellResNow, ...          % Dwell: compute, and read the result
     'dwSetEngage',@dwSetEngage, 'dwSetRule',@dwSetRule, ...           % engaged-if threshold; visit rule
     'dwSetGroup',@dwSetGroup, 'dwSetView',@dwSetView, 'dwSetDen',@dwSetDen, ...
@@ -902,6 +902,16 @@ end
         end
     end
 
+    function qcSelectCellCol(ci, col)
+        % The same click, but on a named cell — what a click lands on when the QC view is pooled.
+        for q = 1:numel(qcTracks)
+            t = qcTracks{q};
+            if isfield(t,'cellIdx') && isfield(t,'col') && t.cellIdx == ci && t.col == col
+                drawSelected(q); return;
+            end
+        end
+    end
+
     function selectQcTrack(ci, cols)
         % Point the QC detail panels at the first picked track. They are built per QC cell, so this
         % only fires when that cell is the one the list is showing — otherwise the panels would
@@ -924,7 +934,10 @@ end
         if isempty(ddVecCell) || ~isgraphics(ddVecCell), return; end
         if ~isfield(s,'cellIdx') || ~isfield(s,'col'), return; end
         if ~isequal(ddVecCell.Value, s.cellIdx)
-            if any(cell2mat(ddVecCell.ItemsData) == s.cellIdx)
+            % ItemsData here is a plain 1:numel(Tracks), not a cell array — cell2mat on it throws,
+            % and the branch only runs when the clicked track belongs to a DIFFERENT cell from the
+            % one the list is showing, which is every click made from the pooled QC view.
+            if ddHasValue(ddVecCell, s.cellIdx)
                 ddVecCell.Value = s.cellIdx; fillVecList(s.cellIdx);
             else
                 return;
@@ -4466,6 +4479,17 @@ end
 
     function m = fitModeNow()
         m = 'fixed'; if ~isempty(ddFitMode) && isgraphics(ddFitMode), m = ddFitMode.Value; end
+    end
+
+    function tf = ddHasValue(dd, v)
+        % Does this dropdown offer that value? ItemsData is numeric on some and a cell on others,
+        % and the two need different tests.
+        tf = false;
+        if isempty(dd) || ~isgraphics(dd), return; end
+        ids = dd.ItemsData;
+        if isempty(ids), return; end
+        if iscell(ids), tf = any(cellfun(@(x) isequal(x, v), ids));
+        else,           tf = any(ids == v); end
     end
 
     function tf = qcDiagOn()
