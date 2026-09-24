@@ -86,6 +86,7 @@ ddHi=[];                  % where the CLICKED track sits in the pooled D histogr
 % of its modes live on in spt_confine_flags / spt_track_diffusion, measured against a matched
 % Brownian null (see that header), for when the contact-site work needs them.
 ddFitMode=[]; axSweep=[];   % MSD fit-window mode (fixed % / adaptive R²) + the per-track D-vs-fit-window sweep
+qcRightCol=[]; chkQcDiag=[];   % that column's grid, and the toggle that folds the sweep away
 qcTracks={}; qcSelIdx=0; qcHi=[]; playerCtl=[];   % click-to-inspect: flat track list, selection, highlight, embedded player
 densCache=struct('base',{},'occ',{});   % per-cell whole-movie occupancy cache (used by ensureMips + saveDensityFiles)
 pnCS=[]; btnPickCS=[]; eCScontact=[]; lblCS=[];   % Tab 3 Contact-sites handles
@@ -373,7 +374,7 @@ end
         % exposed here: its six tuning controls overflowed this row — a uigridlayout squeezes every
         % child when there are more of them than declared columns, which is what squashed this strip.
         % To change the criterion, pass confMode/confFrac/minSeg/penalty to spt_track_diffusion.
-        r2 = uigridlayout(g,[1 7],'ColumnWidth',{56,180,58,130,66,56,'1x'},'Padding',[0 0 0 0],'ColumnSpacing',6);
+        r2 = uigridlayout(g,[1 8],'ColumnWidth',{56,180,58,130,60,52,92,'1x'},'Padding',[0 0 0 0],'ColumnSpacing',6);
         uilabel(r2,'Text','QC cell','HorizontalAlignment','right');
         ddQCcell = uidropdown(r2,'Items',{'(build first)'},'ValueChangedFcn',@(s,e) onQCcell());
         uilabel(r2,'Text','D fit','HorizontalAlignment','right');
@@ -386,6 +387,12 @@ end
         eMsdFrac = uispinner(r2,'Limits',[5 100],'Value',25,'Step',5, ...
             'Tooltip','Fixed mode: % of lags fit. Adaptive mode: the MAXIMUM % of lags the adaptive fit may use.', ...
             'ValueChangedFcn',@(s,e) onMsdFrac());
+        chkQcDiag = uicheckbox(r2,'Text','diagnostics','Value',false,'Tag','qcDiag', ...
+            'ValueChangedFcn',@(s,e) onQcDiag(), ...
+            'Tooltip',['Show the D & R² vs fit window sweep — whether this track''s D sits on a ' ...
+                       'plateau or on a slope as the fit window grows. It is how you CHOOSE the fit %% ' ...
+                       'and the mode beside it; once those are set it has little left to say, so it ' ...
+                       'is folded away and the three panels above take its height.']);
         lblQCm = uilabel(r2,'Text','Build, then click a track in the tracks panel to inspect it (it plays here).','FontColor',[0.2 0.4 0.5]);
         % row 3 — main: [ left pooled | middle clickable tracks | right: embedded player + small MSD ]
         mn = uigridlayout(g,[1 3],'ColumnWidth',{'0.78x','1.15x','1.05x'},'Padding',[0 0 0 0],'ColumnSpacing',8);
@@ -491,6 +498,7 @@ end
         axDist.Layout.Row   = 3; axDdist.Layout.Row = 4; axCSD.Layout.Row = 5;
         axCov  = uiaxes(mn); axCov.Toolbar.Visible='off'; title(axCov,'tracks (click one)'); axCov.ButtonDownFcn=@(s,e) onCovClick(e);
         rp = uigridlayout(mn,[4 1],'RowHeight',{'1.35x','1x','1x','1x'},'Padding',[0 0 0 0],'RowSpacing',6);
+        qcRightCol = rp;
         pc = uigridlayout(rp,[1 1],'Padding',[0 0 0 0]);   % embedded selected-track player
         if exist('spt_track_movie','file')==2, playerCtl = spt_track_movie(pc); end
         % Order matters: the MSD fit and the fit-window sweep are two views of the SAME fit — the sweep
@@ -508,6 +516,7 @@ end
         % cleared and rebuilt under the pointer.
         spt_axes_policy([axDist axDdist axCSD axMSD axDtrace axSweep]);
         spt_axes_policy(axCov);   % click-to-select a track coexists with zoom/pan
+        onQcDiag();               % folded away unless asked for
         buildVectorsTab(g);       % row 4: the step vectors and the bleaching read-out, same tab
         txtBuild = uitextarea(g,'Editable','off','Value',{'Build log:'});
     end
@@ -4432,17 +4441,21 @@ end
             title(axDtrace, sprintf('stepwise D(t) · med %.3g µm²/s (dashed)', md), 'FontSize',9);
         end
 
-        % D & R² vs fit window — the sensitivity of this track's D to how many MSD lags are fit
-        sw = spt_msd_sweep(s.MSD, dtk, 1.0);
-        cla(axSweep);
-        if ~isempty(sw.npts)
-            yyaxis(axSweep,'left');  plot(axSweep, sw.frac, sw.D, '-o','Color',[0.20 0.45 0.75],'MarkerSize',3,'LineWidth',1); ylabel(axSweep,'D (µm²/s)');
-            yyaxis(axSweep,'right'); plot(axSweep, sw.frac, sw.R2,'-','Color',[0.85 0.30 0.20],'LineWidth',1.2); ylabel(axSweep,'R²'); ylim(axSweep,[0 1.03]);
-            xline(axSweep, r.fracUsed, 'k--', 'used', 'LabelVerticalAlignment','bottom','FontSize',7);
-            xlabel(axSweep,'fit window (% of MSD lags)');
-            title(axSweep, sprintf('D & R² vs fit window · used %.0f%% (%d lags)', r.fracUsed, r.nPts));
-        else
-            title(axSweep,'D & R² vs fit window (track too short)');
+        % D & R² vs fit window — the sensitivity of this track's D to how many MSD lags are fit.
+        % Folded away by default (the diagnostics box), and then not computed either: it is a fit per
+        % window per click, for a panel nobody is looking at.
+        if qcDiagOn()
+            sw = spt_msd_sweep(s.MSD, dtk, 1.0);
+            cla(axSweep);
+            if ~isempty(sw.npts)
+                yyaxis(axSweep,'left');  plot(axSweep, sw.frac, sw.D, '-o','Color',[0.20 0.45 0.75],'MarkerSize',3,'LineWidth',1); ylabel(axSweep,'D (µm²/s)');
+                yyaxis(axSweep,'right'); plot(axSweep, sw.frac, sw.R2,'-','Color',[0.85 0.30 0.20],'LineWidth',1.2); ylabel(axSweep,'R²'); ylim(axSweep,[0 1.03]);
+                xline(axSweep, r.fracUsed, 'k--', 'used', 'LabelVerticalAlignment','bottom','FontSize',7);
+                xlabel(axSweep,'fit window (% of MSD lags)');
+                title(axSweep, sprintf('D & R² vs fit window · used %.0f%% (%d lags)', r.fracUsed, r.nPts));
+            else
+                title(axSweep,'D & R² vs fit window (track too short)');
+            end
         end
         % readout (σ_loc kept as a small trailing note — it is fit-window dependent, treat as a caveat)
         onER = NaN; if ~isempty(s.ER), onER = 100*mean(s.ER<=0); end
@@ -4453,6 +4466,22 @@ end
 
     function m = fitModeNow()
         m = 'fixed'; if ~isempty(ddFitMode) && isgraphics(ddFitMode), m = ddFitMode.Value; end
+    end
+
+    function tf = qcDiagOn()
+        tf = ~isempty(chkQcDiag) && isgraphics(chkQcDiag) && chkQcDiag.Value;
+    end
+
+    function onQcDiag()
+        % Fold the sweep away by giving its row no height, so the player, the stepwise D(t) and the
+        % MSD fit take the space rather than leaving a gap where it was.
+        if isempty(qcRightCol) || ~isgraphics(qcRightCol), return; end
+        on = qcDiagOn();
+        if ~isempty(axSweep) && isgraphics(axSweep), axSweep.Visible = tern(on,'on','off'); end
+        rh = qcRightCol.RowHeight;
+        rh{4} = tern(on, '1x', 0);
+        qcRightCol.RowHeight = rh;
+        if on && qcSelIdx >= 1 && qcSelIdx <= numel(qcTracks), drawSelected(qcSelIdx); end
     end
 
     function spec = fitSpec()   % the MSD-fit window spec passed to spt_fit_msd, from the mode dropdown + fit-% spinner

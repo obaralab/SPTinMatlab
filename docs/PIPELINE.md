@@ -33,7 +33,10 @@ points the list at the same track, so there is one selection and the MSD/stepwis
 Bleaching is read PER TRACK: the picked track's trace is fitted with `spt_pbsa_steps` and drawn with its
 step fit, since stoichiometry is a per-molecule question that a per-cell histogram cannot answer. Two
 panels went in the process: the second copy of the vector map, and the movie-decay curve whose tau is in
-the summary line anyway. It takes its input from `tracks/` on disk, not from Tool 2's state, so the
+the summary line anyway. A third, the **D & R² vs fit window** sweep, is behind a `diagnostics` checkbox:
+it is how the fit % is chosen and says little once that is set, so its row folds to no height and it is
+not computed while hidden (a fit per window on every click). Ticking it fills it for the track already
+selected. It takes its input from `tracks/` on disk, not from Tool 2's state, so the
 two are separate jobs in separate windows. **Tool 4** (`spt_analyze_app`) starts from that build — which it resolves
 through `cs_active_trackstruct` (§7.2), never by a hardcoded filename: density → contact-site picker →
 mapper → dwell → compare. A shared **Experiment** tab (`spt_experiment_panel`) is **tab 1 in all three

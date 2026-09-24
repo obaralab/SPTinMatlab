@@ -14,6 +14,9 @@ function spt_vectors_tab_smoke()
 %  2c. THE SELECTION IS ONE SELECTION: clicking a track in the panel points the list at it.
 %   3. THE BLEACHING BUTTON gives the same numbers as the driver, and says them: step height,
 %      background, how much of it was measured, and whether there is a movie-wide decay at all.
+%  2d. THE FIT-WINDOW SWEEP IS A DIAGNOSTIC: off by default, its row folded to no height so the
+%      panels above take the space, and not computed while it is off. Ticking the box brings it
+%      back, filled for the track already selected.
 %  3b. AND IT IS READ PER TRACK: the picked track's own trace is fitted and reported on its own -
 %      how many fluorophores were in THAT spot - which a histogram over the cell cannot answer.
 %   4. NO INTENSITIES IN THE BUILD is reported, not fitted.
@@ -112,6 +115,26 @@ want = 7;
 f.UserData.qcSelect(want); drawnow;
 assert(isequal(lst.Value, want), 'clicking track %d in the panel should select it in the list (list says %s)', ...
     want, mat2str(lst.Value));
+
+%% (2d) the sweep is folded away until asked for --------------------------------------------------------
+dg = one(findobj(f,'Tag','qcDiag'), 'diagnostics checkbox');
+assert(~dg.Value, 'the fit-window sweep should be off by default');
+axSw = one(findobj(f,'Type','axes'), 'sweep axes', ...
+    @(a) contains(lower(char(strjoin(string(a.Title.String),' '))), 'fit window'));
+assert(strcmp(axSw.Visible,'off'), 'it should be hidden, not just empty');
+rp = axSw.Parent;
+assert(isequal(rp.RowHeight{4}, 0), 'its row should take no height, so the panels above get it');
+f.UserData.qcSelect(3); drawnow;
+% The title is the witness: it says "(click a track)" until the sweep is actually computed, and this
+% fixture's build carries no MSD, so whether lines appear says nothing either way.
+swTitle = @() char(strjoin(string(axSw.Title.String),' '));
+assert(contains(swTitle(),'click a track'), ...
+    'a hidden sweep should not be computed — its title moved to "%s"', swTitle());
+dg.Value = true; dg.ValueChangedFcn(dg, struct()); drawnow;
+assert(strcmp(axSw.Visible,'on') && isequal(rp.RowHeight{4}, '1x'), 'ticking it should bring the row back');
+assert(~contains(swTitle(),'click a track'), ...
+    'and it should be computed for the track already selected, not left blank until the next click');
+dg.Value = false; dg.ValueChangedFcn(dg, struct()); drawnow;
 
 %% (3) the bleaching button --------------------------------------------------------------------------
 B = f.UserData.runBleaching(); drawnow;
