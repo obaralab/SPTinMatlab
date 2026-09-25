@@ -29,7 +29,8 @@ different tool — or a different session — without re-running anything upstre
 **[docs/EXPORTS_field_guide.html](docs/EXPORTS_field_guide.html)** (open it in a browser) and its
 companion **[docs/exports_snippets.m](docs/exports_snippets.m)**.
 
-Tracking **two colours** is a separate toolkit, `dcSPT` — see [Dual-colour SPT](#dual-colour-spt-dcspt).
+Tracking **two colours** is a separate toolkit: **[obaralab/dcSPT](https://github.com/obaralab/dcSPT)**
+— see [Dual-colour SPT](#dual-colour-spt-dcspt) for why it is separate and what the two share.
 
 ## Launch
 
@@ -186,7 +187,8 @@ Every field of all of these is in
 
 ## Dual-colour SPT (dcSPT)
 
-Tracking **two moving species at once** is a separate toolkit, **`dcSPT`**, not a mode of this one.
+Tracking **two moving species at once** is a separate toolkit —
+**[github.com/obaralab/dcSPT](https://github.com/obaralab/dcSPT)** — not a mode of this one.
 
 The reason is structural. Everything here is built around one tracked species and its relationship to a
 segmented organelle: a cell is one movie, a channel is a mask, and the analyses ask "is this molecule
@@ -218,6 +220,10 @@ repo now use it:
 - **`tool2_analyze/drivers/spt_page_map.m`** reports which organelle page belongs to a tracked frame, and
   says so when that disagrees with the `page = frame + 1` rule the viewers use.
 
+```bash
+git clone https://github.com/obaralab/dcSPT.git
+```
+
 ```matlab
 addpath('/path/to/dcSPT/core', '/path/to/dcSPT/drivers')
 C = dc_channels('fromStack', stack, 0.0267);   % ask the file which pages are which colour
@@ -229,7 +235,8 @@ disp(dc_align(D).text)                         % how the two colours' timepoints
 
 Tracking works; relating the two colours does not yet. Chromatic **registration** is the next piece —
 nothing corrects it so far, and a 100–300 nm offset is the same size as the distances being measured.
-Full argument in that repo's `README.md` and `docs/DATA_MODEL.md`.
+Full argument in that repo's [README](https://github.com/obaralab/dcSPT#readme) and
+[docs/DATA_MODEL.md](https://github.com/obaralab/dcSPT/blob/main/docs/DATA_MODEL.md).
 
 ## Organelle frames at a lower rate than the movie
 
