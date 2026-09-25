@@ -1,0 +1,892 @@
+<title>SPT Pipeline Field Guide</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap">
+<style>
+:root {
+  --paper: #f4f6f5; --surface: #ffffff; --ink: #17212a; --ink-2: #3f4d59; --muted: #677581;
+  --rule: #d6dee1; --rule-strong: #b9c5ca; --accent: #0c6a6a; --accent-soft: #e0efee;
+  --amber: #9c5316; --amber-soft: #fbeee0; --code-bg: #eaefed; --code-ink: #1b2830;
+  --hl-k: #7b3b9e; --hl-s: #92560a; --hl-c: #6f7d88; --hl-n: #0c6a6a; --hl-f: #1d5ca6;
+  --shadow: 0 1px 2px rgba(20, 40, 50, .06);
+  --sans: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
+  --cond: "IBM Plex Sans Condensed", "Arial Narrow", "Helvetica Neue", Arial, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --paper: #0f1417; --surface: #151c20; --ink: #e1e8ea; --ink-2: #b3c0c6; --muted: #84949e;
+    --rule: #26323a; --rule-strong: #34434c; --accent: #5ec2ba; --accent-soft: #14302e;
+    --amber: #e5a35f; --amber-soft: #30241a; --code-bg: #0b1013; --code-ink: #d5dee2;
+    --hl-k: #c9a0ec; --hl-s: #e4bb76; --hl-c: #7e8e98; --hl-n: #6fd1c7; --hl-f: #82b3ee;
+    --shadow: none;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --paper: #0f1417; --surface: #151c20; --ink: #e1e8ea; --ink-2: #b3c0c6; --muted: #84949e;
+  --rule: #26323a; --rule-strong: #34434c; --accent: #5ec2ba; --accent-soft: #14302e;
+  --amber: #e5a35f; --amber-soft: #30241a; --code-bg: #0b1013; --code-ink: #d5dee2;
+  --hl-k: #c9a0ec; --hl-s: #e4bb76; --hl-c: #7e8e98; --hl-n: #6fd1c7; --hl-f: #82b3ee;
+  --shadow: none;
+}
+* { box-sizing: border-box; }
+body { background: var(--paper); color: var(--ink); font-family: var(--sans); font-size: 16px; line-height: 1.6; margin: 0; }
+.shell { max-width: 1220px; margin: 0 auto; padding-inline: 24px; padding-block: 40px 80px;
+  display: grid; grid-template-columns: 232px minmax(0, 1fr); gap: 56px; }
+@media (max-width: 920px) { .shell { grid-template-columns: minmax(0, 1fr); gap: 24px; padding-inline: 16px; padding-block: 24px 56px; } }
+
+.toc { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 24px); align-self: start; font-size: 14px; }
+.toc summary { font-family: var(--cond); font-weight: 600; letter-spacing: .06em; text-transform: uppercase; font-size: 12px; color: var(--muted); cursor: pointer; list-style: none; margin-bottom: 10px; }
+.toc summary::-webkit-details-marker { display: none; }
+.toc ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; border-left: 1px solid var(--rule); }
+.toc a { display: block; padding: 3px 0 3px 14px; color: var(--ink-2); text-decoration: none; margin-left: -1px; border-left: 2px solid transparent; }
+.toc a:hover, .toc a:focus-visible { color: var(--accent); border-left-color: var(--accent); outline: none; }
+.toc .sub { padding-left: 26px; font-size: 13px; color: var(--muted); }
+@media (max-width: 920px) { .toc { position: static; background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; padding: 12px 14px; }
+  .toc summary { margin-bottom: 0; } .toc[open] summary { margin-bottom: 10px; } }
+
+main { min-width: 0; }
+header.doc-head { border-bottom: 1px solid var(--rule); padding-bottom: 28px; margin-bottom: 8px; }
+.eyebrow { font-family: var(--cond); font-weight: 600; font-size: 13px; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); margin: 0 0 10px; }
+h1 { font-family: var(--cond); font-weight: 700; font-size: clamp(34px, 5vw, 50px); line-height: 1.05; letter-spacing: -.01em; margin: 0 0 16px; text-wrap: balance; }
+h2 { font-family: var(--cond); font-weight: 600; font-size: 29px; line-height: 1.15; margin: 64px 0 14px; padding-top: 18px; border-top: 1px solid var(--rule); text-wrap: balance; scroll-margin-top: 20px; }
+h3 { font-family: var(--cond); font-weight: 600; font-size: 21px; margin: 38px 0 8px; text-wrap: balance; scroll-margin-top: 20px; }
+h3 .file { font-family: var(--mono); font-size: 16px; font-weight: 500; color: var(--accent); }
+h4 { font-family: var(--cond); font-weight: 600; font-size: 16px; letter-spacing: .04em; text-transform: uppercase; color: var(--ink-2); margin: 26px 0 6px; }
+p, li { max-width: 74ch; }
+p { margin: 0 0 14px; }
+ul, ol.plain { padding-left: 22px; margin: 0 0 16px; }
+li { margin-bottom: 6px; }
+.lead { font-size: 18.5px; color: var(--ink-2); max-width: 68ch; }
+a { color: var(--accent); }
+code { font-family: var(--mono); font-size: .88em; background: var(--code-bg); color: var(--code-ink); padding: .08em .35em; border-radius: 3px; }
+strong { font-weight: 600; }
+.muted { color: var(--muted); }
+.facts { display: flex; flex-wrap: wrap; gap: 10px 28px; margin: 22px 0 0; padding: 0; list-style: none; }
+.facts li { margin: 0; font-size: 14px; color: var(--muted); max-width: none; }
+.facts b { display: block; font-family: var(--cond); font-weight: 600; font-size: 26px; color: var(--ink); line-height: 1.1; font-variant-numeric: tabular-nums; }
+
+.tbl { overflow-x: auto; margin: 14px 0 22px; border: 1px solid var(--rule); border-radius: 6px; background: var(--surface); box-shadow: var(--shadow); }
+table { border-collapse: collapse; width: 100%; font-size: 14px; line-height: 1.45; }
+th, td { text-align: left; vertical-align: top; padding: 8px 12px; border-bottom: 1px solid var(--rule); }
+thead th { font-family: var(--cond); font-weight: 600; font-size: 13px; letter-spacing: .04em; text-transform: uppercase; color: var(--ink-2); background: var(--paper); position: sticky; top: 0; }
+tbody tr:last-child td { border-bottom: 0; }
+tbody tr.group td { background: var(--accent-soft); color: var(--accent); font-family: var(--cond); font-weight: 600; font-size: 13px; letter-spacing: .05em; text-transform: uppercase; padding-block: 5px; }
+td:first-child code { white-space: nowrap; font-weight: 500; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+td .sz { font-family: var(--mono); font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+
+.note { margin: 18px 0 22px; padding: 14px 16px 4px; border-radius: 6px; background: var(--surface); border: 1px solid var(--rule); max-width: 80ch; }
+.note .tag { display: inline-block; font-family: var(--cond); font-weight: 700; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; margin-bottom: 4px; }
+.note.pitfall { background: var(--amber-soft); border-color: transparent; }
+.note.pitfall .tag { color: var(--amber); }
+.note.check { background: var(--accent-soft); border-color: transparent; }
+.note.check .tag { color: var(--accent); }
+.note p:last-child, .note ul:last-child { margin-bottom: 10px; }
+.note p, .note li { max-width: 72ch; }
+
+.snip { margin: 16px 0 24px; border-radius: 6px; background: var(--code-bg); border: 1px solid var(--rule); overflow: hidden; }
+.snip-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 7px 10px 7px 14px; border-bottom: 1px solid var(--rule); font-family: var(--cond); font-size: 13px; font-weight: 600; letter-spacing: .03em; color: var(--ink-2); }
+.snip-head .id { color: var(--accent); margin-right: 8px; }
+.copy { font: 500 12px/1 var(--sans); color: var(--ink-2); background: var(--surface); border: 1px solid var(--rule-strong); border-radius: 4px; padding: 6px 10px; cursor: pointer; }
+.copy:hover { color: var(--accent); border-color: var(--accent); }
+.copy:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+pre { margin: 0; overflow-x: auto; }
+pre code { display: block; background: none; padding: 14px 16px; font-size: 13.2px; line-height: 1.55; color: var(--code-ink); border-radius: 0; tab-size: 4; }
+.out { margin: -16px 0 24px; border: 1px solid var(--rule); border-top: 0; border-radius: 0 0 6px 6px; background: var(--surface); }
+.out pre code { font-size: 12.5px; color: var(--ink-2); }
+.out .lbl { font-family: var(--cond); font-weight: 600; font-size: 11.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); padding: 8px 16px 0; }
+.hljs-keyword { color: var(--hl-k); }
+.hljs-string { color: var(--hl-s); }
+.hljs-comment { color: var(--hl-c); font-style: italic; }
+.hljs-number { color: var(--hl-n); }
+.hljs-built_in, .hljs-title { color: var(--hl-f); }
+
+.tree { font-family: var(--mono); font-size: 13px; line-height: 1.7; white-space: pre; background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; padding: 16px 18px; overflow-x: auto; margin: 16px 0 22px; box-shadow: var(--shadow); }
+.tree .d { color: var(--accent); font-weight: 500; }
+.tree .c { color: var(--muted); }
+.theme-btn { position: fixed; top: calc(env(safe-area-inset-top, 0px) + 14px); right: 14px; z-index: 20;
+  font: 500 12px/1 var(--sans); color: var(--ink-2); background: var(--surface); border: 1px solid var(--rule-strong);
+  border-radius: 4px; padding: 7px 11px; cursor: pointer; }
+.theme-btn:hover { color: var(--accent); border-color: var(--accent); }
+@media (max-width: 920px) { .theme-btn { display: none; } }
+.pill { display: inline-block; font-family: var(--cond); font-weight: 600; font-size: 11.5px; letter-spacing: .06em; text-transform: uppercase; padding: 2px 7px; border-radius: 3px; background: var(--accent-soft); color: var(--accent); vertical-align: 2px; margin-left: 8px; }
+.pill.warn { background: var(--amber-soft); color: var(--amber); }
+</style>
+
+<button class="theme-btn" id="themeBtn" type="button">Dark</button>
+
+<div class="shell">
+<nav class="toc">
+  <details open>
+    <summary>Contents</summary>
+    <ol>
+      <li><a href="#layout">1 · Where files land</a></li>
+      <li><a href="#conventions">2 · Conventions</a></li>
+      <li><a href="#tool1">3 · Tool 1 — tracking</a></li>
+      <li><a href="#tool1-spots" class="sub">spots.csv</a></li>
+      <li><a href="#tool1-metrics" class="sub">track_metrics.csv</a></li>
+      <li><a href="#tool1-settings" class="sub">settings.txt</a></li>
+      <li><a href="#tool2">4 · Tool 2 — the build</a></li>
+      <li><a href="#trackstruct" class="sub">the TrackStruct</a></li>
+      <li><a href="#manifest" class="sub">experiment_details</a></li>
+      <li><a href="#tool3">5 · Tool 3 — contact sites</a></li>
+      <li><a href="#picks" class="sub">CSsites.txt</a></li>
+      <li><a href="#footprints" class="sub">CS_footprints</a></li>
+      <li><a href="#tess" class="sub">CS_tessellation</a></li>
+      <li><a href="#csw" class="sub">CSW_final</a></li>
+      <li><a href="#dwell" class="sub">dwell &amp; engagement</a></li>
+      <li><a href="#advisor">6 · The advisor export</a></li>
+      <li><a href="#recipes">7 · Recipes</a></li>
+    </ol>
+  </details>
+</nav>
+
+<main>
+<header class="doc-head">
+  <p class="eyebrow">SPTinMatlab · export reference</p>
+  <h1>SPT Pipeline Field Guide</h1>
+  <p class="lead">Every file the three tools write, what each field means, and a runnable snippet
+  for each one. Field names, types and ranges below were read off a real project
+  (CysLig, 93 cells, 464 contact sites) rather than transcribed from the code.</p>
+  <ul class="facts">
+    <li><b>3</b> tools</li>
+    <li><b>34</b> files documented</li>
+    <li><b>15</b> runnable snippets</li>
+    <li><b>1</b> units exception</li>
+  </ul>
+</header>
+
+<h2 id="layout">1 · Where files land</h2>
+
+<p>A project is one folder. The tools write into three places inside it, and never outside.</p>
+
+<div class="tree">
+<span class="d">&lt;project&gt;/</span>
+  experiment_details.mat        <span class="c">the manifest: one row per cell, and where conditions are assigned</span>
+  <span class="d">spt/</span>                         <span class="c">the movies (input)</span>
+  <span class="d">er_seg/  mito_seg/</span>            <span class="c">the organelle segmentations (input)</span>
+  <span class="d">tracks/</span>                      <span class="c">TOOL 1 — six files per cell</span>
+    &lt;base&gt;_spots.csv            <span class="c">every detection</span>
+    &lt;base&gt;_spots_filtered.csv   <span class="c">same rows, tracks renumbered</span>
+    &lt;base&gt;_spots_curated.csv    <span class="c">after hand curation</span>
+    &lt;base&gt;_track_metrics.csv    <span class="c">one row per track</span>
+    &lt;base&gt;_filter_log.csv       <span class="c">why each track was kept or dropped</span>
+    &lt;base&gt;_settings.txt         <span class="c">the run, in full</span>
+  <span class="d">analysis/</span>                    <span class="c">TOOLS 2 &amp; 3 — one set per project</span>
+    &lt;Name&gt;.mat                  <span class="c">the build (TrackStruct)</span>
+    active_trackstruct.txt      <span class="c">which build is current</span>
+    cs_calib.mat                <span class="c">pixel size, frame interval, density bin</span>
+    track_exclusions.csv        <span class="c">tracks rejected by hand</span>
+    <span class="d">csIDs/</span>&lt;base&gt;_CSsites.txt    <span class="c">the picks</span>
+    CS_footprints.mat           <span class="c">site outlines (editable)</span>
+    CS_tessellation.mat         <span class="c">the diffusion map</span>
+    CSW_final.mat               <span class="c">the mapped sites — the central record</span>
+    cs_window_metrics.csv       <span class="c">one row per site</span>
+    cs_window_dwell.mat / .csv  <span class="c">visits</span>
+    cs_window_track_labels.csv  <span class="c">one row per track at a site</span>
+    cs_engage.mat               <span class="c">engagement classification</span>
+    cs_engage_sites.csv         <span class="c">one row per site</span>
+    cs_engage_tracks.csv        <span class="c">one row per track at a site</span>
+    CS_trackedits.mat           <span class="c">tracks excluded from one site</span>
+    <span class="d">exports/</span>&lt;name&gt;/advisor_format/&lt;condition&gt;/   <span class="c">the handoff (§6)</span>
+</div>
+
+<p>Files are additive. Nothing here overwrites a cell's raw data, and every stage can be
+re-run from the stage before it.</p>
+
+<h2 id="conventions">2 · Conventions that hold everywhere</h2>
+
+<h4>Units</h4>
+<div class="tbl"><table>
+<thead><tr><th>Quantity</th><th>Unit</th><th>Where</th></tr></thead>
+<tbody>
+<tr><td>position, distance, size</td><td><strong>µm</strong></td><td>everywhere, with one exception below</td></tr>
+<tr><td><code>refboundary</code> in the advisor export</td><td><strong>nm</strong>, relative to <code>refCenter</code></td><td>§6 — the one place µm is not the unit</td></tr>
+<tr><td>area</td><td>µm² in this pipeline, <strong>nm²</strong> in the advisor spreadsheets</td><td>§5, §6</td></tr>
+<tr><td>time</td><td><strong>frames</strong>, converted to seconds only at the end</td><td>everywhere</td></tr>
+<tr><td>the refiner's ellipse</td><td>pixels of 3&nbsp;nm, pixel 400 = the pick</td><td>§6</td></tr>
+</tbody></table></div>
+
+<div class="note pitfall">
+<span class="tag">Seconds are derived, not measured</span>
+<p>These TIFFs carry one nominal <code>finterval</code> for the whole stack and <strong>no per-page
+timestamps</strong>. Every second in every file here is a frame number multiplied by that one
+interval. Frame numbers are exact; seconds accumulate the interval's error, which is why the
+pipeline indexes by frame and converts once, at the end. A column named <code>T_s</code> is
+<code>FRAME × dt</code> and nothing more.</p>
+</div>
+
+<h4>Indices</h4>
+<ul>
+<li><strong>Frames are 0-based</strong> in every CSV and in <code>matrix(:,:,1)</code>. Frame 0 is the first.</li>
+<li><strong>Track columns are 1-based</strong>, because they are MATLAB columns. <code>trackCol</code>, <code>tracks</code>
+    and <code>trackIDs</code> all mean "column of <code>matrix</code>".</li>
+<li><code>TRACK_ID</code> in a CSV is <strong>0-based</strong> and is not the same number as <code>trackCol</code>.</li>
+<li><code>cellIndex</code> is 1-based and indexes the build array.</li>
+<li><code>siteUID</code> is 1-based and unique across the whole project; <code>csID</code> is only unique within a cell.</li>
+</ul>
+
+<h4>The matrix idiom</h4>
+<p>A cell's tracks live in one <code>[localization × track × 3]</code> array. Column <var>j</var> is one
+track, padded with <code>NaN</code> below its end. Page 1 is the frame number, page 2 is <var>x</var>,
+page 3 is <var>y</var>. Every <code>…LocIDs</code> field is a set of <strong>linear indices into one
+page</strong>, so the same index reaches all three pages by adding the page stride.</p>
+
+<div class="snip"><div class="snip-head"><span><span class="id">C1</span>the matrix idiom</span><button class="copy" type="button">Copy</button></div>
+<pre><code class="language-matlab">T = Tracks(1);
+frame = T.matrix(:,:,1);            % 0-based frame; NaN below a track's end
+x     = T.matrix(:,:,2);            % um
+y     = T.matrix(:,:,3);            % um
+
+j  = 5;                             % one track = one column
+ok = isfinite(x(:,j));              % exactly T.lengths(j) of them
+fprintf('track %d: %d localizations, frames %d..%d\n', j, T.lengths(j), ...
+        frame(find(ok,1), j), frame(find(ok,1,'last'), j));
+
+% a set of linear indices reaches all three pages
+n   = numel(frame);
+ids = find(isfinite(x));                       % or any ...LocIDs field
+got = [frame(ids), x(ids), y(ids)];            % same rows, three columns</code></pre></div>
+
+<div class="note check">
+<span class="tag">A gap is not a missing row</span>
+<p>Rows within a track are consecutive <em>localizations</em>, not consecutive frames. A tracking gap
+shows up as a jump in <code>matrix(:,:,1)</code> with no row in between. Use the frame page whenever
+you need elapsed time; counting rows undercounts it.</p>
+</div>
+
+<h2 id="tool1">3 · Tool 1 — detection and tracking</h2>
+<p>Six files per cell in <code>tracks/</code>, all keyed to <code>&lt;base&gt;</code>, the movie's stem.</p>
+
+<h3 id="tool1-spots"><span class="file">&lt;base&gt;_spots.csv</span></h3>
+<p>Every detection the run made, one row each, in frame order. 410,125 rows for the reference cell.
+Two siblings carry the same 14 columns: <code>_spots_filtered.csv</code> after the track-length and
+quality filter, and <code>_spots_curated.csv</code> after hand curation. <strong>All three have the same
+row count</strong> — filtering renumbers <code>TRACK_ID</code> and blanks the rows it drops, it does not
+delete them.</p>
+
+<div class="tbl"><table>
+<thead><tr><th>Column</th><th>Unit</th><th>Notes</th></tr></thead>
+<tbody>
+<tr><td><code>TRACK_ID</code></td><td>—</td><td>0-based; blank where the detection was never linked. Renumbered from 0 in the filtered file</td></tr>
+<tr><td><code>SPOT_ID</code></td><td>—</td><td>0-based, unique in the cell, stable across all three files</td></tr>
+<tr><td><code>FRAME</code></td><td>frames</td><td>0-based</td></tr>
+<tr><td><code>T_s</code></td><td>s</td><td><code>FRAME × dt</code>. Derived — see the note in §2</td></tr>
+<tr><td><code>X_um</code>, <code>Y_um</code></td><td>µm</td><td>sub-pixel centroid; <code>x = 0-based column × pixel size</code></td></tr>
+<tr><td><code>QUALITY</code></td><td>—</td><td>the DoG response at the peak; the detection threshold applies to this</td></tr>
+<tr><td><code>MEAN_INTENSITY</code></td><td>counts</td><td>raw image, in the spot's disk</td></tr>
+<tr><td><code>MAX_INTENSITY</code></td><td>counts</td><td></td></tr>
+<tr><td><code>TOTAL_INTENSITY</code></td><td>counts</td><td>the sum used for step-counting and bleaching</td></tr>
+<tr><td><code>MITO_DIST_UM</code></td><td>µm</td><td><strong>signed</strong>: negative inside the mask, positive outside. Blank without a mito stack</td></tr>
+<tr><td><code>ER_DIST_UM</code></td><td>µm</td><td>same convention; blank without an ER stack</td></tr>
+<tr><td><code>ELONGATION</code></td><td>—</td><td>curvature ratio from the ridge test; 1 is round</td></tr>
+<tr><td><code>ORIENT_DEG</code></td><td>°</td><td>0–180, the long axis</td></tr>
+</tbody></table></div>
+
+<div class="note pitfall">
+<span class="tag">The distance columns are signed</span>
+<p><code>MITO_DIST_UM</code> runs from about &minus;1.8 to +15.7 µm on the reference cell. A negative value
+means the localization sits <em>inside</em> the segmented organelle. Thresholding with
+<code>abs()</code> merges inside and outside and is almost never what you want; compare against
+<code>0</code> or against a signed cut-off.</p>
+</div>
+
+<div class="snip"><div class="snip-head"><span><span class="id">T1</span>spots.csv → one track's trajectory</span><button class="copy" type="button">Copy</button></div>
+<pre><code class="language-matlab">base = 'HVK-3C-NoLigand-Baseline_Plate1-002_ch24_spt';
+S = readtable(fullfile(project,'tracks',[base '_spots.csv']));
+
+fprintf('%d detections, %d linked into %d tracks\n', height(S), nnz(~isnan(S.TRACK_ID)), ...
+        numel(unique(S.TRACK_ID(~isnan(S.TRACK_ID)))));
+
+id = 140;                                  % a TRACK_ID, 0-based
+r  = S(S.TRACK_ID == id, :);
+r  = sortrows(r, 'FRAME');
+fprintf('track %d: %d spots, frames %d..%d, %d gap frames\n', id, height(r), ...
+        r.FRAME(1), r.FRAME(end), (r.FRAME(end)-r.FRAME(1)+1) - height(r));
+
+inside = r.MITO_DIST_UM &lt; 0;               % signed: negative is inside the mask
+fprintf('  %.0f%% of its localizations are inside mito\n', 100*mean(inside));</code></pre></div>
+
+<h3 id="tool1-metrics"><span class="file">&lt;base&gt;_track_metrics.csv</span> and <span class="file">_filter_log.csv</span></h3>
+<p>One row per track. <code>track_metrics</code> carries the numbers the filter judges;
+<code>filter_log</code> records the verdict and the two thresholds that produced it, so a filtering
+decision can be reconstructed months later without re-running anything.</p>
+
+<div class="tbl"><table>
+<thead><tr><th>Column</th><th>File</th><th>Notes</th></tr></thead>
+<tbody>
+<tr class="group"><td colspan="3">track_metrics.csv — 12 columns, one row per track</td></tr>
+<tr><td><code>TRACK_ID</code></td><td>metrics</td><td>0-based</td></tr>
+<tr><td><code>n_spots</code></td><td>metrics</td><td>localizations, not frames spanned</td></tr>
+<tr><td><code>x_mean</code>, <code>y_mean</code></td><td>metrics</td><td>µm, the track's centroid</td></tr>
+<tr><td><code>frame_start</code>, <code>frame_end</code></td><td>metrics</td><td>0-based, inclusive</td></tr>
+<tr><td><code>mean_quality</code></td><td>metrics</td><td>mean DoG response over the track</td></tr>
+<tr><td><code>mean_local_density</code></td><td>metrics</td><td>neighbouring tracks; high values mean crowded, where linking is least reliable</td></tr>
+<tr><td><code>disp_variance</code></td><td>metrics</td><td>variance of displacement, µm². The immobility filter reads this</td></tr>
+<tr><td><code>max_step_um</code></td><td>metrics</td><td>largest single step; close to the link radius means the tracker was at its limit</td></tr>
+<tr><td><code>confinement</code></td><td>metrics</td><td>net displacement over path length. 0 is confined, 1 is ballistic</td></tr>
+<tr><td><code>KEEP</code></td><td>metrics</td><td>0/1, the filter's verdict</td></tr>
+<tr class="group"><td colspan="3">filter_log.csv — the same tracks, with the thresholds applied</td></tr>
+<tr><td><code>track_id</code>, <code>status</code></td><td>log</td><td><code>kept</code> | <code>removed</code></td></tr>
+<tr><td><code>max_disp_var</code>, <code>max_density</code></td><td>log</td><td>the cut-offs in force for this run</td></tr>
+<tr><td><code>disp_variance</code>, <code>local_density</code></td><td>log</td><td>this track's values, to compare against them</td></tr>
+</tbody></table></div>
+
+<h3 id="tool1-settings"><span class="file">&lt;base&gt;_settings.txt</span></h3>
+<p>The whole run as <code>key = value</code> lines: detection diameter and threshold mode, the ridge and
+size gates, link radius, gap policy, the calibration <em>and where it came from</em>, and the result
+counts. <code>calibration.pixel_um_src = movie</code> means it was read from the file's own metadata
+rather than typed.</p>
+
+<div class="snip"><div class="snip-head"><span><span class="id">T2</span>settings.txt → a struct</span><button class="copy" type="button">Copy</button></div>
+<pre><code class="language-matlab">txt = fileread(fullfile(project,'tracks',[base '_settings.txt']));
+kv  = regexp(txt, '^\s*([\w.]+)\s*=\s*(.+?)\s*$', 'tokens', 'lineanchors');
+P   = struct();
+for i = 1:numel(kv)
+    P.(matlab.lang.makeValidName(kv{i}{1})) = kv{i}{2};
+end
+fprintf('pixel %s um (%s), frame %s s (%s), link %s um\n', ...
+    P.calibration_pixel_um, P.calibration_pixel_um_src, ...
+    P.calibration_frame_s,  P.calibration_frame_s_src, P.tracking_link_um);</code></pre></div>
+<div class="out"><div class="lbl">Output</div><pre><code>pixel 0.0967821 um (movie), frame 0.0267118 s (movie), link 0.6 um</code></pre></div>
+
+<h2 id="tool2">4 · Tool 2 — the build</h2>
+
+<h3 id="trackstruct"><span class="file">analysis/&lt;Name&gt;.mat</span> → <code>Tracks</code><span class="pill">central</span></h3>
+<p>One entry per cell. This is what every later stage reads, and the only file that holds the
+trajectories themselves. A project may carry several named builds;
+<code>active_trackstruct.txt</code> names the current one.</p>
+
+<div class="tbl"><table>
+<thead><tr><th>Field</th><th>Size</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td><code>file</code></td><td><span class="sz">char</span></td><td>the cell's base name</td></tr>
+<tr><td><code>lengths</code></td><td><span class="sz">[nTracks×1]</span></td><td>localizations per track</td></tr>
+<tr><td><code>matrix</code></td><td><span class="sz">[m×n×3]</span></td><td><strong>frame, x, y</strong> — the trajectories. NaN-padded</td></tr>
+<tr><td><code>center</code></td><td><span class="sz">[m×n×3]</span></td><td>the same, each track shifted to its own centroid</td></tr>
+<tr><td><code>rawSteps</code></td><td><span class="sz">[m-1×n×2]</span></td><td>per-step Δframe and Δdistance</td></tr>
+<tr><td><code>steps</code></td><td><span class="sz">[m-1×n]</span></td><td>µm <strong>per frame</strong> — step length divided by the frame gap</td></tr>
+<tr><td><code>MSD</code>, <code>MSDerror</code>, <code>MSDstdev</code></td><td><span class="sz">[m-1×n]</span></td><td>mean squared displacement by lag</td></tr>
+<tr><td><code>CSD</code>, <code>CSDnorm</code></td><td><span class="sz">[m-1×n]</span></td><td>cumulative squared displacement, raw and normalised</td></tr>
+<tr><td><code>rawVector</code>, <code>vector</code></td><td><span class="sz">[m-1×n×2]</span></td><td>step vectors, before and after drift handling</td></tr>
+<tr><td><code>intens</code></td><td><span class="sz">[m×n×3]</span></td><td>mean, max and total intensity per localization</td></tr>
+<tr><td><code>Dt</code></td><td><span class="sz">[m×n]</span></td><td>local diffusion coefficient, µm²/s, per localization</td></tr>
+<tr><td><code>dist</code></td><td><span class="sz">struct</span></td><td><code>.mito</code> and <code>.er</code>, each [m×n], signed µm</td></tr>
+<tr><td><code>allSpots</code></td><td><span class="sz">struct</span></td><td><code>FRAME X Y DIST</code> — every detection, including unlinked ones</td></tr>
+<tr><td><code>trackIDs</code></td><td><span class="sz">[nTracks×1]</span></td><td>back-reference to <code>TRACK_ID</code> in the CSVs</td></tr>
+<tr><td><code>frameInterval</code></td><td><span class="sz">scalar</span></td><td>seconds per frame</td></tr>
+<tr><td><code>calib</code></td><td><span class="sz">struct</span></td><td><code>pixSizeUm fovUm dt_s precNm binNm src</code></td></tr>
+<tr><td><code>diffOpts</code></td><td><span class="sz">struct</span></td><td>how <code>Dt</code> was estimated: window, σ, estimator, method</td></tr>
+</tbody></table></div>
+
+<div class="note check">
+<span class="tag">allSpots vs matrix</span>
+<p><code>matrix</code> holds only <em>linked</em> localizations. <code>allSpots</code> holds every detection,
+linked or not. Density, enrichment and background all read <code>allSpots</code>; anything about
+motion reads <code>matrix</code>. Using the wrong one changes a density by the fraction of detections
+that were never tracked — 98.6% of them on the reference cell.</p>
+</div>
+
+<div class="snip"><div class="snip-head"><span><span class="id">B1</span>load the active build</span><button class="copy" type="button">Copy</button></div>
+<pre><code class="language-matlab">ana = fullfile(project, 'analysis');
+name = strtrim(fileread(fullfile(ana,'active_trackstruct.txt')));   % e.g. 'CysteineLigand.mat'
+S = load(fullfile(ana, name));
+Tracks = S.(subsref(fieldnames(S), substruct('{}', {1})));
+
+fprintf('%d cells, %d tracks, %.4g s per frame\n', numel(Tracks), ...
+        sum(arrayfun(@(t) numel(t.lengths), Tracks)), Tracks(1).frameInterval);
+
+perCell = table((1:numel(Tracks))', string({Tracks.file})', ...
+    arrayfun(@(t) numel(t.lengths), Tracks)', ...
+    arrayfun(@(t) nnz(isfinite(t.matrix(:,:,2))), Tracks)', ...
+    arrayfun(@(t) numel(t.allSpots.X), Tracks)', ...
+    'VariableNames', {'cell','file','tracks','linkedLocs','allSpots'});
+disp(head(perCell, 3))</code></pre></div>
+
+<div class="snip"><div class="snip-head"><span><span class="id">B2</span>diffusion and step size, per track</span><button class="copy" type="button">Copy</button></div>
+<pre><code class="language-matlab">T  = Tracks(1);
+dt = T.frameInterval;
+
+% steps are already per frame, so um^2/s needs only the interval
+D_fromSteps = nanmean(T.steps, 1).^2 / (4*dt);          % 1 x nTracks
+D_local     = nanmedian(T.Dt, 1);                       % the pipeline's own estimate
+
+fprintf('track 5: median local D = %.4f um^2/s over %d localizations\n', ...
+        D_local(5), T.lengths(5));
+fprintf('estimator: %s, window %d, sigma %g um\n', ...
+        T.diffOpts.method, T.diffOpts.win, T.diffOpts.sigmaUm);</code></pre></div>
+
+<h3 id="manifest"><span class="file">experiment_details.mat</span> → <code>manifest</code></h3>
+<p>One row per cell in <code>manifest.cells</code>, 26 fields. This is <strong>where a condition is
+assigned</strong>, and where each cell's pixel size and frame interval are pinned.</p>
+
+<div class="tbl"><table>
+<thead><tr><th>Field</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td><code>file</code></td><td>the cell base name — the key everything else joins on</td></tr>
+<tr><td><code>condition</code></td><td>the experimental group, e.g. <code>Baseline</code>, <code>Compound 296</code></td></tr>
+<tr><td><code>day</code></td><td>the batch it was collected in</td></tr>
+<tr><td><code>exclude</code>, <code>reason</code>, <code>notes</code></td><td>hand exclusion and why</td></tr>
+<tr><td><code>spt</code>, <code>erSeg</code>, <code>mitoSeg</code></td><td>resolved paths to the movie and its segmentations</td></tr>
+<tr><td><code>pixUm</code>, <code>pixSrc</code>, <code>pixLock</code></td><td>pixel size, where it came from, and whether it is pinned</td></tr>
+<tr><td><code>dtS</code>, <code>dtSrc</code>, <code>dtLock</code></td><td>frame interval, same three</td></tr>
+<tr><td><code>nTracks</code>, <code>status</code>, <code>hasCSW</code>, <code>hasDwell</code></td><td>how far this cell has got through the pipeline</td></tr>
+</tbody></table></div>
+
+<h2 id="tool3">5 · Tool 3 — contact sites</h2>
+<p>Five stages, each writing its own file: pick → outline → map → dwell → engagement. Every stage
+keys on <code>(file, csID, window)</code>, and from <code>CSW_final.mat</code> onward also on
+<code>siteUID</code>, which is unique across the project.</p>
+
+<h3 id="picks"><span class="file">analysis/csIDs/&lt;base&gt;_CSsites.txt</span></h3>
+<p>The picks, in ImageJ's Results-table format so they can be made in Fiji. Tab-separated,
+1-based row numbers. <code>X</code>/<code>Y</code> are <strong>density-grid pixels</strong>, not µm — the grid is
+<code>SF</code> µm per pixel, recorded in <code>CS_footprints.mat</code>. <code>Slice</code> is the time window.</p>
+
+<div class="out" style="margin:16px 0 22px;border-radius:6px;border-top:1px solid var(--rule)"><div class="lbl">First lines</div><pre><code>  	X	Y	XM	YM	Slice	Counter	Count
+1	277.622	20.010	277.622	20.010	1	1	0
+2	325.109	23.260	325.109	23.260	1	2	0</code></pre></div>
+
+<h3 id="footprints"><span class="file">analysis/CS_footprints.mat</span></h3>
+<p>Four variables. <code>CSfoot</code> is one entry per picked site and is the <strong>editable</strong>
+geometry layer — the Refine tab writes it, and the mapper reads it to override its own automatic
+outlines.</p>
+
+<div class="tbl"><table>
+<thead><tr><th>Field</th><th>Unit</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr class="group"><td colspan="3">CSfoot — [1 × nSites]</td></tr>
+<tr><td><code>file</code>, <code>cellIndex</code>, <code>csID</code>, <code>window</code></td><td>—</td><td>the key</td></tr>
+<tr><td><code>winFrames</code></td><td>frames</td><td><code>[f0 f1]</code>, 0-based inclusive</td></tr>
+<tr><td><code>pickPx</code></td><td>grid px</td><td>where the user clicked</td></tr>
+<tr><td><code>center</code></td><td>µm</td><td>the site centre</td></tr>
+<tr><td><code>refboundary</code></td><td><strong>µm</strong>, relative to <code>center</code></td><td>the outline. In µm here — the advisor export converts it to nm</td></tr>
+<tr><td><code>mode</code></td><td>—</td><td><code>halfmax</code> | <code>freehand</code>, plus <code>+smooth</code> and <code>+centre</code> when applied</td></tr>
+<tr><td><code>frac</code></td><td>—</td><td>the contour level, 0.5 for a true half-max</td></tr>
+<tr><td><code>maxRadiusUm</code></td><td>µm</td><td>size cap</td></tr>
+<tr><td><code>SF</code>, <code>grid</code></td><td>µm/px, px</td><td>the density grid the outline was drawn on</td></tr>
+<tr><td><code>densSrc</code></td><td>—</td><td><code>all</code> (every detection) or <code>tracked</code> (linked only)</td></tr>
+<tr><td><code>mito</code></td><td>—</td><td>does the site touch the mito mask</td></tr>
+<tr><td><code>areaUm2</code></td><td>µm²</td><td><code>polyarea</code> of the outline</td></tr>
+<tr><td><code>edited</code>, <code>deleted</code></td><td>—</td><td>hand-touched; hand-removed</td></tr>
+<tr><td><code>sigmaNm</code></td><td>nm</td><td>the smoothing the outline was made at. <strong>Read §5 pitfall</strong></td></tr>
+<tr><td><code>note</code></td><td>—</td><td>why this site wants a look, when a stage flagged it</td></tr>
+<tr class="group"><td colspan="3">also in the file</td></tr>
+<tr><td><code>CSdeleted</code></td><td>—</td><td>picks removed by hand, kept so a re-pick does not resurrect them</td></tr>
+<tr><td><code>outlineSigmaNm</code></td><td>nm</td><td>the project's setting, 100 by default</td></tr>
+<tr><td><code>neighbourBoxUm</code></td><td>µm</td><td>the square around a site that defines its neighbourhood, 1.0 by default</td></tr>
+</tbody></table></div>
+
+<div class="note pitfall">
+<span class="tag">The outline has a floor, and it is σ</span>
+<p>An automatic outline is a contour of a density smoothed at <code>outlineSigmaNm</code>. The half-max
+contour of a <em>single point</em> at σ = 100 nm is already a circle of radius
+σ·√(2·ln2) = <strong>118 nm</strong> (0.044 µm²). No automatic outline can be smaller, however tight the
+localizations are.</p>
+<p>On the reference project, 36% of the 464 footprints sit within 25% of that floor and 10% are at or
+below it. Where a site's localizations are tighter than σ the outline is set by the smoothing rather
+than by the data — one site wraps a 63 nm knot of 351 localizations in a 165 nm circle. Lower
+<code>outlineSigmaNm</code> in the Refine tab, or draw those sites freehand.</p>
+</div>
+
+<div class="snip"><div class="snip-head"><span><span class="id">F1</span>which outlines are set by σ rather than by the data</span><button class="copy" type="button">Copy</button></div>
+<pre><code class="language-matlab">L = load(fullfile(ana,'CS_footprints.mat'));
+F = L.CSfoot(~[L.CSfoot.deleted]);
+floorR = 1.1774 * L.outlineSigmaNm / 1000;              % um, the smallest possible radius
+
+r = sqrt([F.areaUm2] / pi);
+fprintf('sigma %g nm -> floor %.0f nm; %d of %d sites within 25%% of it\n', ...
+        L.outlineSigmaNm, floorR*1000, nnz(r &lt; floorR*1.25), numel(F));
+
+atFloor = find(r &lt; floorR*1.25 &amp; contains(string({F.mode}), 'halfmax'));
+for k = atFloor(1:min(5,end))
+    fprintf('  %s csID %d: r = %.0f nm (%s)\n', F(k).file, F(k).csID, r(k)*1000, F(k).mode);
+end</code></pre></div>
+
+<h3 id="tess"><span class="file">analysis/CS_tessellation.mat</span> → <code>TS</code></h3>
+<p>One entry per cell: the localization-density tessellation and a diffusion coefficient per tile.
+This is what <code>Deff</code> and <code>TessIndex</code> elsewhere point into.</p>
+
+<div class="tbl"><table>
+<thead><tr><th>Field</th><th>Size</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td><code>nTessels</code>, <code>nLoc</code></td><td><span class="sz">scalar</span></td><td>tiles, and localizations tessellated</td></tr>
+<tr><td><code>centres</code></td><td><span class="sz">[nT×2]</span></td><td>µm</td></tr>
+<tr><td><code>D</code></td><td><span class="sz">[nT×1]</span></td><td>µm²/s per tile</td></tr>
+<tr><td><code>nLocs</code>, <code>nSteps</code></td><td><span class="sz">[nT×1]</span></td><td>what each D was estimated from</td></tr>
+<tr><td><code>areaUm2</code>, <code>density</code></td><td><span class="sz">[nT×1]</span></td><td>µm², localizations/µm²</td></tr>
+<tr><td><code>poly</code></td><td><span class="sz">{nT×1}</span></td><td>each tile's polygon</td></tr>
+<tr><td><code>locIdx</code>, <code>locTess</code></td><td><span class="sz">[nLoc×1]</span></td><td>localization → its linear index, and → its tile</td></tr>
+<tr><td><code>minLocs</code>, <code>minSteps</code>, <code>estimator</code>, <code>sigmaUm</code>, <code>dt</code></td><td>—</td><td>the fit's terms</td></tr>
+<tr><td><code>mask</code>, <code>supportFrac</code></td><td>—</td><td>which part of the field was tessellated, and how much of it that was</td></tr>
+</tbody></table></div>
+
+<h3 id="csw"><span class="file">analysis/CSW_final.mat</span> → <code>CSW</code><span class="pill">central</span></h3>
+<p>One entry per mapped site, 50 fields. Every downstream number comes from here. It carries the
+geometry, the membership, the localizations, the diffusion, the density statistics, and the
+condition.</p>
+
+<div class="tbl"><table>
+<thead><tr><th>Field</th><th>Unit</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr class="group"><td colspan="3">identity</td></tr>
+<tr><td><code>siteUID</code></td><td>—</td><td>1-based, unique across the project. Join on this</td></tr>
+<tr><td><code>file</code>, <code>cellIndex</code>, <code>csID</code>, <code>window</code>, <code>winFrames</code></td><td>—</td><td>the key, and the frames the window spans</td></tr>
+<tr><td><code>condition</code>, <code>day</code>, <code>excluded</code></td><td>—</td><td>stamped from the manifest by <code>cs_condition_apply</code></td></tr>
+<tr class="group"><td colspan="3">geometry</td></tr>
+<tr><td><code>center</code>, <code>refCenter</code></td><td>µm</td><td>the site centre</td></tr>
+<tr><td><code>refboundary</code></td><td>µm rel. centre</td><td>the outline</td></tr>
+<tr><td><code>footprintMode</code></td><td>—</td><td><code>refined:…</code> when the Refine tab overrode the automatic one</td></tr>
+<tr><td><code>boundaries</code></td><td>µm</td><td><code>.x</code>/<code>.y</code>, the neighbourhood square</td></tr>
+<tr><td><code>areaUm2</code>, <code>boxUm</code></td><td>µm², µm</td><td>outline area; the square's side</td></tr>
+<tr class="group"><td colspan="3">membership</td></tr>
+<tr><td><code>tracks</code>, <code>nTracks</code></td><td>—</td><td>member track columns, 1-based</td></tr>
+<tr><td><code>LocIDs</code>, <code>nMemberLocs</code></td><td>—</td><td>localizations inside the outline (linear indices)</td></tr>
+<tr><td><code>boxLocIDs</code>, <code>neighborIDs</code></td><td>—</td><td>in the square; in the square but outside the outline</td></tr>
+<tr><td><code>trackLocsInside</code>, <code>trackLocsWin</code>, <code>trackPctInside</code></td><td>—</td><td>how much of the member tracks the site holds</td></tr>
+<tr><td><code>CSmatrix</code></td><td>µm rel. <code>refCenter</code></td><td><code>[m × nTracks × 3]</code> — frame, x, y for the member tracks</td></tr>
+<tr><td><code>CSvec</code></td><td>µm</td><td>their step vectors</td></tr>
+<tr class="group"><td colspan="3">diffusion and density</td></tr>
+<tr><td><code>Deff</code>, <code>TessIndex</code></td><td>µm²/s</td><td>per localization of the member tracks, from <code>TS</code></td></tr>
+<tr><td><code>refDeff</code>, <code>neighborDeff</code></td><td>µm²/s</td><td>inside the outline; in the square outside it</td></tr>
+<tr><td><code>DtIn</code>, <code>DtNear</code>, <code>DeffIn</code>, <code>DeffNear</code></td><td>µm²/s</td><td>summary pairs, inside vs near</td></tr>
+<tr><td><code>nLocInside</code>, <code>cellTotalLocWin</code></td><td>—</td><td>the enrichment numerator and denominator</td></tr>
+<tr><td><code>probMass</code>, <code>peakProb</code>, <code>peakProbRaw</code></td><td>—</td><td>the density integrated over the site, and at its peak</td></tr>
+<tr><td><code>localDens</code>, <code>cellBgDens</code>, <code>enrichment</code></td><td>loc/µm²</td><td>site density, cell background, and their ratio</td></tr>
+<tr><td><code>near</code>, <code>MitoFlag</code></td><td>—</td><td><code>.mito</code> true where the site touches the mask</td></tr>
+<tr><td><code>SF</code>, <code>grid</code>, <code>binAreaUm2</code>, <code>dt</code>, <code>densSrc</code></td><td>—</td><td>the terms the numbers above were computed on</td></tr>
+</tbody></table></div>
+
+<div class="snip"><div class="snip-head"><span><span class="id">S1</span>sites by condition, with enrichment</span><button class="copy" type="button">Copy</button></div>
+<pre><code class="language-matlab">CSW = load(fullfile(ana,'CSW_final.mat')).CSW;
+keep = ~[CSW.excluded];
+W = CSW(keep);
+
+R = table(string({W.condition})', [W.MitoFlag]', [W.areaUm2]', [W.enrichment]', ...
+          [W.nLocInside]', [W.nTracks]', ...
+          'VariableNames', {'condition','mito','areaUm2','enrichment','nLoc','nTracks'});
+disp(groupsummary(R, {'condition','mito'}, 'median', {'areaUm2','enrichment'}))</code></pre></div>
+
+<div class="snip"><div class="snip-head"><span><span class="id">S2</span>one site: outline, members, neighbours</span><button class="copy" type="button">Copy</button></div>
+<pre><code class="language-matlab">s = CSW([CSW.siteUID] == 1);
+T = Tracks(s.cellIndex);
+X = T.matrix(:,:,2);  Y = T.matrix(:,:,3);
+
+outline = s.refboundary + s.refCenter;                 % um, absolute (already um here)
+
+figure; hold on
+plot(X(s.neighborIDs), Y(s.neighborIDs), '.', 'Color', [.3 .7 .9]);   % in the square, outside
+plot(X(s.LocIDs),      Y(s.LocIDs),      '.', 'Color', [.85 .2 .2]);  % inside the outline
+plot(outline(:,1), outline(:,2), 'k-', 'LineWidth', 1.5);
+plot(s.boundaries.x([1 2 2 1 1]), s.boundaries.y([1 1 2 2 1]), 'k--');
+axis equal; set(gca,'YDir','reverse'); xlabel('x (\mum)'); ylabel('y (\mum)');
+title(sprintf('site %d: %.3f um^2, enrichment %.1fx', s.siteUID, s.areaUm2, s.enrichment));</code></pre></div>
+
+<h3 id="dwell">Dwell and engagement</h3>
+<p>Three <code>.mat</code> files and four CSVs. The CSVs are flat views of the same records, written so
+the numbers can leave MATLAB without a loader.</p>
+
+<h4>cs_window_dwell.mat → <code>DD</code></h4>
+<div class="tbl"><table>
+<thead><tr><th>Field</th><th>Size</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td><code>events</code></td><td><span class="sz">[1×10245]</span></td><td>one visit: <code>siteUID trackCol entryFrame exitFrame dwell</code></td></tr>
+<tr><td><code>perTrack</code></td><td><span class="sz">[1×1761]</span></td><td>one track at one site, with its <code>label</code></td></tr>
+<tr><td><code>perSite</code></td><td><span class="sz">[1×464]</span></td><td><code>numDwell longest_s total_s meanDwell medianDwell kout</code></td></tr>
+<tr><td><code>perWindow</code>, <code>perTrackWin</code></td><td>—</td><td>the same, pooled by time window</td></tr>
+<tr><td><code>allDwell</code></td><td><span class="sz">[10245×1]</span></td><td>every dwell in seconds — the histogram input</td></tr>
+<tr><td><code>method</code>, <code>dt</code>, <code>minPctInside</code></td><td>—</td><td><code>inside</code>: a visit is a run of localizations within the outline</td></tr>
+</tbody></table></div>
+
+<p><code>cs_window_track_labels.csv</code> gives each track at each site one of four labels:</p>
+<div class="tbl"><table>
+<thead><tr><th>Label</th><th>Means</th></tr></thead>
+<tbody>
+<tr><td><code>RESIDENT</code></td><td>present at the start and the end — both ends censored</td></tr>
+<tr><td><code>ENTERS</code></td><td>arrives during the window and is still there at the end</td></tr>
+<tr><td><code>EXITS</code></td><td>present at the start, leaves</td></tr>
+<tr><td><code>ENTERS+EXITS</code></td><td>a complete visit, both ends observed</td></tr>
+</tbody></table></div>
+
+<div class="note pitfall">
+<span class="tag">Censoring is the whole game for dwell times</span>
+<p>Only <code>ENTERS+EXITS</code> visits have a dwell time you observed in full. Taking the mean of
+<code>allDwell</code> across every label mixes complete visits with truncated ones and biases the answer
+downward. Either restrict to complete visits, or use the censoring-aware estimator
+τ = total observed time ÷ completed visits, which <code>perSite.kout</code> already is (as a rate).</p>
+</div>
+
+<h4>cs_engage.mat → <code>G</code></h4>
+<p>The engagement classifier: a Schmitt trigger on distance-to-centre, so a track has to come
+well inside to count as engaged and get well clear to count as having left.</p>
+<div class="tbl"><table>
+<thead><tr><th>Field</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td><code>perTrack</code> <span class="sz">[1×1761]</span></td><td><code>engaged nEngage longest_s total_s fracNear minRrel mobRatio censored obs_s pctInside siteRadiusUm</code></td></tr>
+<tr><td><code>perSite</code> <span class="sz">[1×464]</span></td><td><code>nEngaged fracEngaged nEngagements engagePerTrack medianDwell_s totalDwell_s kout</code></td></tr>
+<tr><td><code>dwell</code> <span class="sz">[1×1786]</span></td><td>one engagement each, with <code>censored</code> and <code>rMin</code></td></tr>
+<tr><td><code>params</code></td><td><code>minEngage_s maxDepth countGated minPctInside denominator includeExcluded detect</code></td></tr>
+</tbody></table></div>
+<p><code>params.denominator</code> decides what <code>fracEngaged</code> divides by: <code>members</code> (tracks that
+reached the site) or <code>box</code> (every track in the square). The two differ by about 17 points on
+the reference project, so quote which one you used.</p>
+
+<div class="note pitfall">
+<span class="tag">The condition column can be blank here</span>
+<p><code>cs_engage_sites.csv</code> and <code>cs_engage_tracks.csv</code> carry a <code>condition</code> column, and
+on the reference project <strong>all 464 rows are empty</strong> while <code>CSW_final.mat</code> has the five
+conditions filled in. The engagement run predates the condition stamping.</p>
+<p>Conditions flow <em>manifest → <code>cs_condition_apply</code> → <code>CSW_final.mat</code> → engagement</em>,
+so re-run the classifier after assigning conditions, or join on <code>siteUID</code> as in R1 below.</p>
+</div>
+
+<h2 id="advisor">6 · The advisor format export</h2>
+<p>Written to <code>analysis/exports/&lt;name&gt;/advisor_format/&lt;condition&gt;/</code>, one folder per condition.
+It reproduces the published VAPB ContactSites layout exactly — same file names, same variables,
+same fields in the same order, same spreadsheet columns — so the original lab scripts run on it
+unchanged.</p>
+
+<div class="tree">
+<span class="d">advisor_format/Baseline/</span>
+  CS_final_v3.mat              <span class="c">CS          — one entry per contact site</span>
+  Baseline_Tracks_finalv3.mat  <span class="c">Tracks      — one entry per cell</span>
+  Baseline_EC.mat              <span class="c">EC          — enrichment counts per cell</span>
+  BindingInfo.mat              <span class="c">BindingInfo — empty: this pipeline has no hand annotation</span>
+  CS_details_v2.xlsx           <span class="c">one row per site, 22 columns</span>
+  Baseline-CSstats.xlsx        <span class="c">mito / other / total per cell</span>
+  Baseline-EnrichmentCoefficients.xlsx   <span class="c">two sheets</span>
+  Baseline-BindingTable.xlsx   <span class="c">present, empty</span>
+  imaging_settings.csv         <span class="c">this data's own calibration, one row per cell</span>
+  README_advisor_format.txt    <span class="c">what is filled, what is empty, what to change in the old scripts</span>
+  open_advisor_format.m        <span class="c">base MATLAB, loads everything block by block</span>
+</div>
+
+<div class="note pitfall">
+<span class="tag">refboundary is in nanometres here</span>
+<p>This is the one place the pipeline's µm convention does not hold, because the original
+<code>CS_refiner_v2_wacom.m</code> stored it that way. In this export:</p>
+<ul>
+<li><code>refboundary</code> — <strong>nm</strong>, relative to <code>refCenter</code></li>
+<li><code>refCenter</code>, <code>boundaries</code>, <code>CSmatrix</code> x/y — <strong>µm</strong></li>
+<li><code>Area</code> in the spreadsheets — <strong>nm²</strong> (median 128,000 here; 89,000 in the VAPB set)</li>
+<li><code>EllipseFit</code> — refiner pixels of 3 nm, with pixel 400 at the pick</li>
+</ul>
+<p>Plotting <code>refboundary</code> straight onto a µm axis draws it 1000× too large. Always
+<code>refboundary/1000 + refCenter</code>.</p>
+</div>
+
+<div class="tbl"><table>
+<thead><tr><th>Field of <code>CS</code></th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td><code>CS_index</code></td><td>1-based row in <code>CS</code></td></tr>
+<tr><td><code>cellIndex</code>, <code>csID</code>, <code>file</code></td><td>which cell, and the pick number within it</td></tr>
+<tr><td><code>tracks</code></td><td>member track columns in that cell's <code>Tracks</code> entry</td></tr>
+<tr><td><code>refCenter</code>, <code>refboundary</code>, <code>boundaries</code></td><td>centre (µm), outline (nm rel. centre), the square (µm)</td></tr>
+<tr><td><code>EllipseFit</code></td><td><code>Centroid MajorAxisLength MinorAxisLength Orientation</code>, in 3 nm pixels</td></tr>
+<tr><td><code>LocIDs</code></td><td>localizations in the square — linear indices into the cell's <code>matrix</code></td></tr>
+<tr><td><code>refLocIDs</code></td><td>…of those, inside the outline</td></tr>
+<tr><td><code>neighborIDs</code></td><td>…in the square but outside it</td></tr>
+<tr><td><code>CSLocIDs</code>, <code>CSneighborIDs</code></td><td>the same two sets, but indexing <code>CSmatrix</code> instead</td></tr>
+<tr><td><code>CSmatrix</code></td><td><code>[m × nTracks × 3]</code>: frame, x−refCenter, y−refCenter</td></tr>
+<tr><td><code>Deff</code>, <code>refDeff</code>, <code>neighborDeff</code>, <code>TessIndex</code></td><td>diffusion, µm²/s</td></tr>
+<tr><td><code>MitoFlag</code></td><td>does the site touch mito</td></tr>
+<tr><td><code>trackBinding</code>, <code>NumEntry</code>, <code>NumExit</code>, <code>DwellTimes</code></td><td><strong>empty</strong> — the original annotated these by hand</td></tr>
+<tr><td><code>tracksCCids</code>, <code>segIDs</code>, <code>ChPts</code></td><td><strong>empty / NaN</strong> — the original's HDP-SLDS segmentation is not run here</td></tr>
+</tbody></table></div>
+
+<div class="snip"><div class="snip-head"><span><span class="id">A1</span>open an advisor folder and reach one site</span><button class="copy" type="button">Copy</button></div>
+<pre><code class="language-matlab">folder = fullfile(ana,'exports','my_export','advisor_format','Baseline');
+CS     = load(fullfile(folder,'CS_final_v3.mat')).CS;
+Tracks = load(fullfile(folder,'Baseline_Tracks_finalv3.mat')).Tracks;
+EC     = load(fullfile(folder,'Baseline_EC.mat')).EC;
+I  = readtable(fullfile(folder,'imaging_settings.csv'));
+dt = median(I.frame_interval_s, 'omitnan');        % this data's own interval, not the VAPB 0.011
+
+s = CS(1);  T = Tracks(s.cellIndex);
+outline_um = s.refboundary/1000 + s.refCenter;     % nm -> um, then to absolute
+area_um2   = polyarea(outline_um(:,1), outline_um(:,2));
+
+x = T.matrix(:,:,2);  y = T.matrix(:,:,3);
+fprintf('CS %d (cell %d, csID %d): %.4f um^2, %d tracks, %d inside, %d neighbours\n', ...
+    s.CS_index, s.cellIndex, s.csID, area_um2, numel(s.tracks), ...
+    numel(s.refLocIDs), numel(s.neighborIDs));</code></pre></div>
+
+<div class="snip"><div class="snip-head"><span><span class="id">A2</span>the two index systems</span><button class="copy" type="button">Copy</button></div>
+<pre><code class="language-matlab">% refLocIDs index the CELL's matrix; CSLocIDs index this site's CSmatrix.
+% They describe the same localizations, so converting one way proves it.
+s = CS(1);  T = Tracks(s.cellIndex);
+
+Pcs = s.CSmatrix(:,:,1);
+[row, jj] = ind2sub(size(Pcs), s.CSLocIDs);        % jj = position within s.tracks
+back = sub2ind(size(T.matrix(:,:,1)), row, s.tracks(jj)');
+assert(isequal(sort(back), sort(s.refLocIDs)), 'the two index systems must agree');
+
+nInsidePerTrack = accumarray(jj(:), 1, [numel(s.tracks) 1])';
+fprintf('localizations inside, per member track: %s\n', mat2str(nInsidePerTrack));</code></pre></div>
+
+<div class="snip"><div class="snip-head"><span><span class="id">A3</span>enrichment coefficient per cell</span><button class="copy" type="button">Copy</button></div>
+<pre><code class="language-matlab">for c = 1:numel(EC)
+    e = EC(c);
+    MCSprob = sum(e.MCSsteps) / e.TotalSteps;      % share of the cell's localizations in mito sites
+    OCSprob = sum(e.OCSsteps) / e.TotalSteps;      % share in other sites
+    coeff = MCSprob / OCSprob;
+    if OCSprob == 0, coeff = NaN; end              % left blank in the published sheet
+    fprintf('cell %d: %d mito / %d other sites, MitoEnrichCoeff %.3g\n', ...
+            e.cellIndex, e.NumMCSs, e.NumOCSs, coeff);
+end</code></pre></div>
+
+<div class="note check">
+<span class="tag">The old scripts hard-code another microscope</span>
+<p><code>README_advisor_format.txt</code> lists every line to change before running the original scripts on
+this data — the field of view in <code>ContactSiteMapper.m</code>, the 0.011 s frame interval in five
+files. Left unchanged, the mapper puts every site in the wrong place and the dwell times come out
+scaled. The numbers in the export itself are already correct for this instrument;
+<code>imaging_settings.csv</code> records what they were computed with.</p>
+</div>
+
+<h2 id="recipes">7 · Recipes</h2>
+
+<div class="snip"><div class="snip-head"><span><span class="id">R1</span>dwell times by condition, censoring handled</span><button class="copy" type="button">Copy</button></div>
+<pre><code class="language-matlab">CSW = load(fullfile(ana,'CSW_final.mat')).CSW;
+DD  = load(fullfile(ana,'cs_window_dwell.mat')).DD;
+
+% CSW carries the condition, the dwell records carry siteUID. Join on it.
+cond = strings(max([CSW.siteUID]), 1);
+cond([CSW.siteUID]) = string({CSW.condition});
+
+% A visit is only fully observed when its track both ENTERS and EXITS in the window.
+lab  = DD.perTrack;
+labK = string({lab.file})' + "|" + [lab.siteUID]' + "|" + [lab.trackCol]';
+labV = string({lab.label})';
+
+ev  = DD.events;
+evK = string({ev.file})' + "|" + [ev.siteUID]' + "|" + [ev.trackCol]';
+[tf, loc] = ismember(evK, labK);
+complete = false(numel(ev),1);
+complete(tf) = labV(loc(tf)) == "ENTERS+EXITS";
+
+% cond is a column and [ev.siteUID] is a row; indexing a vector with a vector keeps the
+% SOURCE's orientation, so this is already Nx1 and must not be transposed again.
+E = table(cond([ev.siteUID]), [ev.dwell]', complete, ...
+          'VariableNames', {'condition','dwell_s','complete'});
+fprintf('%d visits, %d fully observed (%.0f%%)\n', height(E), nnz(E.complete), ...
+        100*mean(E.complete));
+
+C = E(E.complete &amp; E.condition ~= "", :);      % complete visits, conditions known
+disp(groupsummary(C, 'condition', {'median','mean'}, 'dwell_s'))
+
+figure; hold on
+u = unique(C.condition);
+for k = 1:numel(u)
+    histogram(C.dwell_s(C.condition == u(k)), 0:0.25:8, ...
+        'DisplayStyle','stairs', 'Normalization','pdf');
+end
+legend(cellstr(u), 'Interpreter','none');
+xlabel('dwell (s)'); ylabel('pdf'); title('complete visits by condition');</code></pre></div>
+
+<div class="snip"><div class="snip-head"><span><span class="id">R2</span>from a CSV row back to the trajectory</span><button class="copy" type="button">Copy</button></div>
+<pre><code class="language-matlab">% cs_engage_tracks.csv gives (file, trackCol). trackCol is a COLUMN of that cell's matrix,
+% which is not the same number as TRACK_ID in the tool 1 CSVs.
+E = readtable(fullfile(ana,'cs_engage_tracks.csv'), 'VariableNamingRule','preserve');
+r = E(find(E.engaged == 1, 1), :);
+
+c = find(strcmp({Tracks.file}, r.file{1}));
+T = Tracks(c);
+j = r.trackCol;
+
+ok = isfinite(T.matrix(:,j,2));
+fprintf('%s track column %d: %d localizations, %d engagement(s), longest %.2f s\n', ...
+        r.file{1}, j, nnz(ok), r.nEngage, r.longest_s);
+fprintf('  its TRACK_ID in the tool 1 CSVs is %d\n', T.trackIDs(j));</code></pre></div>
+
+<div class="snip"><div class="snip-head"><span><span class="id">R3</span>site sizes against the published VAPB set</span><button class="copy" type="button">Copy</button></div>
+<pre><code class="language-matlab">mine = load(fullfile(folder,'CS_final_v3.mat')).CS;              % an advisor-format export
+ref  = load('/path/to/VAPB_nature/CS_final_v3.mat').CS;          % the published set
+
+rad = @(C) arrayfun(@(e) sqrt(polyarea(e.refboundary(:,1)/1000, ...
+                                       e.refboundary(:,2)/1000)/pi)*1000, C);
+a = rad(mine);  b = rad(ref);
+fprintf('mine    n=%3d  median %.0f nm  [%.0f .. %.0f]\n', numel(a), median(a), min(a), max(a));
+fprintf('VAPB    n=%3d  median %.0f nm  [%.0f .. %.0f]\n', numel(b), median(b), min(b), max(b));
+
+figure; hold on
+histogram(a, 0:25:600, 'DisplayStyle','stairs', 'Normalization','probability');
+histogram(b, 0:25:600, 'DisplayStyle','stairs', 'Normalization','probability');
+xline(1.1774*100, 'k--');                 % the sigma floor: no auto outline is smaller
+legend({'this export','VAPB','\sigma floor'}); xlabel('equivalent radius (nm)');</code></pre></div>
+
+<div class="snip"><div class="snip-head"><span><span class="id">R4</span>every export a project holds, with row counts</span><button class="copy" type="button">Copy</button></div>
+<pre><code class="language-matlab">ana = fullfile(project,'analysis');
+for f = dir(fullfile(ana,'*.csv'))'
+    T = readtable(fullfile(ana,f.name), 'VariableNamingRule','preserve');
+    fprintf('%-32s %6d rows x %2d cols\n', f.name, height(T), width(T));
+end
+for f = dir(fullfile(ana,'*.mat'))'
+    w = whos('-file', fullfile(ana,f.name));
+    fprintf('%-32s %s\n', f.name, strjoin(arrayfun(@(v) ...
+        sprintf('%s %s', v.name, mat2str(v.size)), w, 'uni', 0), ', '));
+end</code></pre></div>
+
+<p class="muted" style="margin-top:48px;font-size:14px">Field names, sizes and ranges in this guide
+were read from a real project rather than from the source. Where a number is quoted it is that
+project's: CysLig, 93 cells, 464 contact sites, 0.0968 µm pixels, 0.0267 s frames.</p>
+
+</main>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/matlab.min.js"></script>
+<script>
+(function () {
+  if (window.hljs) {
+    document.querySelectorAll('pre code.language-matlab').forEach(function (el) {
+      try { hljs.highlightElement(el); } catch (e) { /* plain text is fine */ }
+    });
+  }
+
+  document.querySelectorAll('.copy').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var pre = btn.closest('.snip').querySelector('pre code');
+      var txt = pre.innerText;
+      var done = function () {
+        var was = btn.textContent;
+        btn.textContent = 'Copied';
+        setTimeout(function () { btn.textContent = was; }, 1400);
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(txt).then(done, function () { select(pre); });
+      } else { select(pre); }
+    });
+  });
+
+  function select(node) {
+    var r = document.createRange();
+    r.selectNodeContents(node);
+    var s = window.getSelection();
+    s.removeAllRanges();
+    s.addRange(r);
+  }
+
+  var btn = document.getElementById('themeBtn');
+  var root = document.documentElement;
+  function current() {
+    if (root.getAttribute('data-theme')) return root.getAttribute('data-theme');
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  }
+  function paint() { btn.textContent = current() === 'dark' ? 'Light' : 'Dark'; }
+  try {
+    var saved = localStorage.getItem('spt-guide-theme');
+    if (saved === 'dark' || saved === 'light') root.setAttribute('data-theme', saved);
+  } catch (e) { /* storage may be unavailable */ }
+  paint();
+  btn.addEventListener('click', function () {
+    var next = current() === 'dark' ? 'light' : 'dark';
+    root.setAttribute('data-theme', next);
+    try { localStorage.setItem('spt-guide-theme', next); } catch (e) { /* ignore */ }
+    paint();
+  });
+})();
+</script>
